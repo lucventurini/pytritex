@@ -10,29 +10,25 @@ def make_super_scaffolds(links, info: pd.DataFrame, excluded=(), ncores=1, prefi
     input_df = info2[info2.scaffold.isin(excluded_scaffolds)].rename(
         columns={"scaffold": "cluster"}
     )
-    hl = links.copy()
-
-
-make_super_scaffolds<-function(links, info, excluded=c(), ncores, prefix){
-  info[, .(scaffold, chr=popseq_chr, cM=popseq_cM, length)]->info2
-  excluded -> excluded_scaffolds
-  info2[, excluded := scaffold %in% excluded_scaffolds] -> input
-  setnames(input, "scaffold", "cluster")
-  setnames(copy(links), c("scaffold1", "scaffold2"), c("cluster1", "cluster2"))->hl
-  make_super(hl=hl, cluster_info=input, verbose=F, prefix=prefix, cores=ncores, paths=T, path_max=0, known_ends=F, maxiter=100)->s
-  copy(s$membership) -> m
-  setnames(m, "cluster", "scaffold")
-
-  max(as.integer(sub(paste0(prefix, "_"), "", s$super_info$super))) -> maxidx
-  rbind(m, info[!m$scaffold, on="scaffold"][, .(scaffold, bin=1, rank=0, backbone=T, chr=popseq_chr, cM=popseq_cM,
-					length=length, excluded=scaffold %in% excluded_scaffolds, super=paste0(prefix, "_", maxidx + 1:.N))])->m
-
-  m[, .(n=.N, nbin=max(bin), max_rank=max(rank), length=sum(length)), key=super]->res
-  res[, .(super, super_size=n, super_nbin=nbin)][m, on="super"]->m
-  list(membership=m, info=res)
- }
-
-
+    hl = links.copy().rename(columns={"scaffold1": "cluster1", "scaffold2": "cluster2"})
+    s = make_super(hl=hl, cluster_info=input_df, verbose=False, prefix=prefix, cores=ncores,
+                   paths=True, path_max=0, known_ends=False, maxiter=100)
+    m = s["membership"][:].rename(columns={"cluster": "scaffold"})
+    maxidx = s["super_info"]["super"].astype(str).str.replace("^{}_".format(prefix), "", regex=True).astype(int).max()
+    binder= info[~info["scaffold"].isin(m["scaffold"])][:][["scaffold", "length" "popseq_chr", "popseq_cM"]].rename(
+        columns={"popseq_chr": "chr", "popseq_cM": "cM"})
+    binder["bin"], binder["rank"], binder["backbone"] = 1, 0, True
+    binder["excuded"] = binder["scaffold"].isin(excluded_scaffolds)
+    binder["super"] = pd.Series(list(range(maxidx + 1, maxidx + 1 + binder.shape[0]))).astype(str).replace(
+        "^(.)", "{}_\\1".format(prefix), regex=True)
+    m = m.append(binder)
+    res = m[:].groupby("super").agg({
+    "bin": ["count", "max"], "rank": "max", "length": "sum"}).rename(
+        columns={("bin", "count"): "n", ("bin", "max"): "nbin", "rank": "max_rank"}
+    ).reset_index()
+    m = pd.merge(m, res[["super", "n", "nbin"]].rename(columns={"n": "super_size", "nbin": "super_nbin"}),
+                 left_on="super", right_on="super")
+    return {"membership": m, "info": res}
 
 
 def anchor_scaffolds(assembly: dict,
@@ -60,7 +56,16 @@ def anchor_scaffolds(assembly: dict,
     else:
         fpairs = assembly["fpairs"]
         hic = (assembly["fpairs"].shape[0] > 0)
-    z = cssaln[(cssaln.]
+    # cssaln[! is.na(sorted_alphachr),.N, keyby =.(scaffold, sorted_alphachr)]->z
+    z = cssaln[~cssaln["sorted_alphachr"].isna()].groupby(
+        ["scaffold", "sorted_alphachr"]).size().to_frame("N").reset_index()
+    # z[order(-N)][,.(Ncss=sum(N),
+    # sorted_alphachr = sorted_alphachr[1], sorted_Ncss1 = N[1] # max,
+    # sorted_alphachr2 = sorted_alphachr[2], sorted_Ncss2 =
+    # N[2]), keyby = scaffold]->z
+    zgrouped = z.sort_values("N", ascending=False).groupby("scaffold")
+
+
 # Use POSPEQ, Hi-C and flow-sorting infromation to assign scaffolds to approximate chromosomal locations
 anchor_scaffolds < -function(assembly, popseq, species=NULL,
                              sorted_percentile=95,
@@ -72,8 +77,8 @@ assembly$fpairs -> fpairs
 }
 
 # Assignment of CARMA chromosome
-cssaln[! is.na(sorted_alphachr),.N, keyby =.(scaffold, sorted_alphachr)]->z
-z[order(-N)][,.(Ncss=sum(N), sorted_alphachr = sorted_alphachr[1], sorted_Ncss1 = N[1],
+# cssaln[! is.na(sorted_alphachr),.N, keyby =.(scaffold, sorted_alphachr)]->z
+z[order(-N)][,.(Ncss=sum(N), sorted_alphachr = sorted_alphachr[1], sorted_Ncss1 = N[1] # max,
                                                                                   sorted_alphachr2 = sorted_alphachr[
                                                                                                          2], sorted_Ncss2 =
 N[2]), keyby = scaffold]->z

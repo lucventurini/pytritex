@@ -2,3 +2,5 @@ pandas
 scipy
 numpy
 pandarallel
+graph-tool
+networkx
