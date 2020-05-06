@@ -56,6 +56,13 @@ def _condition_checker(i: int, df: pd.DataFrame, el: pd.DataFrame, maxiter: int)
     condition = (m.shape[0] > 0) and (i <= maxiter)
     return i, m, condition
 
+
+def __to_parallel(i, ne):
+    merge(ne, by.x=i, by.y="cluster", idx)->>ne
+    colnames(ne)[which(colnames(ne) == "idx")]<<-paste(sep="_", "idx", i)
+       }
+
+
 def node_relocation(df, el, maxiter=100, verbose=True):
     i = 0
     if df.shape[0] > 2:
@@ -63,19 +70,20 @@ def node_relocation(df, el, maxiter=100, verbose=True):
         while condition is True:
             ne = m.head(1)
             idx = pd.DataFrame().assign(cluster=df["cluster"])
-            
+            __to_parallel(????)
 
 
+
+            i, m, condition = _condition_checker(i, df, el, maxiter=maxiter)
+
+    return df
 # node_relocation<-function(df, el, maxiter=100, verbose=T){
 #  i<-0
 #  if(nrow(df) > 2){
 #   while() {
 #    ne<-head(data.frame(m), 1)
 #    idx<-data.frame(cluster=df$cluster, idx=1:nrow(df))
-#    invisible(lapply(c("cluster", "new_node1", "new_node2", "old_node1", "old_node2"), function(i) {
-#     merge(ne, by.x=i, by.y="cluster", idx)->>ne
-#     colnames(ne)[which(colnames(ne) == "idx")]<<-paste(sep="_", "idx", i)
-#    }))
+#    invisible(lapply(c("cluster", "new_node1", "new_node2", "old_node1", "old_node2"), ))
 #    df[with(ne, {
 #     min_new <- min(idx_new_node1, idx_new_node2)
 #     max_new <- max(idx_new_node1, idx_new_node2)
