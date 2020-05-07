@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from .utils.chrnames import chrNames
+from scipy.stats import median_absolute_deviation
 
 
 def make_super_scaffolds(links, info: pd.DataFrame, excluded=(), ncores=1, prefix=None):
@@ -46,8 +47,7 @@ def anchor_scaffolds(assembly: dict,
             "Parameter 'species' is not valid. Please set 'species' to one of"
 "\"wheat\", \"barley\", \"oats\", \"lolium\", \"sharonensis\" or \"rye\"."
         )
-    wheatchr = chrNames(species=species)
-    wheatchr.columns = ("popseq_alphachr", "popseq_chr")
+
     fai = assembly["info"]
     cssaln = assembly["cssaln"]
     if "fpairs" not in assembly:
@@ -57,94 +57,119 @@ def anchor_scaffolds(assembly: dict,
         fpairs = assembly["fpairs"]
         hic = (assembly["fpairs"].shape[0] > 0)
     # cssaln[! is.na(sorted_alphachr),.N, keyby =.(scaffold, sorted_alphachr)]->z
-    z = cssaln[~cssaln["sorted_alphachr"].isna()].groupby(
-        ["scaffold", "sorted_alphachr"]).size().to_frame("N").reset_index()
-    # z[order(-N)][,.(Ncss=sum(N),
-    # sorted_alphachr = sorted_alphachr[1], sorted_Ncss1 = N[1] # max,
-    # sorted_alphachr2 = sorted_alphachr[2], sorted_Ncss2 =
-    # N[2]), keyby = scaffold]->z
-    zgrouped = z.sort_values("N", ascending=False).groupby("scaffold")
+    # For each scaffold in the assembly, for each chromosomal bin: how many CSS contigs confirm each possible bin?
+    z = cssaln[~cssaln["sorted_alphachr"].isna()]
+    z = z.merge(
+        z.groupby(["scaffold", "sorted_alphachr"]).size().to_frame("N").reset_index(drop=False),
+        on=["scaffold", "sorted_alphachr"])
+    zgrouped = z.sort_values(["scaffold", "N"], ascending=[True, False]).groupby("scaffold")
+    z = zgrouped.agg(
+        {"N": [np.sum, lambda series: series.loc[series.index[0]], lambda series: series.loc[series.index[1]]],
+         "sorted_alphachr": [lambda series: series.loc[series.index[0]], lambda series: series.loc[series.index[1]]]
+         }).reset_index(drop=False)
+    z.columns = ["scaffold", "Ncss", "sorted_Ncss1", "sorted_Ncss2", "sorted_alphachr", "sorted_alphachr2"]
+    z.loc[:, "sorted_pchr"] = z["sorted_Ncss1"] / z["Ncss"]
+    z.loc[:, "sorted_p12"] = z["sorted_Ncss2"] / z["sorted_Ncss1"]
+
+    # Assignment of CARMA chromosome arm
+    c_al = cssaln.loc[cssaln["sorted_arm"] == "L"].groupby(["scaffold", "sorted_alphachr"]).size().to_frame("NL")
+    # cssaln[sorted_arm == "S",.(NS=.N), keyby =.(scaffold, sorted_alphachr)]->as
+    c_as = cssaln.loc[cssaln["sorted_arm"] == "S"].groupby(["scaffold", "sorted_alphachr"]).size().to_frame("NS")
+    z = pd.merge(c_as,
+             pd.merge(c_al, z.set_index(["scaffold", "sorted_alphachr"]), left_index=True, right_index=True),
+             left_index=True, right_index=True).reset_index(drop=False)
+    z.loc[z["NS"].isna(), "NS"] = 0
+    z.loc[z["NL"].isna(), "NL"] = 0
+    z.loc[:, "sorted_arm"] = z[["NS", "NL"]].apply(lambda row: "S" if row.NS > row.NL else "L", axis=1)
+    z.loc[z["sorted_alphachr"].isin(("1H", "3B")), "sorted_arm"] = np.nan
+    z.loc[z["sorted_arm"] == "S", "sorted_parm"] = z["NS"] / z["sorted_Ncss1"]
+    z.loc[z["sorted_arm"] == "L", "sorted_parm"] = z["NL"] / z["sorted_Ncss1"]
+    wheatchr = chrNames(species=species).rename(
+        columns={"alphachr": "popseq_alphachr", "chr": "popseq_chr"}
+    )
+    z = pd.merge(
+        pd.merge(z, wheatchr.rename(columns={"popseq_alphachr": "sorted_alphachr",
+                                             "popseq_chr": "sorted_chr"}),
+                 left_on="sorted_alphachr",
+                 right_on="sorted_alphachr"),
+        wheatchr.rename(
+            columns={"popseq_alphachr": "sorted_alphachr2",
+                     "popseq_chr": "sorted_chr2"}),
+        left_on="sorted_alphachr2", right_on="sorted_alphachr2")
+    info = pd.merge(z, fai, on="scaffold")
+    for column in ["Ncss", "NS", "NL", "sorted_Ncss1", "sorted_Ncss2"]:
+        info.loc[info[column].isna(), column] = 0
+    z = pd.merge(popseq.loc[~popseq["sorted_alphachr"].isna(), ["css_contig", "popseq_alphachr", "popseq_cM"]],
+                 cssaln.loc[:, ["css_contig", "scaffold"]],
+                 on="css_contig", how="left")
+    z.loc[z["scaffold"].isna(), "scaffold"] = 0
+    zgrouped = z.groupby(["scaffold", "popseq_alphachr"])
+    zN = zgrouped.size().to_frame("N")
+    zother = zgrouped.agg({"popseq_cM": [np.mean, np.std, median_absolute_deviation]})
+    zother.columns = zother.columns.to_flat_index()
+    zother = zother.rename(columns={zother.columns[0]: "popseq_cM", ("popseq_cM", "std"): "popseq_cM_sd",
+                                    zother.columns[2]: "popseq_cM_mad"})
+    zz = pd.merge(zN, zother, left_index=True, right_index=True).reset_index(drop=False)
+    zz.loc[:, "popseq_Ncss"] = zz.groupby("scaffold")["N"].transform(np.sum)
+    # Create a different dataframe now, we'll merge soon
+    x = zz.sort_values(["scaffold", "N"], ascending=[True, False]).groupby("scaffold").agg(
+        {"N": [lambda series: series.iloc[0],
+               lambda series: 0 if series.shape[0] == 1 else series.iloc[1]],
+         "popseq_alphachr": [lambda series: series.iloc[0],
+                             lambda series: 0 if series.shape[0] == 1 else series.iloc[1]]
+         })
+    x.columns = ["popseq_Ncss1", "popseq_Ncss2", "popseq_alphachr", "popseq_alphachr2"]
+    x.reset_index(drop=False, inplace=True)
+    zz = zz.loc[:, ["scaffold", "popseq_alphachr", "popseq_Ncss",
+               "popseq_cM", "popseq_cM_sd", "popseq_cM_mad"]].merge(x, on=["scaffold", "popseq_alphachr"])
+    zz.loc[:, "popseq_pchr"] = zz["popseq_Ncss1"] / zz["popseq_Ncss"]
+    zz.loc[:, "popseq_p12"] = zz["popseq_Ncss2"] / zz["popseq_Ncss1"]
+    zz = wheatchr.rename(columns={"popseq_chr": "popseq_chr2",
+                                  "popseq_alphachr": "popseq_alphachr2"}).merge(
+        wheatchr.merge(zz, on="popseq_alphachr"), on="popseq_alphachr2")
+    info = zz.merge(info, on="scaffold")
+    info.loc[info["popseq_Ncss"].isna(), "popseq_Ncss"] = 0
+    info.loc[info["popseq_Ncss1"].isna(), "popseq_Ncss1"] = 0
+    info.loc[info["popseq_Ncss2"].isna(), "popseq_Ncss2"] = 0
+    # # Assignment of POPSEQ genetic positions
+    if hic:
+        info0 = info[info["popseq_chr"] == info["sorted_chr"]][["scaffold", "popseq_chr"]].rename(
+            columns={"popseq_chr": "chr"})
+        # TODO: complete the renaming
+        tcc_pos = info0.rename(columns={"chr": "chr1", "scaffold": "scaffold1"}).merge(fpairs, on="scaffold1")
+        tcc_pos = info0.rename(columns={"chr": "chr2", "scaffold": "scaffold2"}).merge(tcc_pos, on="scaffold2")
+        z = tcc_pos[~tcc_pos["chr1"].isna()].rename(
+            {"scaffold2": "scaffold", "chr1": "hic_chr"}
+        ).groupby(["scaffold", "hic_chr"]).size().to_frame("N").reset_index(drop=False)
+        zgrouped = z.sort_values(["scaffold", "N"], ascending=[True, False]).groupby("scaffold")
+        zNsum = zgrouped["N"].sum()
+        z_hic_chr = zgrouped.agg({
+            "hic_chr": [lambda series: series.iloc[0], lambda series: np.nan if series.shape[0] == 1 else series.iloc[1]],
+            "N": [lambda series: series.iloc[0], lambda series: 0 if series.shape[0] == 1 else series.iloc[1]]
+        })
+        zz = pd.merge(zNsum, z_hic_chr, left_index=True, right_index=True)
+        zz.columns = ["Nhic", "hic_chr", "hic_chr2", "hic_N1", "hic_N2"]
+        zz["hic_pchr"] = zz["hic_N1"] / zz["Nhic"]
+        zz["hic_p12"] = zz["hic_N2"] / zz["hic_N1"]
+        info = zz.reset_index(drop=False).merge(info, on="scaffold")
+        info.loc[info["Nhic"].isna(), "Nhic"] = 0
+        info.loc[info["hic_N1"], "hic_N1"] = 0
+        info.loc[info["hic_N2"], "hic_N2"] = 0
+
+        measure = ["popseq_chr", "hic_chr", "sorted_chr"]
+    else:
+        measure = ["popseq_chr", "sorted_chr"]
+
+    # Now melting. Let's hope something remains ...
+    w = pd.melt(
+        info, id_vars=["scaffold"],
+        value_vars=measure,
+        var_name = "map",
+        value_name = "chr",
+    )
+    w = w.groupby(["scaffold", "chr"]).size().to_frame("N").reset_index(drop=False)
 
 
-# Use POSPEQ, Hi-C and flow-sorting infromation to assign scaffolds to approximate chromosomal locations
-anchor_scaffolds < -function(assembly, popseq, species=NULL,
-                             sorted_percentile=95,
-                             popseq_percentile=90,
-                             hic_percentile=98)
-{
-
-assembly$fpairs -> fpairs
-}
-
-# Assignment of CARMA chromosome
-# cssaln[! is.na(sorted_alphachr),.N, keyby =.(scaffold, sorted_alphachr)]->z
-z[order(-N)][,.(Ncss=sum(N), sorted_alphachr = sorted_alphachr[1], sorted_Ncss1 = N[1] # max,
-                                                                                  sorted_alphachr2 = sorted_alphachr[
-                                                                                                         2], sorted_Ncss2 =
-N[2]), keyby = scaffold]->z
-z[, sorted_pchr := sorted_Ncss1 / Ncss]
-z[, sorted_p12 := sorted_Ncss2 / sorted_Ncss1]
-
-# Assignment of CARMA chromosome arm
-cssaln[sorted_arm == "L",.(NL=.N), keyby =.(scaffold, sorted_alphachr)]->al
-cssaln[sorted_arm == "S",.(NS=.N), keyby =.(scaffold, sorted_alphachr)]->as
-al[z, on = c("scaffold", "sorted_alphachr")]->z
-as[z, on = c("scaffold", "sorted_alphachr")]->z
-z[ is.na(NL), NL := 0]
-z[ is.na(NS), NS := 0]
-z[, sorted_arm := ifelse(NS >= NL, "S", "L")]
-z[sorted_alphachr % in % c("1H", "3B"), sorted_arm := NA]
-z[sorted_arm == "S", sorted_parm := NS / sorted_Ncss1]
-z[sorted_arm == "L", sorted_parm := NL / sorted_Ncss1]
-setnames(copy(wheatchr), c("sorted_alphachr", "sorted_chr"))[z, on = "sorted_alphachr"]->z
-setnames(copy(wheatchr), c("sorted_alphachr2", "sorted_chr2"))[z, on = "sorted_alphachr2"]->z
-z[fai, on = "scaffold"]->info
-info[ is.na(Ncss), Ncss := 0]
-info[ is.na(NS), NS := 0]
-info[ is.na(NL), NL := 0]
-info[ is.na(sorted_Ncss1), sorted_Ncss1 := 0]
-info[ is.na(sorted_Ncss2), sorted_Ncss2 := 0]
-
-# Assignment of POPSEQ genetic positions
-popseq[! is.na(popseq_alphachr),.(css_contig, popseq_alphachr, popseq_cM)][cssaln[,.(css_contig,
-                                                                                     scaffold)], on = "css_contig", nomatch = 0]->z
-z[,.(.N, popseq_cM=mean(popseq_cM), popseq_cM_sd = ifelse(length(popseq_cM) > 1, sd(popseq_cM), 0), popseq_cM_mad = mad(
-    popseq_cM)), keyby =.(scaffold, popseq_alphachr)]->zz
-zz[, popseq_Ncss := sum(N), by = scaffold]->zz
-zz[order(-N)][,.(popseq_alphachr=popseq_alphachr[1], popseq_Ncss1=N[1],
-popseq_alphachr2=popseq_alphachr[2], popseq_Ncss2=N[2]), keyby = scaffold]->x
-zz[,.(scaffold, popseq_alphachr, popseq_Ncss, popseq_cM, popseq_cM_sd, popseq_cM_mad)][x, on = c("scaffold",
-                                                                                                 "popseq_alphachr")]->zz
-zz[, popseq_pchr := popseq_Ncss1 / popseq_Ncss]
-zz[, popseq_p12 := popseq_Ncss2 / popseq_Ncss1]
-wheatchr[zz, on = "popseq_alphachr"]->zz
-setnames(copy(wheatchr), paste0(names(wheatchr), 2))[zz, on = "popseq_alphachr2"]->zz
-zz[info, on = "scaffold"]->info
-info[ is.na(popseq_Ncss), popseq_Ncss := 0]
-info[ is.na(popseq_Ncss1), popseq_Ncss1 := 0]
-info[ is.na(popseq_Ncss2), popseq_Ncss2 := 0]
-
-# Chromosome assignment based on Hi-C links
-if (hic){
-info[!(popseq_chr != sorted_chr)][, .(scaffold, chr=popseq_chr)]->info0
-setnames(copy(info0), names(info0), sub("$", "1", names(info0)))[fpairs, on="scaffold1"]->tcc_pos
-setnames(copy(info0), names(info0), sub("$", "2", names(info0)))[tcc_pos, on="scaffold2"]->tcc_pos
-tcc_pos[! is.na(chr1), .N, key=.(scaffold=scaffold2, hic_chr=chr1)]->z
-z[order(-N)][, .(Nhic=sum(N), hic_chr=hic_chr[1], hic_N1=N[1],
-hic_chr2=hic_chr[2], hic_N2=N[2]), keyby=scaffold]->zz
-zz[, hic_pchr := hic_N1 / Nhic]
-zz[, hic_p12 := hic_N2 / hic_N1]
-zz[info, on="scaffold"]->info
-info[is.na(Nhic), Nhic := 0]
-info[is.na(hic_N1), hic_N1 := 0]
-info[is.na(hic_N2), hic_N2 := 0]
-}
-
-if (hic){
-measure < - c("popseq_chr", "hic_chr", "sorted_chr")
-} else {
-measure < - c("popseq_chr", "sorted_chr")
-}
 melt(info, id.vars="scaffold", measure.vars=measure, variable.factor=F, variable.name="map", na.rm=T, value.name="chr")->w
 w[, .N, key=.(scaffold, chr)]->w
 w[order(-N), .(Nchr_ass = sum(N), Nchr_ass_uniq =.N), keyby=scaffold]->w

@@ -5,28 +5,20 @@ import pysam
 import pytritex.utils.read_cssaln
 import multiprocessing as mp
 from pytritex.utils.read_10x import read_10x_molecules
+from pytritex.init_assembly import init_assembly
 import subprocess as sp
+import pickle
 
-def main():
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-p", "--processes", dest="procs", default=mp.cpu_count(), type=int)
-    parser.add_argument("--10x", dest="tenx")
-    parser.add_argument("popseq")
-    parser.add_argument("css")
-    parser.add_argument("hic")
-    parser.add_argument("fasta")
-    args = parser.parse_args()
+def initial(args, popseq):
 
-    popseq = pd.read_pickle(args.popseq)
-    popseq.columns = popseq.columns.str.replace("morex", "css")
     if not os.path.exists(args.fasta + ".fai"):
         pysam.Fastafile(args.fasta)
     fai = pd.read_csv(args.fasta + ".fai", sep="\t",
                       usecols=[0, 1], names=["scaffold", "length"])
     # Alignment of genetic markers used for the genetic map. In this example, the Morex WGS assembly by IBSC (2012).
-    morexaln = pytritex.utils.read_cssaln.read_morexaln_minimap(
-        paf=args.css, popseq=popseq, minqual=30, minlen=500
+    cssaln = pytritex.utils.read_cssaln.read_morexaln_minimap(
+        paf=args.css, popseq=popseq, minqual=30, minlen=500, ref=False
     )
 
     # Read the list of Hi-C links.
@@ -55,7 +47,28 @@ def main():
         print("Command:", tenx_command)
         import sys
         sys.exit(1)
-    return
 
+    assembly = init_assembly(fai=fai, cssaln=cssaln, fpairs=fpairs, molecules=molecules, rename=None)
+    with open(args.save_prefix + ".init.pickle.gz", "wb") as dump:
+        pickle.dump(assembly, dump)
+    return assembly
+
+
+def main():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-p", "--processes", dest="procs", default=mp.cpu_count(), type=int)
+    parser.add_argument("-s", "--save-prefix", default="assembly")
+    parser.add_argument("--10x", dest="tenx")
+    parser.add_argument("popseq")
+    parser.add_argument("css")
+    parser.add_argument("hic")
+    parser.add_argument("fasta")
+    args = parser.parse_args()
+    popseq = pd.read_pickle(args.popseq)
+    popseq.columns = popseq.columns.str.replace("morex", "css")
+
+    assembly = initial(args, popseq)
+    return
 
 main()
