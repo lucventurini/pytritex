@@ -8,7 +8,12 @@ from pytritex.utils.read_10x import read_10x_molecules
 from pytritex.init_assembly import init_assembly
 import subprocess as sp
 import pickle
-
+import gzip
+from time import ctime
+from pytritex.anchor_scaffolds import anchor_scaffolds
+from pytritex.add_molecule_cov import add_molecule_cov
+from pytritex.add_hic_cov import add_hic_cov
+from pytritex.find_10x_breaks import find_10x_breaks
 
 def initial(args, popseq):
 
@@ -18,7 +23,7 @@ def initial(args, popseq):
                       usecols=[0, 1], names=["scaffold", "length"])
     # Alignment of genetic markers used for the genetic map. In this example, the Morex WGS assembly by IBSC (2012).
     cssaln = pytritex.utils.read_cssaln.read_morexaln_minimap(
-        paf=args.css, popseq=popseq, minqual=30, minlen=500, ref=False
+        paf=args.css, popseq=popseq, minqual=30, minlen=500, ref=True
     )
 
     # Read the list of Hi-C links.
@@ -49,8 +54,6 @@ def initial(args, popseq):
         sys.exit(1)
 
     assembly = init_assembly(fai=fai, cssaln=cssaln, fpairs=fpairs, molecules=molecules, rename=None)
-    with open(args.save_prefix + ".init.pickle.gz", "wb") as dump:
-        pickle.dump(assembly, dump)
     return assembly
 
 
@@ -67,8 +70,19 @@ def main():
     args = parser.parse_args()
     popseq = pd.read_pickle(args.popseq)
     popseq.columns = popseq.columns.str.replace("morex", "css")
-
     assembly = initial(args, popseq)
+    assembly = anchor_scaffolds(assembly, popseq=popseq, species="wheat")
+    assembly = add_molecule_cov(assembly, cores=args.procs)
+    assembly = add_hic_cov(assembly, cores=args.procs)
+    print(ctime(), "Started to save the data")
+    with open(args.save_prefix + ".assembly.pickle", "wb") as dump:
+        pickle.dump(assembly, dump)
+    print(ctime(), "Finished saving the data")
+    breaks = find_10x_breaks(assembly)
+    b = breaks[breaks["d"] >= 1e4].sort_values("d", ascending=False).head(100)
+    with gzip.open(args.save_prefix + ".breaks.pickle.gz", "wb") as dump:
+        pickle.dump(breaks, dump)
     return
+
 
 main()

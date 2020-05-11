@@ -4,3 +4,4 @@ numpy
 pandarallel
 graph-tool
 networkx
+matplotlib

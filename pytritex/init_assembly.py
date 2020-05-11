@@ -17,25 +17,27 @@ def init_assembly(fai: pd.DataFrame, cssaln: pd.DataFrame, fpairs=None, molecule
     z.loc[:, "orig_scaffold_length"] = z["scaffold_length"]
     if molecules is not None:
         y = molecules.copy()
-        y.loc[:, "orig_scaffold"] = y["scaffold"]
+        y.rename(columns={"scaffold": "orig_scaffold"}, inplace=True)
         y.loc[:, "orig_start"] = y["start"]
         y.loc[:, "orig_end"] = y["end"]
-        y = pd.merge(info[["orig_scaffold", "scaffold"]], y, left_on="orig_scaffold", right_on="orig_scaffold")
+        # TODO: This is absolutely NOT clear. Why should have the scaffold changed in the info?
+        # TODO: Why not simpy a column copy?
+        y = info[["orig_scaffold", "scaffold"]].merge(y, on="orig_scaffold", how="right")
     else:
         y = pd.DataFrame()
 
     if fpairs is not None:
         tcc = fpairs.copy()
-        tcc.loc[:, "orig_scaffold1"] = tcc["scaffold1"]
+        tcc.rename(columns={"scaffold1": "orig_scaffold1", "scaffold2": "orig_scaffold2"},
+                   inplace=True)
         tcc.loc[:, "orig_pos1"] = tcc["pos1"]
-        tcc.loc[:, "orig_scaffold2"] = tcc["scaffold2"]
         tcc.loc[:, "orig_pos2"] = tcc["pos2"]
         tcc = pd.merge(info[["orig_scaffold", "scaffold"]].rename(columns={
             "orig_scaffold": "orig_scaffold1", "scaffold": "scaffold1"
-        }), tcc, left_on="orig_scaffold1", right_on="orig_scaffold1")
+        }), tcc, left_on="orig_scaffold1", right_on="orig_scaffold1", how="right")
         tcc = pd.merge(info[["orig_scaffold", "scaffold"]].rename(columns={
             "orig_scaffold": "orig_scaffold2", "scaffold": "scaffold2"
-        }), tcc, left_on="orig_scaffold2", right_on="orig_scaffold2")
+        }), tcc, left_on="orig_scaffold2", right_on="orig_scaffold2", how="right")
     else:
         tcc = pd.DataFrame()
     res = {"info": info, "cssaln": z, "fpairs": tcc, "molecules": y}

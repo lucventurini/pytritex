@@ -17,20 +17,20 @@ def read_paf(fname, primary_only=True, save=False):
     return z
 
 
-def summarize_paf(paf: pd.DataFrame):
-
-
-
-# Aggregate alignments for each (reference, query) pair
-summarize_paf<-function(paf){
- setnames(dcast(
-     paf[, .(l=sum(alnlen)), key=.(query, reference, orientation)], query + reference ~ orientation, value.var="l", fill=0
-), c("-1", "1"), c("lenrev", "lenfw"))->fr
- paf[, .(query_start=min(query_start), query_end=max(query_end),
-       reference_start=min(reference_start), reference_end=max(reference_end),
-       matches=sum(matches), alnlen=sum(alnlen), naln=.N),
-    key=.(query, query_length, reference, reference_length)]->paf_summary
- fr[paf_summary, on=c("query", "reference")]->paf_summary
- setorder(paf_summary, -alnlen)
- paf_summary[, idx := paste(1:.N)][]
-}
+# def summarize_paf(paf: pd.DataFrame):
+#
+#
+#
+# # Aggregate alignments for each (reference, query) pair
+# summarize_paf<-function(paf){
+#  setnames(dcast(
+#      paf[, .(l=sum(alnlen)), key=.(query, reference, orientation)], query + reference ~ orientation, value.var="l", fill=0
+# ), c("-1", "1"), c("lenrev", "lenfw"))->fr
+#  paf[, .(query_start=min(query_start), query_end=max(query_end),
+#        reference_start=min(reference_start), reference_end=max(reference_end),
+#        matches=sum(matches), alnlen=sum(alnlen), naln=.N),
+#     key=.(query, query_length, reference, reference_length)]->paf_summary
+#  fr[paf_summary, on=c("query", "reference")]->paf_summary
+#  setorder(paf_summary, -alnlen)
+#  paf_summary[, idx := paste(1:.N)][]
+# }

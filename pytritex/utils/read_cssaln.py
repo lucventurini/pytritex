@@ -48,5 +48,5 @@ def read_morexaln_minimap(paf, popseq: pd.DataFrame, minqual=30, minlen=500,
     if prefix is True:
         morex["css_contig"] = morex.css_contig.str.replace("^", "morex_")
 
-    morex = pd.merge(morex, popseq, left_on="css_contig", right_on="css_contig")
+    morex = pd.merge(morex, popseq, left_on="css_contig", right_on="css_contig", how="right")
     return morex
