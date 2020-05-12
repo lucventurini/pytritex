@@ -1,26 +1,20 @@
 import pandas as pd
-import matplotlib.pyplot as plot
+import matplotlib.pyplot as plt
 import numpy as np
 import tempfile
 import subprocess as sp
 import multiprocessing as mp
+from .plot_popseq_carma_tcc import plot_popseq_carma_tcc
 
 
-def _plotter(index, row, height, res, width):
-    # file <- bad[i, f]
-    #   pdf <- bad[i, p]
-    #   s<-bad[i,scaffold]
-    #   cat(paste0(i, " ", bad[i, scaffold], "\n"))
-    #   png(file, height=height, res=res, width=width)
-    #   plot_popseq_carma_tcc(s, breaks=breaks, page=i, info, cssaln, tcc_pos, ff[d >= mindist], molcov, species)
-    #   dev.off()
-    #   system(paste("convert", file, pdf))
-    #   unlink(file)
+def _plotter(index, row, height, res, width, breaks, info, cssaln, tcc_pos, ff, species, molcov, mindist, autobreaks):
     pdf = row["pdf"]
     scaffold = row["scaffold"]
-    figure = plot.figure(figsize=(height, width), dpi=res)
-    plot_popseq_carma_tcc(scaffold, breaks=breaks, page=index + 1, info=info, cssaln=cssaln, tcc_pos=tcc_pos,
-                          ?=ff[ff["d"] >= mindist], ?=molcov, ?=species)
+    figure = plt.figure(figsize=(height, width), dpi=res)
+    plot_popseq_carma_tcc(figure=figure,
+                          scaffold=scaffold,
+                          breaks=breaks, page=index + 1, info=info, cssaln=cssaln, tcc_pos=tcc_pos,
+                          span=ff[ff["d"] >= mindist], molcov=molcov, species=species, autobreaks=autobreaks)
     figure.savefig(format="pdf")
 
 
