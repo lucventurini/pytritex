@@ -20,6 +20,7 @@ def anchor_scaffolds(assembly: dict,
             "\"wheat\", \"barley\", \"oats\", \"lolium\", \"sharonensis\" or \"rye\".")
 
     fai = assembly["info"]
+    initial_size = fai.shape[0]
     cssaln = assembly["cssaln"]
     if "fpairs" not in assembly:
         fpairs = None
@@ -35,10 +36,12 @@ def anchor_scaffolds(assembly: dict,
         on=["scaffold", "sorted_alphachr"])
     zgrouped = z.sort_values(["scaffold", "N"], ascending=[True, False]).groupby("scaffold")
     z = zgrouped.agg(
-        {"N": [np.sum, lambda series: series.loc[series.index[0]], lambda series: series.loc[series.index[1]]],
-         "sorted_alphachr": [lambda series: series.loc[series.index[0]], lambda series: series.loc[series.index[1]]]
-         }).reset_index(drop=False)
-    z.columns = ["scaffold", "Ncss", "sorted_Ncss1", "sorted_Ncss2", "sorted_alphachr", "sorted_alphachr2"]
+        Ncss=("N", np.sum),
+        sorted_Ncss1=("N", lambda series: series.iloc[0]),
+        sorted_Ncss2=("N", lambda series: np.nan if series.shape[0] < 2 else series.iloc[-1]),
+        sorted_alphachr=("sorted_alphachr", lambda series: series.iloc[0]),
+        sorted_alphachr2=("sorted_alphachr", lambda series: np.nan if series.shape[0] < 2 else series.iloc[1])
+    ).reset_index(drop=False)
     z.loc[:, "sorted_pchr"] = z["sorted_Ncss1"] / z["Ncss"]
     z.loc[:, "sorted_p12"] = z["sorted_Ncss2"] / z["sorted_Ncss1"]
 
@@ -67,7 +70,9 @@ def anchor_scaffolds(assembly: dict,
             columns={"popseq_alphachr": "sorted_alphachr2",
                      "popseq_chr": "sorted_chr2"}),
         left_on="sorted_alphachr2", right_on="sorted_alphachr2")
-    info = pd.merge(z, fai, on="scaffold")
+    info = pd.merge(z, fai, on="scaffold", how="right")
+    if initial_size != info.shape[0]:
+        raise ValueError("Something went wrong with info!")
     for column in ["Ncss", "NS", "NL", "sorted_Ncss1", "sorted_Ncss2"]:
         info.loc[info[column].isna(), column] = 0
     z = pd.merge(popseq.loc[~popseq["sorted_alphachr"].isna(), ["css_contig", "popseq_alphachr", "popseq_cM"]],
@@ -104,13 +109,14 @@ def anchor_scaffolds(assembly: dict,
     info.loc[info["popseq_Ncss1"].isna(), "popseq_Ncss1"] = 0
     info.loc[info["popseq_Ncss2"].isna(), "popseq_Ncss2"] = 0
     # # Assignment of POPSEQ genetic positions
-    if hic:
+    if hic is True:
         info0 = info[info["popseq_chr"] == info["sorted_chr"]][["scaffold", "popseq_chr"]].rename(
             columns={"popseq_chr": "chr"})
         # TODO: complete the renaming
-        tcc_pos = info0.rename(columns={"chr": "chr1", "scaffold": "scaffold1"}).merge(fpairs, on="scaffold1")
-        tcc_pos = info0.rename(columns={"chr": "chr2", "scaffold": "scaffold2"}).merge(tcc_pos, on="scaffold2")
-        # tcc_pos[!is.na(chr1), .N, key=.(scaffold=scaffold2, hic_chr=chr1)]->z
+        tcc_pos = info0.rename(columns={"chr": "chr1", "scaffold": "scaffold1"}).merge(fpairs, on="scaffold1",
+                                                                                       how="right")
+        tcc_pos = info0.rename(columns={"chr": "chr2", "scaffold": "scaffold2"}).merge(tcc_pos, on="scaffold2",
+                                                                                       how="right")
         z = tcc_pos[~tcc_pos["chr1"].isna()].rename(
             columns={"scaffold2": "scaffold", "chr1": "hic_chr"}
         ).groupby(["scaffold", "hic_chr"]).size().to_frame("N").reset_index(drop=False)
@@ -132,23 +138,18 @@ def anchor_scaffolds(assembly: dict,
     else:
         measure = ["popseq_chr", "sorted_chr"]
 
-    # Now melting.
-    w = pd.melt(info,
-        id_vars=["scaffold"],
-        value_vars=measure,
-        var_name="map",
-        value_name="chr",
-    )
+    w = pd.melt(info, id_vars="scaffold",
+                value_vars=measure, var_name="map", value_name="chr").dropna()
+    #  w[, .N, key=.(scaffold, chr)]->w
     w = w.groupby(["scaffold", "chr"]).size().to_frame("N").reset_index(drop=False)
-    # w[, .N, key=.(scaffold, chr)]->w
-    wgrouped = w.sort_values("N", ascending=False).groupby("scaffold")
-    __temp = wgrouped.agg({"N": [np.sum, lambda df: df.shape[0]]})
-    __temp.columns = ["Nchr_ass", "Nchr_ass_uniq"]
-    w = pd.merge(w.set_index("scaffold"), __temp, left_index=True, right_index=True, how="left").reset_index(drop=False)
+    w = w.sort_values("N", ascending=False).groupby("scaffold").agg(
+        {"N": ["sum", "size"]}).reset_index(drop=False)
+    w.columns = ["scaffold", "Nchr_ass", "Nchr_ass_uniq"]
     info = w.merge(info, on="scaffold", how="right")
+    if initial_size != info.shape[0]:
+        raise ValueError("Something went wrong - we lost rows for info!")
     info.loc[info["Nchr_ass"].isna(), "Nchr_ass"] = 0
     info.loc[info["Nchr_ass_uniq"].isna(), "Nchr_ass_uniq"] = 0
-    # Get this parameter, "x"?
     x = info.loc[info["Ncss"] >= 30, "sorted_p12"].quantile((sorted_percentile + 1) / 100)
     info.loc[:, "bad_sorted"] = (info["sorted_p12"] >= x) & (info["sorted_Ncss2"] >= 2)
     x = info.loc[info["popseq_Ncss"] >= 30, "popseq_p12"].quantile((popseq_percentile + 1) / 100)
@@ -156,8 +157,7 @@ def anchor_scaffolds(assembly: dict,
     info.loc[info["bad_sorted"].isna(), "bad_sorted"] = False
     info.loc[info["bad_popseq"].isna(), "bad_popseq"] = False
     measure = ["bad_sorted", "bad_popseq"]
-
-    if hic is not None:
+    if hic is True:
         x = info.loc[info["Nhic"] >= 30, "hic_p12"].quantile((hic_percentile + 1) / 100)
         info.loc[info["Nhic"] >= 30, "bad_hic"] = ((info["hic_p12"] >=x ) & (info["hic_N2"] >= 2))
         info.loc[info["bad_hic"].isna(), "bad_hic"] = False
@@ -167,14 +167,16 @@ def anchor_scaffolds(assembly: dict,
                 id_vars=["scaffold"],
                 value_vars=measure,
                 value_name="bad",
-                var_name = "map").dropna()
-    w = w.loc[w["bad"] == True, :]
-    w = w.merge(w.groupby("scaffold").size().to_frame("Nbad").reset_index(drop=False),
-                on="scaffold", how="left")
+                var_name = "map").dropna().loc[lambda df: df["bad"] == True, :]
+    w = w.groupby("scaffold").size().to_frame("Nbad").reset_index(drop=False)
     info = w.merge(info, on="scaffold", how="right")
+    print("Info size:", initial_size, info.shape[0])
+    if initial_size != info.shape[0]:
+        raise ValueError("Something went wrong - we lost rows for info!")
     info.loc[info["Nbad"].isna(), "Nbad"] = 0
     assembly["info"] = info
     assembly["popseq"] = popseq
-    if hic is not None:
+    if hic is True:
         assembly["fpairs"] = tcc_pos
+
     return assembly

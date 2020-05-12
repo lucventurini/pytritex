@@ -14,6 +14,8 @@ from pytritex.anchor_scaffolds import anchor_scaffolds
 from pytritex.add_molecule_cov import add_molecule_cov
 from pytritex.add_hic_cov import add_hic_cov
 from pytritex.find_10x_breaks import find_10x_breaks
+from pytritex.break_10x import break_10x
+import io
 
 def initial(args, popseq):
 
@@ -71,17 +73,33 @@ def main():
     popseq = pd.read_pickle(args.popseq)
     popseq.columns = popseq.columns.str.replace("morex", "css")
     assembly = initial(args, popseq)
-    assembly = anchor_scaffolds(assembly, popseq=popseq, species="wheat")
-    assembly = add_molecule_cov(assembly, cores=args.procs)
-    assembly = add_hic_cov(assembly, cores=args.procs)
-    print(ctime(), "Started to save the data")
-    with open(args.save_prefix + ".assembly.pickle", "wb") as dump:
+    with io.BufferedWriter(gzip.open(args.save_prefix + ".initial_assembly.pickle.gz", "wb")) as dump:
         pickle.dump(assembly, dump)
-    print(ctime(), "Finished saving the data")
+    assembly = anchor_scaffolds(assembly, popseq=popseq, species="wheat")
+    assembly = add_molecule_cov(assembly, cores=args.procs, binsize=200)
+    assembly = add_hic_cov(assembly, cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
     breaks = find_10x_breaks(assembly)
     b = breaks[breaks["d"] >= 1e4].sort_values("d", ascending=False).head(100)
-    with gzip.open(args.save_prefix + ".breaks.pickle.gz", "wb") as dump:
+    print(ctime(), "Started to save the data")
+    with io.BufferedWriter(gzip.open(args.save_prefix + ".anchored_assembly.pickle.gz",
+                                     "wb", compresslevel=1)) as dump:
+        pickle.dump(assembly, dump)
+    with io.BufferedWriter(gzip.open(args.save_prefix + ".initial_breaks.pickle.gz",
+                                     "wb", compresslevel=1)) as dump:
         pickle.dump(breaks, dump)
+    print(ctime(), "Finished saving the data")
+    a = break_10x(
+        assembly, prefix="scaffold_corrected", ratio=-3,
+        interval=5e4, minNbin=20, dist=2e3, slop=2e2, species="wheat", intermediate=False, ncores=8)
+    print("Broken chimeras")
+    assembly_v1 = a["assembly"]
+    with io.BufferedWriter(gzip.open(args.save_prefix + ".assembly_v1.pickle.gz",
+                                     "wb", compresslevel=1)) as dump:
+        pickle.dump(assembly_v1, dump)
+    with io.BufferedWriter(gzip.open(args.save_prefix + ".breaks.pickle.gz",
+                                     "wb", compresslevel=1)) as dump:
+        pickle.dump(a["breaks"], dump)
+
     return
 
 

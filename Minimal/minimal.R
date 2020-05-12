@@ -34,17 +34,17 @@ fread(paste('/bin/ls HiC/HiC_fragment_pairs.tsv.gz | xargs zcat'),
 #initialize assembly object
 init_assembly(fai=fai, cssaln=cssaln, molecules=molecules, fpairs=fpairs) -> assembly
 saveRDS(assembly, file="assembly_init.Rds")
-quit()
 anchor_scaffolds(assembly = assembly, popseq=popseq, species="wheat") -> assembly
 add_molecule_cov(assembly = assembly, binsize=200, cores=10) -> assembly
 add_hic_cov(assembly, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5, cores=10)->assembly
-saveRDS(assembly, file="20200414_alchemy_v0.Rds")
+saveRDS(assembly, file="alchemy_v0.Rds")
 
 # #find potential breaks and plot chimeras
 find_10x_breaks(assembly=assembly, interval=5e4, minNbin=20, dist=1e4, ratio=-3) -> breaks
-breaks[d >= 1e4][order(-d)][1:100]->b
-plot_chimeras(assembly=assembly, scaffolds=b, breaks=b, species="wheat",
- 		   file="20200414_assembly_v0_chimeras.pdf", cores=1)
+saveRDS(breaks, file="alchemy_v0_breaks.Rds")
+#breaks[d >= 1e4][order(-d)][1:100]->b
+#plot_chimeras(assembly=assembly, scaffolds=b, breaks=b, species="wheat",
+# 		   file="20200414_assembly_v0_chimeras.pdf", cores=1)
 
 # #break chimeras
 break_10x(assembly,
@@ -62,6 +62,7 @@ a$assembly->assembly_v1
 saveRDS(assembly_v1, file="20200414_assembly_v1.Rds")
 saveRDS(a$breaks, file="20200414_assembly_breaks.Rds")
 
+quit()
 # #run 10X scaffolding for a grid of  parameters
 # #npairs : minimum # of aligned read pairs per molecules
 # #nmol : minimum # molecules to accept a scaffold join

@@ -5,6 +5,7 @@ from .break_scaffolds import break_scaffolds
 
 
 def break_10x(assembly: dict, prefix="scaffold_corrected",
+              breaks=None,
               species="wheat", ratio=-3, interval=5e4, minNbin=20, dist=2e3, slop=1e3,
               intermediate=False, ncores=1, maxcycle=float("inf")):
 
@@ -12,14 +13,15 @@ def break_10x(assembly: dict, prefix="scaffold_corrected",
         dist = 2 * slop + 1
         print("Setting dist to", dist)
 
-    breaks = find_10x_breaks(assembly, interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
+    if breaks is None:
+        breaks = find_10x_breaks(assembly, interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
     i = 0
     lbreaks = dict()
     if intermediate is True:
         assemblies = dict()
         assemblies[i] = assembly
 
-    while (breaks.shape[0] > 0 and i <= maxcycle):
+    while breaks.shape[0] > 0 and i <= maxcycle:
         print("Cycle {i}:", breaks.shape[0], "break points detected")
         i += 1
         assembly = break_scaffolds(breaks, assembly=assembly, species=species, prefix="{}_".format(prefix),

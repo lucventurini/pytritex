@@ -33,7 +33,6 @@ def read_cssaln(bam: str, popseq: pd.DataFrame,
 def read_morexaln_minimap(paf, popseq: pd.DataFrame, minqual=30, minlen=500,
                           ref=True,
                           prefix=True):
-
     command = "zgrep tp:A:P {paf} | awk -v l={minlen} -v q={minqual} '$2>=l && $12>=q'"
     if ref is True:
         names = ["css_contig", "scaffold", "scaffold_length", "pos"]
@@ -41,12 +40,10 @@ def read_morexaln_minimap(paf, popseq: pd.DataFrame, minqual=30, minlen=500,
     else:
         names= ["scaffold", "scaffold_length", "pos", "css_contig"]
         cols = [0, 1, 2, 5]
-
     morex = pd.read_csv(
         sp.Popen(command.format(paf=paf, minqual=minqual, minlen=minlen), shell=True, stdout=sp.PIPE).stdout,
         sep="\t", names=names, usecols=cols)
     if prefix is True:
         morex["css_contig"] = morex.css_contig.str.replace("^", "morex_")
-
-    morex = pd.merge(morex, popseq, left_on="css_contig", right_on="css_contig", how="right")
+    morex = popseq.merge(morex, on="css_contig", how="right")
     return morex

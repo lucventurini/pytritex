@@ -37,6 +37,7 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
     ff = pd.concat(pool.starmap(_group_analyser,
                                [(fgrouped.get_group(group), group, binsize)
                                 for group in fgrouped.groups.keys()]))
+    pool.close()
 
     if ff.shape[0] > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
