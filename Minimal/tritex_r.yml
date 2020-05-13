@@ -1,0 +1,13 @@
+name: tritex
+channels:
+  - r
+  - conda-forge
+  - defaults
+dependencies:
+  - r::r-data.table
+  - r::rstudio
+  - r::r-parallelmap
+  - r::r-igraph
+  - r::r-stringi
+  - r::r-zoo
+  - r::rstudio
