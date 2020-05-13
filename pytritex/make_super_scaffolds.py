@@ -2,30 +2,32 @@ import pandas as pd
 
 
 def make_super_scaffolds(links, info: pd.DataFrame, excluded=(), ncores=1, prefix=None):
-    info2 = info[["scaffold", "popseq_chr", "popseq_cM", "length"]][:].rename(columns={
-        "popseq_chr": "chr", "popseq_cM": "cM"})
-    excluded_scaffolds = excluded
-    input_df = info2[info2.scaffold.isin(excluded_scaffolds)].rename(
-        columns={"scaffold": "cluster"}
-    )
+    info2 = info.loc[:, ["scaffold", "popseq_chr", "popseq_cM", "length"]].rename(
+        columns={"pospeq_chr": "chr", "popseq_cM": "cM"})
+    excluded_scaffolds = excluded.copy()
+    input_df = info2.assign(excluded=info2["scaffold"].isin(excluded_scaffolds)).rename(
+        columns={"scaffold": "cluster"})
     hl = links.copy().rename(columns={"scaffold1": "cluster1", "scaffold2": "cluster2"})
-    s = make_super(hl=hl, cluster_info=input_df, verbose=False, prefix=prefix, cores=ncores,
-                   paths=True, path_max=0, known_ends=False, maxiter=100)
-    m = s["membership"][:].rename(columns={"cluster": "scaffold"})
-    maxidx = s["super_info"]["super"].astype(str).str.replace("^{}_".format(prefix), "", regex=True).astype(int).max()
-    binder= info[~info["scaffold"].isin(m["scaffold"])][:][["scaffold", "length" "popseq_chr", "popseq_cM"]].rename(
-        columns={"popseq_chr": "chr", "popseq_cM": "cM"})
-    binder["bin"], binder["rank"], binder["backbone"] = 1, 0, True
-    binder["excuded"] = binder["scaffold"].isin(excluded_scaffolds)
-    binder["super"] = pd.Series(list(range(maxidx + 1, maxidx + 1 + binder.shape[0]))).astype(str).replace(
-        "^(.)", "{}_\\1".format(prefix), regex=True)
-    m = m.append(binder)
-    res = m[:].groupby("super").agg({
-    "bin": ["count", "max"], "rank": "max", "length": "sum"}).rename(
-        columns={("bin", "count"): "n", ("bin", "max"): "nbin", "rank": "max_rank"}
-    ).reset_index()
-    m = pd.merge(m, res[["super", "n", "nbin"]].rename(columns={"n": "super_size", "nbin": "super_nbin"}),
-                 left_on="super", right_on="super")
-    return {"membership": m, "info": res}
+    super_scaffolds = make_super(
+        hl=hl, cluster_info=input, verbose=False, prefix=prefix, cores=ncores,
+        paths=True, path_max=0, known_ends=False, maxiter=100)
+    mem_copy = super_scaffolds["membership"].copy().rename(columns={"cluster": "scaffold"})
+    maxidx = super_scaffolds["super_info"]["super"].astype(
+        str).str.replace("{}_".format(prefix), "", regex=True).astype(int).max()
 
+    bait = ~info.scaffold.isin(mem_copy["scaffold"])
+    _to_concatenate = info.loc[bait, ["scaffold", "popseq_chr", "popseq_cM", "length"]].rename(
+        columns={"popseq_chr": "chr", "popseq_cM": "cM"}).assign(
+        bin=1, rank=0, backbone=True,
+        excluded=info.loc[~info.scaffold.isin(mem_copy["scaffold"]), "scaffold"].isin(excluded_scaffolds),
+        super="{}_".format(prefix) + (maxidx + pd.Series(range(1, info.loc[bait].shape[0] + 1))).astype(str)
+    )
+    mem_copy = pd.concat([mem_copy, _to_concatenate])
+    res = mem_copy.groupby("super").agg(n=("scaffold", "size"),
+                                        nbin=("bin", "max"),
+                                        max_rank=("rank", "max"),
+                                        length=("length", "sum"))
+    mem_copy = res.loc[:, ["n", "nbin"]].rename(columns={"n": "super_size", "nbin": "super_nbin"}).merge(
+        mem_copy, left_index=True, right_on="super", how="right")
 
+    return {"membership": mem_copy, "info": res}

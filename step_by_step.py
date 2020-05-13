@@ -16,6 +16,9 @@ from pytritex.add_hic_cov import add_hic_cov
 from pytritex.find_10x_breaks import find_10x_breaks
 from pytritex.break_10x import break_10x
 import io
+import itertools
+from pytritex.scaffold_10x import scaffold_10x
+
 
 def initial(args, popseq):
 
@@ -59,6 +62,29 @@ def initial(args, popseq):
     return assembly
 
 
+def dispatcher(assembly, row):
+    result = scaffold_10x(assembly, **{"prefix": "scaffold_10x", "min_npairs": row.npairs, "max_dist": row.dist,
+              "popseq_dist": 5, "max_dist_orientation": 5, "min_nsample": row.nsample, "min_mol": row.nmol,
+              "unanchored": False, "ncores": 1})
+    print("""Parameters: {row}\n
+Result: {res}""".format(row=row, res=n50(result["info"]["length"])))
+    print("N50")
+    return result
+
+
+def grid_evaluation(assembly, args):
+
+    grid = pd.DataFrame(dict(zip(("npairs", "nmol", "nsample", "dist"),
+                                 list(zip(*itertools.product((2, 3),
+                                                             (2, 3),
+                                                             (1, 2),
+                                                             range(6 * 10**4, 10**5, 10**4)))))))
+    print("Starting grid evaluation")
+    pool = mp.Pool(processes=args.procs)
+    results = pool.starmap(dispatcher, [(assembly, row) for index, row in grid.iterrows()])
+
+    return
+
 def main():
 
     parser = argparse.ArgumentParser()
@@ -80,14 +106,14 @@ def main():
     assembly = add_hic_cov(assembly, cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
     breaks = find_10x_breaks(assembly)
     b = breaks[breaks["d"] >= 1e4].sort_values("d", ascending=False).head(100)
-    # print(ctime(), "Started to save the data")
-    # with io.BufferedWriter(gzip.open(args.save_prefix + ".anchored_assembly.pickle.gz",
-    #                                  "wb", compresslevel=1)) as dump:
-    #     pickle.dump(assembly, dump)
-    # with io.BufferedWriter(gzip.open(args.save_prefix + ".initial_breaks.pickle.gz",
-    #                                  "wb", compresslevel=1)) as dump:
-    #     pickle.dump(breaks, dump)
-    # print(ctime(), "Finished saving the data")
+    print(ctime(), "Started to save the data")
+    with io.BufferedWriter(gzip.open(args.save_prefix + ".anchored_assembly.pickle.gz",
+                                     "wb", compresslevel=1)) as dump:
+        pickle.dump(assembly, dump)
+    with io.BufferedWriter(gzip.open(args.save_prefix + ".initial_breaks.pickle.gz",
+                                     "wb", compresslevel=1)) as dump:
+        pickle.dump(breaks, dump)
+    print(ctime(), "Finished saving the data")
     a = break_10x(
         assembly, prefix="scaffold_corrected", ratio=-3,
         interval=5e4, minNbin=20, dist=2e3, slop=2e2, species="wheat", intermediate=False, ncores=8)
@@ -99,6 +125,9 @@ def main():
     with io.BufferedWriter(gzip.open(args.save_prefix + ".breaks.pickle.gz",
                                      "wb", compresslevel=1)) as dump:
         pickle.dump(a["breaks"], dump)
+    print("Starting grid evaluation")
+
+
 
     return
 

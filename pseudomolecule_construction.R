@@ -830,6 +830,7 @@ scaffold_10x <- function(assembly, prefix="super", min_npairs=5, max_dist=1e5, m
   z[, index := 2*1:.N-1]
   z[, gap := F]
   rbind(z, data.table(scaffold="gap", gap=T, super=z$super, bin=NA, length = gap_size,orientation = NA, index=z$index+1))->z
+  # Group by super bin, insert the gaps within, remove the last gap
   z[order(index)][, head(.SD, .N-1), by=super]->z
   z[, n := .N, key=super]
   z[n > 1, super_start := cumsum(c(0, length[1:(.N-1)])) + 1, by = super]
