@@ -80,14 +80,14 @@ def main():
     assembly = add_hic_cov(assembly, cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
     breaks = find_10x_breaks(assembly)
     b = breaks[breaks["d"] >= 1e4].sort_values("d", ascending=False).head(100)
-    print(ctime(), "Started to save the data")
-    with io.BufferedWriter(gzip.open(args.save_prefix + ".anchored_assembly.pickle.gz",
-                                     "wb", compresslevel=1)) as dump:
-        pickle.dump(assembly, dump)
-    with io.BufferedWriter(gzip.open(args.save_prefix + ".initial_breaks.pickle.gz",
-                                     "wb", compresslevel=1)) as dump:
-        pickle.dump(breaks, dump)
-    print(ctime(), "Finished saving the data")
+    # print(ctime(), "Started to save the data")
+    # with io.BufferedWriter(gzip.open(args.save_prefix + ".anchored_assembly.pickle.gz",
+    #                                  "wb", compresslevel=1)) as dump:
+    #     pickle.dump(assembly, dump)
+    # with io.BufferedWriter(gzip.open(args.save_prefix + ".initial_breaks.pickle.gz",
+    #                                  "wb", compresslevel=1)) as dump:
+    #     pickle.dump(breaks, dump)
+    # print(ctime(), "Finished saving the data")
     a = break_10x(
         assembly, prefix="scaffold_corrected", ratio=-3,
         interval=5e4, minNbin=20, dist=2e3, slop=2e2, species="wheat", intermediate=False, ncores=8)

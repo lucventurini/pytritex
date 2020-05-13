@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import multiprocessing as mp
+pd.options.mode.chained_assignment = 'raise'
 
 
 def _group_analyser(group, binsize):
@@ -33,8 +34,6 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
     if "mr" in info.columns or "mri" in info.columns:
         raise KeyError("Assembly[info] already has mr and/or mri columns; aborting.")
     fpairs = assembly["fpairs"]
-    initial = fpairs.shape[0]
-    print("Initial fpairs:", fpairs.shape[0])
 
     if scaffolds is None:
         null = True
@@ -44,10 +43,10 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
         null = False
 
     bait = (fpairs["scaffold1"] == fpairs["scaffold2"]) & (fpairs["pos1"] < fpairs["pos2"])
-    assert fpairs.loc[bait, "pos1"].min() >= 0
-    assert fpairs.loc[bait, "pos2"].min() >= 0
+    assert fpairs.loc[bait, :].shape[0] > 0 and fpairs.loc[bait, "pos1"].min() >= 0, fpairs.loc[bait, "pos1"]
+    assert fpairs.loc[bait, :].shape[0] > 0 and fpairs.loc[bait, "pos2"].min() >= 0, fpairs.loc[bait, "pos2"]
     temp_frame = pd.DataFrame(
-        {"scaffold": fpairs.loc[bait]["scaffold1"],
+        {"scaffold": fpairs.loc[bait, "scaffold1"],
          "bin1": (fpairs.loc[bait, "pos1"] // binsize) * binsize,
          "bin2": (fpairs.loc[bait, "pos2"] // binsize) * binsize,
          }
@@ -60,9 +59,6 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
         pool.starmap(_group_analyser,
         [(fgrouped.get_group(group), binsize) for group in fgrouped.groups.keys()]))
     pool.close()
-
-    print("Coverage DF", coverage_df.shape[0], coverage_df.columns)
-    print(coverage_df.head(5))
 
     if coverage_df.shape[0] > 0:
         coverage_df = coverage_df.groupby(["scaffold", "bin"]).agg(n=("n", "sum")).reset_index(drop=False)
@@ -84,6 +80,7 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
         coverage_df = zi.merge(coverage_df, left_index=True, right_on="scaffold", how="right")
         info_mr = z.merge(info, left_index=True, right_on="scaffold", how="right")
         info_mr = zi.merge(info_mr, left_index=True, right_on="scaffold", how="right")
+        info_mr.reset_index(drop=True)
     else:
         info_mr = info.copy()
         info_mr = info_mr.assign(mri=np.nan, mr=np.nan)
@@ -96,5 +93,6 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
         assembly["innerDist"] = innerDist
         return assembly
     else:
-        print("Something went wrong!")
+        if "index" in info_mr.columns:
+            del info_mr["index"]
         return {"info": info_mr, "cov": coverage_df}

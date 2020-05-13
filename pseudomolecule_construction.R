@@ -558,7 +558,9 @@ add_hic_cov<-function(assembly, scaffolds=NULL, binsize=1e3, binsize2=1e5, minNb
   null=F
  }
 
- fpairs[scaffold1 == scaffold2 & pos1 < pos2][, .(scaffold = scaffold1, bin1 = pos1 %/% binsize * binsize, bin2 =pos2 %/% binsize * binsize)]->f
+ fpairs[scaffold1 == scaffold2 & pos1 < pos2][, .(scaffold = scaffold1,
+                                                  bin1 = pos1 %/% binsize * binsize,
+                                                  bin2 =pos2 %/% binsize * binsize)]->f
  f[bin2 - bin1 > 2*binsize]->f
  f[, i := 1:.N]
  f[, b := paste0(scaffold, ":", bin1 %/% binsize2)]

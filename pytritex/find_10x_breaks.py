@@ -6,7 +6,10 @@ def find_10x_breaks(assembly: dict, scaffolds=None, interval=5e4, minNbin=20, di
     cov = assembly["molecule_cov"].copy()
     if scaffolds is not None:
         cov = cov.merge(scaffolds, on="scaffold", how="right")
-    cov.loc[:, "b"] = cov["bin"] // interval * interval
+    try:
+        cov.loc[:, "b"] = cov["bin"] // interval * interval
+    except KeyError:
+        raise KeyError(cov.head())
     bait = (cov["nbin"] >= minNbin) & (np.minimum(cov["bin"], cov["length"] - cov["bin"]) >= dist)
     bait &= (cov["r"] <= ratio)
     e = cov.loc[bait, :]

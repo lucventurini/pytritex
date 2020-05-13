@@ -170,7 +170,6 @@ def anchor_scaffolds(assembly: dict,
                 var_name = "map").dropna().loc[lambda df: df["bad"] == True, :]
     w = w.groupby("scaffold").size().to_frame("Nbad").reset_index(drop=False)
     info = w.merge(info, on="scaffold", how="right")
-    print("Info size:", initial_size, info.shape[0])
     if initial_size != info.shape[0]:
         raise ValueError("Something went wrong - we lost rows for info!")
     info.loc[info["Nbad"].isna(), "Nbad"] = 0

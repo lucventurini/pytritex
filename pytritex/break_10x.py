@@ -11,24 +11,22 @@ def break_10x(assembly: dict, prefix="scaffold_corrected",
 
     if (dist <= 2 * slop):
         dist = 2 * slop + 1
-        print("Setting dist to", dist)
 
     if breaks is None:
         breaks = find_10x_breaks(assembly, interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
     i = 0
     lbreaks = dict()
+    assemblies = dict()
     if intermediate is True:
-        assemblies = dict()
         assemblies[i] = assembly
 
     while breaks.shape[0] > 0 and i <= maxcycle:
-        print("Cycle {i}:", breaks.shape[0], "break points detected")
+        print("Cycle {i}:".format(i=i), breaks.shape[0], "break points detected")
         i += 1
         assembly = break_scaffolds(breaks, assembly=assembly, species=species, prefix="{}_".format(prefix),
                                    slop=slop, cores=ncores)
         if intermediate is True:
             assemblies[i] = assembly
-
         breaks = find_10x_breaks(assembly, interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
         if breaks is None or breaks.shape[0] == 0:
             break

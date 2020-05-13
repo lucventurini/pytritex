@@ -14,24 +14,30 @@ def _group_analyser(group, scaffold, binsize):
 
 def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
     info = assembly["info"]
+    print("Starting adding molecule coverage")
     if "molecules" not in assembly or assembly["molecules"] is None or assembly["molecules"].shape[0] == 0:
         raise KeyError("The assembly object does not have a molecule table; aborting")
 
     if "mr_10x" in info.columns:
         raise KeyError("Assembly['info'] already has a mr_10x column; aborting")
 
+    assert not assembly["molecules"]["start"].isna().any()
+    assert not assembly["molecules"]["end"].isna().any()
     if scaffolds is None:
         # scaffolds = info.loc[:, "scaffold"]
         mol = assembly["molecules"].copy()
         null = True
     else:
-        info = info.merge(scaffolds, on="scaffold", how="right")
-        mol = assembly["molecules"].merge(scaffolds, on="scaffold", how="right")
+        info = info.merge(scaffolds, on="scaffold", how="left")
+        mol = assembly["molecules"].merge(scaffolds, on="scaffold", how="left")
         null = False
 
     f = mol
+    assert not f["start"].isna().any()
+    assert not f["end"].isna().any()
     f.loc[:, "bin1"] = f["start"] // binsize * binsize
     f.loc[:, "bin2"] = f["end"] // binsize * binsize
+    f = f.loc[f.eval("bin2 - bin1 > 2 *{binsize}".format(binsize=binsize)), :].copy()
     fgrouped = f.groupby("scaffold")
     pool = mp.Pool(cores)
     ff = pd.concat(pool.starmap(_group_analyser,
@@ -51,12 +57,15 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
         ff = ff.set_index("d").merge(
             ff.groupby("d").agg(mn=("n", "mean")), left_index=True, right_index=True).reset_index(drop=False)
         ff.loc[:, "r"] = np.log2(ff["n"] / ff["mn"])
-        info_mr = info.merge(ff.groupby("scaffold").agg(mr_10x=("r", "min")), left_on="scaffold", right_index=True,
-                        how="left")
+        info_mr = info.merge(ff.groupby("scaffold").agg(mr_10x=("r", "min")), left_on="scaffold",
+                             right_index=True, how="left").reset_index(drop=True)
+        if "index" in info_mr.columns:
+            del info_mr["index"]
     else:
         info_mr = info.copy()
-        info_mr.loc[:, "mr_10x"] = np.nan
+        del info_mr["mr_10x"]
 
+    print("Molecule cov (add_mol):", ff.shape[0], ff.columns)
     if null is True:
         assembly["info"] = info_mr
         assembly["molecule_cov"] = ff
