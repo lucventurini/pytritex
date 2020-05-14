@@ -558,9 +558,7 @@ add_hic_cov<-function(assembly, scaffolds=NULL, binsize=1e3, binsize2=1e5, minNb
   null=F
  }
 
- fpairs[scaffold1 == scaffold2 & pos1 < pos2][, .(scaffold = scaffold1,
-                                                  bin1 = pos1 %/% binsize * binsize,
-                                                  bin2 =pos2 %/% binsize * binsize)]->f
+ fpairs[scaffold1 == scaffold2 & pos1 < pos2][, .(scaffold = scaffold1, bin1 = pos1 %/% binsize * binsize, bin2 =pos2 %/% binsize * binsize)]->f
  f[bin2 - bin1 > 2*binsize]->f
  f[, i := 1:.N]
  f[, b := paste0(scaffold, ":", bin1 %/% binsize2)]
@@ -830,7 +828,6 @@ scaffold_10x <- function(assembly, prefix="super", min_npairs=5, max_dist=1e5, m
   z[, index := 2*1:.N-1]
   z[, gap := F]
   rbind(z, data.table(scaffold="gap", gap=T, super=z$super, bin=NA, length = gap_size,orientation = NA, index=z$index+1))->z
-  # Group by super bin, insert the gaps within, remove the last gap
   z[order(index)][, head(.SD, .N-1), by=super]->z
   z[, n := .N, key=super]
   z[n > 1, super_start := cumsum(c(0, length[1:(.N-1)])) + 1, by = super]
@@ -1386,10 +1383,16 @@ node_relocation<-function(df, el, maxiter=100, verbose=T){
    }) {
    ne<-head(data.frame(m), 1)
    idx<-data.frame(cluster=df$cluster, idx=1:nrow(df))
-   invisible(lapply(c("cluster", "new_node1", "new_node2", "old_node1", "old_node2"), function(i) {
-    merge(ne, by.x=i, by.y="cluster", idx)->>ne
-    colnames(ne)[which(colnames(ne) == "idx")]<<-paste(sep="_", "idx", i)
+   # Get the other columns for this row
+   invisible(
+     lapply(
+       c("cluster", "new_node1", "new_node2", "old_node1", "old_node2"),
+       function(i) {
+             merge(ne, by.x=i, by.y="cluster", idx)->>ne
+             colnames(ne)[which(colnames(ne) == "idx")]<<-paste(sep="_", "idx", i)
    }))
+
+   # Get the indices to reorder / subset the data frame
    df[with(ne, {
     min_new <- min(idx_new_node1, idx_new_node2)
     max_new <- max(idx_new_node1, idx_new_node2)
@@ -1498,7 +1501,7 @@ make_super_path<-function(super, idx=NULL, start=NULL, end=NULL, maxiter=100, ve
  super$edges[super == idx, .(cluster1, cluster2, weight)]->el
  minimum.spanning.tree(induced.subgraph(super$graph, submem$cluster))->mst
 
- E(mst)$weight <- 1
+  E(mst)$weight <- 1
 
  if(is.null(start) | is.null(end)){
   V(mst)[get.diameter(mst)]$name->dia

@@ -30,10 +30,8 @@ def anchor_scaffolds(assembly: dict,
         hic = (assembly["fpairs"].shape[0] > 0)
     # cssaln[! is.na(sorted_alphachr),.N, keyby =.(scaffold, sorted_alphachr)]->z
     # For each scaffold in the assembly, for each chromosomal bin: how many CSS contigs confirm each possible bin?
-    z = cssaln[~cssaln["sorted_alphachr"].isna()]
-    z = z.merge(
-        z.groupby(["scaffold", "sorted_alphachr"]).size().to_frame("N").reset_index(drop=False),
-        on=["scaffold", "sorted_alphachr"])
+    z = cssaln[~cssaln["sorted_alphachr"].isna()].copy()
+    z.loc[:, "N"] = z.groupby(["scaffold", "sorted_alphachr"]).transform("count").iloc[:, 0]
     zgrouped = z.sort_values(["scaffold", "N"], ascending=[True, False]).groupby("scaffold")
     z = zgrouped.agg(
         Ncss=("N", np.sum),
@@ -49,9 +47,9 @@ def anchor_scaffolds(assembly: dict,
     c_al = cssaln.loc[cssaln["sorted_arm"] == "L"].groupby(["scaffold", "sorted_alphachr"]).size().to_frame("NL")
     # cssaln[sorted_arm == "S",.(NS=.N), keyby =.(scaffold, sorted_alphachr)]->as
     c_as = cssaln.loc[cssaln["sorted_arm"] == "S"].groupby(["scaffold", "sorted_alphachr"]).size().to_frame("NS")
-    z = pd.merge(c_as,
-             pd.merge(c_al, z.set_index(["scaffold", "sorted_alphachr"]), left_index=True, right_index=True),
-             left_index=True, right_index=True).reset_index(drop=False)
+    z = pd.merge(
+        c_as, pd.merge(c_al, z.set_index(["scaffold", "sorted_alphachr"]), left_index=True, right_index=True),
+        left_index=True, right_index=True).reset_index(drop=False)
     z.loc[z["NS"].isna(), "NS"] = 0
     z.loc[z["NL"].isna(), "NL"] = 0
     z.loc[:, "sorted_arm"] = z[["NS", "NL"]].apply(lambda row: "S" if row.NS > row.NL else "L", axis=1)

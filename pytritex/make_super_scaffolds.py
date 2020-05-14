@@ -1,4 +1,5 @@
 import pandas as pd
+from .make_super import make_super
 
 
 def make_super_scaffolds(links, info: pd.DataFrame, excluded=(), ncores=1, prefix=None):
@@ -9,7 +10,9 @@ def make_super_scaffolds(links, info: pd.DataFrame, excluded=(), ncores=1, prefi
         columns={"scaffold": "cluster"})
     hl = links.copy().rename(columns={"scaffold1": "cluster1", "scaffold2": "cluster2"})
     super_scaffolds = make_super(
-        hl=hl, cluster_info=input, verbose=False, prefix=prefix, cores=ncores,
+        hl=hl,
+        cluster_info=input_df,
+        verbose=False, prefix=prefix, cores=ncores,
         paths=True, path_max=0, known_ends=False, maxiter=100)
     mem_copy = super_scaffolds["membership"].copy().rename(columns={"cluster": "scaffold"})
     maxidx = super_scaffolds["super_info"]["super"].astype(

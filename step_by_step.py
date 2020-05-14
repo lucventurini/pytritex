@@ -18,6 +18,7 @@ from pytritex.break_10x import break_10x
 import io
 import itertools
 from pytritex.scaffold_10x import scaffold_10x
+from pytritex.utils import n50
 
 
 def initial(args, popseq):
@@ -63,12 +64,13 @@ def initial(args, popseq):
 
 
 def dispatcher(assembly, row):
-    result = scaffold_10x(assembly, **{"prefix": "scaffold_10x", "min_npairs": row.npairs, "max_dist": row.dist,
-              "popseq_dist": 5, "max_dist_orientation": 5, "min_nsample": row.nsample, "min_mol": row.nmol,
-              "unanchored": False, "ncores": 1})
+    result = scaffold_10x(assembly,
+                          prefix="scaffold_10x", min_npairs=row.npairs,
+                          max_dist=row.dist, popseq_dist=5, max_dist_orientation=5,
+                          min_nsample=row.nsample,
+                          min_nmol=row.nmol, unanchored=False, ncores=1)
     print("""Parameters: {row}\n
-Result: {res}""".format(row=row, res=n50(result["info"]["length"])))
-    print("N50")
+Result: {res}\n""".format(row=row, res=n50(result["info"]["length"])))
     return result
 
 
@@ -81,9 +83,11 @@ def grid_evaluation(assembly, args):
                                                              range(6 * 10**4, 10**5, 10**4)))))))
     print("Starting grid evaluation")
     pool = mp.Pool(processes=args.procs)
-    results = pool.starmap(dispatcher, [(assembly, row) for index, row in grid.iterrows()])
+    # results = pool.starmap(dispatcher, [(assembly, row) for index, row in grid.iterrows()])
+    _index, row = next(grid.iterrows())
+    result = dispatcher(assembly, row)
+    return result
 
-    return
 
 def main():
 
@@ -125,9 +129,7 @@ def main():
     with io.BufferedWriter(gzip.open(args.save_prefix + ".breaks.pickle.gz",
                                      "wb", compresslevel=1)) as dump:
         pickle.dump(a["breaks"], dump)
-    print("Starting grid evaluation")
-
-
+    grid_evaluation(assembly, args)
 
     return
 

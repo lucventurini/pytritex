@@ -5,3 +5,4 @@ pandarallel
 graph-tool
 networkx
 matplotlib
+networkit
