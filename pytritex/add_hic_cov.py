@@ -1,15 +1,20 @@
 import pandas as pd
 import numpy as np
-import multiprocessing as mp
+import pandarallel
+import functools
+import itertools
 pd.options.mode.chained_assignment = 'raise'
 
 
 def _group_analyser(group, binsize):
     assert group["scaffold"].unique().shape[0] == 1, group["scaffold"]
     scaffold = group["scaffold"].head(1).values[0]
-    return group.apply(lambda row: list(range(int(row["bin1"] + binsize), int(row["bin2"]), int(binsize))),
-                       axis=1).explode().reset_index(drop=True).to_frame("bin").groupby(
+    bin_series = pd.Series(itertools.starmap(range, pd.DataFrame().assign(
+        bin1=group["bin1"] + binsize, bin2=group["bin2"], binsize=binsize).astype(np.int).values),
+                    index=group.index)
+    assigned = group.assign(bin=bin_series).explode("bin").reset_index(drop=True).groupby(
         "bin").size().to_frame("n").reset_index().assign(scaffold=scaffold)
+    return assigned
 
 
 # Calculate physical coverage with Hi-C links in sliding windows along the scaffolds
@@ -50,15 +55,13 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
          "bin1": (fpairs.loc[bait, "pos1"] // binsize) * binsize,
          "bin2": (fpairs.loc[bait, "pos2"] // binsize) * binsize,
          }
-    ).loc[lambda df: df["bin2"] - df["bin1"] > 2 * binsize, :]
-    temp_frame.loc[:, "i"] = range(1, temp_frame.shape[0] + 1)
+    ).loc[lambda df: df["bin2"] - df["bin1"] > 2 * binsize, :].astype({"bin1": np.int, "bin2": np.int})
+    temp_frame.loc[:, "i"] = np.arange(1, temp_frame.shape[0] + 1, dtype=np.int)
     temp_frame.loc[:, "b"] = temp_frame["scaffold"] + ":" + (temp_frame["bin1"] // binsize2).astype(str)
-    fgrouped = temp_frame.groupby("b")
-    pool = mp.Pool(cores)
-    coverage_df = pd.concat(
-        pool.starmap(_group_analyser,
-        [(fgrouped.get_group(group), binsize) for group in fgrouped.groups.keys()]))
-    pool.close()
+    pandarallel.pandarallel.initialize(nb_workers=cores)
+    _gr = functools.partial(_group_analyser, binsize=binsize)
+    coverage_df = temp_frame.groupby("b").parallel_apply(_gr).reset_index(level=0, drop=True)
+    # coverage_df = temp_frame.groupby("b").apply(_gr).reset_index(level=0, drop=True)
 
     if coverage_df.shape[0] > 0:
         coverage_df = coverage_df.groupby(["scaffold", "bin"]).agg(n=("n", "sum")).reset_index(drop=False)
@@ -93,6 +96,5 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
         assembly["innerDist"] = innerDist
         return assembly
     else:
-        if "index" in info_mr.columns:
-            del info_mr["index"]
+        info_mr.drop("index", inplace=True, errors="ignore")
         return {"info": info_mr, "cov": coverage_df}
