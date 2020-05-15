@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import itertools
+import pandarallel
 
 
 def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
@@ -31,7 +32,10 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
     f = f.loc[f.eval("bin2 - bin1 > 2 *{binsize}".format(binsize=binsize)), :].copy()
     f.loc[:, "bin"] = pd.Series(itertools.starmap(range, pd.DataFrame().assign(
         bin1=f.loc[:, "bin1"] + binsize, bin2=f["bin2"], binsize=binsize).values))
-    ff = f.explode("bin").groupby(["scaffold", "bin"]).size().to_frame("n").reset_index(drop=False)
+    pandarallel.pandarell.initialize(nb_workers=cores)
+    ff = f.groupby("scaffold").parallel_apply(
+        lambda group: group.explode("bin").groupby(["scaffold", "bin"]).size().to_frame("n").reset_index(
+            drop=False)).reset_index(level=0, drop=True)
 
     if ff.shape[0] > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
