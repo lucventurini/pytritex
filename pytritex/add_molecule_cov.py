@@ -3,6 +3,7 @@ import numpy as np
 import itertools
 import pandarallel
 import functools
+from time import ctime
 
 
 def _group_analyser(group: pd.DataFrame, binsize):
@@ -52,23 +53,21 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
 
     if coverage_df.shape[0] > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
+        print(ctime(), "Merging on coverage DF (10X)")
         coverage_df = info.loc[:, ["scaffold", "length"]].merge(coverage_df, on="scaffold", how="right")
-        coverage_df.loc[:, "d"] = np.min([
-            coverage_df["bin"], ((coverage_df["length"] - coverage_df["bin"]) // binsize) * binsize
-        ], axis=0)
-        coverage_df = coverage_df.set_index("scaffold").merge(
-            coverage_df.groupby("scaffold").size().to_frame("nbin"),
-            left_index=True, right_index=True, how="left").reset_index(drop=False)
-        coverage_df = coverage_df.set_index("d").merge(
-            coverage_df.groupby("d").agg(mn=("n", "mean")), left_index=True, right_index=True).reset_index(drop=False)
+        coverage_df.loc[:, "d"] = np.minimum(
+            coverage_df["bin"], ((coverage_df["length"] - coverage_df["bin"]) // binsize) * binsize)
+        coverage_df.loc[:, "nbin"] = coverage_df.groupby("scaffold")["scaffold"].transform("size")
+        coverage_df.loc[:, "mn"] = coverage_df.groupby("d")["n"].transform("mean")
         coverage_df.loc[:, "r"] = np.log2(coverage_df["n"] / coverage_df["mn"])
-        info_mr = info.merge(coverage_df.groupby("scaffold").agg(mr_10x=("r", "min")), left_on="scaffold",
-                             right_index=True, how="left").reset_index(drop=True)
+        __left = coverage_df.groupby("scaffold").agg(mr_10x=("r", "min"))
+        info_mr = __left.merge(info, how="right", right_on="scaffold", left_index=True)
         if "index" in info_mr.columns:
             del info_mr["index"]
+        print(ctime(), "Merged on coverage DF (10X)")
     else:
         info_mr = info.copy()
-        info_mr.drop("mr_10x", inplace=True, errors="ignore")
+        info_mr.drop("mr_10x", inplace=True, errors="ignore", axis=1)
 
     print("Molecule cov (add_mol):", coverage_df.shape[0], coverage_df.columns)
     if null is True:

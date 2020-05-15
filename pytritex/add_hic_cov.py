@@ -4,6 +4,7 @@ import pandarallel
 import functools
 import itertools
 pd.options.mode.chained_assignment = 'raise'
+from time import ctime
 
 
 def _group_analyser(group, binsize):
@@ -64,26 +65,28 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
     # coverage_df = temp_frame.groupby("b").apply(_gr).reset_index(level=0, drop=True)
 
     if coverage_df.shape[0] > 0:
+        print(ctime(), "Merging on coverage DF (HiC)")
         coverage_df = coverage_df.groupby(["scaffold", "bin"]).agg(n=("n", "sum")).reset_index(drop=False)
-        coverage_df = info.loc[:, ["scaffold", "length"]].merge(coverage_df, on="scaffold", how="right")
+        try:
+            coverage_df = info.loc[:, ["scaffold", "length"]].merge(coverage_df, on="scaffold", how="right")
+        except KeyError:
+            raise KeyError(info.columns)
         coverage_df.loc[:, "d"] = np.minimum(
             coverage_df["bin"],
             (coverage_df["length"] - coverage_df["bin"]) // binsize * binsize)
-        coverage_df = coverage_df.merge(coverage_df.groupby("scaffold").agg(nbin=("length", "size")),
-                      left_on="scaffold", right_index=True, how="left")
-
-        coverage_df = coverage_df.merge(coverage_df.loc[:, ["d", "n"]].groupby("d").agg(mn=("n", "mean")),
-                      left_on="d", right_index=True, how="left")
+        coverage_df.loc[:, "nbin"] = coverage_df.groupby("scaffold")["scaffold"].transform("size")
+        coverage_df.loc[:, "mn"] = coverage_df.loc[:, ["d", "n"]].groupby("d")["n"].transform("mean")
         coverage_df.loc[:, "r"] = np.log2(coverage_df["n"] / coverage_df["mn"])
         z = coverage_df.loc[coverage_df["nbin"] >= minNbin, ["scaffold", "r"]].groupby(
             "scaffold").agg(mr=("r", "min")).sort_values("mr")
         zi = coverage_df.loc[(coverage_df["nbin"] > minNbin) & (coverage_df["d"] >= innerDist),
                     ["scaffold", "r"]].groupby("scaffold").agg(mri=("r", "min"))
-        coverage_df = z.merge(coverage_df, left_index=True, right_on="scaffold", how="right")
-        coverage_df = zi.merge(coverage_df, left_index=True, right_on="scaffold", how="right")
-        info_mr = z.merge(info, left_index=True, right_on="scaffold", how="right")
-        info_mr = zi.merge(info_mr, left_index=True, right_on="scaffold", how="right")
-        info_mr.reset_index(drop=True)
+        coverage_df = zi.merge(
+            z.merge(coverage_df, left_index=True, right_on="scaffold", how="right"),
+            left_index=True, right_on="scaffold", how="right").reset_index(drop=True)
+        info_mr = zi.merge(z.merge(info, left_index=True, right_on="scaffold", how="right"),
+                           left_index=True, right_on="scaffold", how="right").reset_index(drop=True)
+        print(ctime(), "Merged on coverage DF (HiC)")
     else:
         info_mr = info.copy()
         info_mr = info_mr.assign(mri=np.nan, mr=np.nan)
@@ -96,5 +99,5 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
         assembly["innerDist"] = innerDist
         return assembly
     else:
-        info_mr.drop("index", inplace=True, errors="ignore")
+        info_mr.drop("index", inplace=True, errors="ignore", axis=1)
         return {"info": info_mr, "cov": coverage_df}
