@@ -2,7 +2,6 @@ pandas
 scipy
 numpy
 pandarallel
-graph-tool
 networkx
 matplotlib
 networkit
