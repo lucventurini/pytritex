@@ -1,15 +1,6 @@
 import pandas as pd
 import numpy as np
-import multiprocessing as mp
-
-
-def _group_analyser(group, scaffold, binsize):
-    # df.apply(lambda row: list(range(int(row["bin1"] + binsize), int(row["bin2"]), binsize)),
-    #          axis=1).explode().reset_index(drop=True).to_frame("bin").groupby("bin").size().to_frame("N").reset_index(
-    #     drop=False).assign(scaffold="a")
-    return group.apply(lambda row: list(range(int(row["bin1"] + binsize), int(row["bin2"]), binsize)),
-                       axis=1).explode().reset_index(drop=True).to_frame("bin").groupby(
-        "bin").size().to_frame("n").reset_index().assign(scaffold=scaffold)
+import itertools
 
 
 def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
@@ -38,12 +29,9 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
     f.loc[:, "bin1"] = f["start"] // binsize * binsize
     f.loc[:, "bin2"] = f["end"] // binsize * binsize
     f = f.loc[f.eval("bin2 - bin1 > 2 *{binsize}".format(binsize=binsize)), :].copy()
-    fgrouped = f.groupby("scaffold")
-    pool = mp.Pool(cores)
-    ff = pd.concat(pool.starmap(_group_analyser,
-                               [(fgrouped.get_group(group), group, binsize)
-                                for group in fgrouped.groups.keys()]))
-    pool.close()
+    f.loc[:, "bin"] = pd.Series(itertools.starmap(range, pd.DataFrame().assign(
+        bin1=f.loc[:, "bin1"] + binsize, bin2=f["bin2"], binsize=binsize).values))
+    ff = f.explode("bin").groupby(["scaffold", "bin"]).size().to_frame("n").reset_index(drop=False)
 
     if ff.shape[0] > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
