@@ -26,31 +26,31 @@ def _transpose_cssaln(cssaln, fai):
     return z
 
 
-def _transpose_10x_cov(assembly_new: dict, assembly: dict, fai, info, breaks, cores, prefix, regex2) -> dict:
+def _transpose_10x_cov(broken_assembly: dict, info, breaks, cores, prefix, regex2) -> dict:
     if "molecule_cov" in assembly and assembly["molecule_cov"].shape[0] > 0:
         print("10X molecule coverage")
         cov = add_molecule_cov(
-            assembly_new, scaffolds=fai.loc[fai["split"] == True, ["scaffold"]],
-            binsize=assembly["mol_binsize"], cores=cores)
+            broken_assembly, scaffolds=broken_assembly["info"]["scaffold"],
+            binsize=broken_assembly["mol_binsize"], cores=cores)
         # #   info[!breaks$scaffold, on="scaffold"]->x
         x = info.loc[~info["scaffold"].isin(breaks["scaffold"]), :].copy()
         x.loc[:, "scaffold"] = prefix + x.loc[:, "scaffold"].str.replace(regex2, "\\2", regex=True)
         x.loc[:, "split"] = True
         print([column for column in cov["info"] if column not in x.columns])
-        assembly_new["info"] = pd.concat([x.loc[:, cov["info"].columns], cov["info"]])
-        assembly_new["mol_binsize"] = assembly["mol_binsize"]
+        broken_assembly["info"] = pd.concat([x.loc[:, cov["info"].columns], cov["info"]])
+        broken_assembly["mol_binsize"] = assembly["mol_binsize"]
         x = assembly["molecule_cov"].loc[~assembly["molecule_cov"]["scaffold"].isin(breaks["scaffold"]), :].copy()
         x.loc[:, "scaffold"] = prefix + x.loc[:, "scaffold"].str.replace(regex2, "\\2", regex=True)
         if cov["molecule_cov"].shape[0] > 0:
-            assembly_new["molecule_cov"] = pd.concat([x, cov["molecule_cov"]])
+            broken_assembly["molecule_cov"] = pd.concat([x, cov["molecule_cov"]])
         else:
-            assembly_new["molecule_cov"] = x
-        print("Molecule cov:", assembly_new["molecule_cov"].shape[0])
-    elif "molecule_cov" in assembly and assembly["molecule_cov"].shape[0] == 0:
+            broken_assembly["molecule_cov"] = x
+        print("Molecule cov:", broken_assembly["molecule_cov"].shape[0])
+    elif "molecule_cov" in assembly and broken_assembly["molecule_cov"].shape[0] == 0:
         raise ValueError()
     else:
-        assembly_new["molecule_cov"] = pd.DataFrame()
-    return assembly_new
+        broken_assembly["molecule_cov"] = pd.DataFrame()
+    return broken_assembly
 
 
 def _transpose_hic_cov(assembly_new, assembly, fai, info, breaks, cores, prefix, regex2):
@@ -229,48 +229,70 @@ def break_scaffolds(breaks: pd.DataFrame, assembly: dict, prefix: str,
                     regex2=r"(^.*[^-0-9])([0-9]+(-[0-9]+)?$)"):
 
     info, cov, fpairs, cssaln = assembly["info"], assembly["cov"], assembly["fpairs"], assembly["cssaln"]
+    # Do we have the HiC coverage? Check
     fpairs_present = (assembly.get("fpairs", None) is not None) and (assembly["fpairs"].shape[0] > 0)
+    # Copy the breaks table
     br = breaks.copy()
     del br["length"]
     fai = info.loc[:, ["scaffold", "orig_scaffold", "orig_start", "orig_end", "length"]]
     fai.loc[:, "old_scaffold"] = fai.loc[:, "scaffold"]
+    fai.loc[:, "split"] = fai["scaffold"].isin(br["scaffold"])
+    stable = fai.loc[~fai["scaffold"].isin(br["scaffold"])]
+    fai_to_break = fai.loc[fai["scaffold"].isin(br["scaffold"])]
     print("Split scaffolds")
     j = 0
     while br.shape[0] > 0:
         j += 1
-        o = fai.shape[0]
-        br, nbr, fai = _calculate_breaks(br, fai, prefix, regex1=regex1, regex2=regex2, slop=slop)
-        assert o <= fai.shape[0], (o, fai.shape[0])
+        o = fai_to_break.shape[0]
+        br, nbr, fai_to_break = _calculate_breaks(br, fai_to_break, prefix, regex1=regex1, regex2=regex2, slop=slop)
+        assert o <= fai_to_break.shape[0], (o, fai_to_break.shape[0])
         print("Iteration", j, "finished.")
-        if o < fai.shape[0]:
-            print("The number of scaffolds increased from ", o, " to {}.".format(fai.shape[0]))
+        if o < fai_to_break.shape[0]:
+            print("The number of scaffolds increased from ", o, " to {}.".format(fai_to_break.shape[0]))
 
-    fai.loc[:, "split"] = False
-    fai.loc[fai["old_scaffold"].isin(breaks["scaffold"]), "split"] = True
-    del fai["old_scaffold"]
-    assembly_new = {"info": fai}
+    old_shape = fai.shape[0]
+    stable_assembly = {"binsize": assembly["binsize"], "innerDist": assembly["innerDist"],
+                       "minNbin": assembly["minNbin"]}
+    broken_assembly = {"binsize": assembly["binsize"], "innerDist": assembly["innerDist"],
+                       "minNbin": assembly["minNbin"]}
+    broken_info = info.loc[info["scaffold"].isin(breaks["scaffold"])]
+    stable_assembly["info"] = stable
+    broken_assembly["info"] = fai_to_break
     print("Transpose cssaln")
-    assembly_new["cssaln"] = _transpose_cssaln(cssaln, fai)
-    assembly_new["fpairs"] = _transpose_fpairs(fpairs, fai)
+    css_to_break = cssaln["scaffold"].isin(breaks["scaffold"])
+    stable_assembly["cssaln"] = cssaln.loc[~css_to_break]
+    broken_assembly["cssaln"] = _transpose_cssaln(cssaln.loc[css_to_break], fai_to_break)
     if fpairs_present is True:
-        assert assembly_new["fpairs"] is not None and assembly_new["fpairs"].shape[0] > 0
-        assert assembly_new["fpairs"]["pos1"].min() > 0
-        assert assembly_new["fpairs"]["pos2"].min() > 0
-    assembly_new["molecules"] = _transpose_molecules(assembly.get("molecules", None), fai)
+        fpairs_to_break = (fpairs["scaffold1"].isin(breaks["scaffold"]) |
+                           fpairs["scaffold2"].isin(breaks["scaffold"]))
+        stable_assembly["fpairs"] = fpairs.loc[~fpairs_to_break]
+        broken_assembly["fpairs"] = _transpose_fpairs(fpairs.loc[fpairs_to_break], broken_assembly["info"])
+        assert breaks.shape[0] == 0 or (broken_assembly["fpairs"] is not None and
+                                        broken_assembly["fpairs"].shape[0] > 0)
+        assert breaks.shape[0] == 0 or broken_assembly["fpairs"]["pos1"].min() > 0
+        assert breaks.shape[0] == 0 or broken_assembly["fpairs"]["pos2"].min() > 0
+    molecules = assembly.get("molecules", None)
+    if molecules is not None:
+        molecules_to_break = molecules["scaffold"].isin(breaks["scaffold"])
+        stable_assembly["molecules"] = molecules.loc[~molecules_to_break]
+        broken_assembly["molecules"] = _transpose_molecules(molecules.loc[molecules_to_break],
+                                                            broken_assembly["info"])
+    else:
+        stable_assembly["molecules"] = None
+        broken_assembly["molecules"] = None
     print("Anchor scaffolds")
-    assembly_new = anchor_scaffolds(assembly_new, popseq=assembly["popseq"], species=species)
-    if "mr_10x" in assembly_new["info"].columns:
-        del assembly_new["info"]["mr_10x"]
-    if "mr" in assembly_new["info"].columns:
-        del assembly_new["info"]["mr"]
-        del assembly_new["info"]["mri"]
-    assembly_new = _transpose_10x_cov(assembly_new, assembly, fai, info,
-                                      breaks=breaks, cores=cores, prefix=prefix, regex2=regex2)
-    assembly_new = _transpose_hic_cov(assembly_new, assembly, fai, info,
-                                      breaks=breaks, cores=cores, prefix=prefix, regex2=regex2)
-    assembly_new["binsize"] = assembly["binsize"]
-    assembly_new["innerDist"] = assembly["innerDist"]
-    assembly_new["minNbin"] = assembly["minNbin"]
+    broken_assembly = anchor_scaffolds(broken_assembly, popseq=assembly["popseq"], species=species)
+    broken_assembly["info"].drop("mr_10x", axis=1, errors="ignore")
+    broken_assembly["info"].drop("mr", axis=1, errors="ignore")
+    broken_assembly["info"].drop("mri", axis=1, errors="ignore")
+    broken_assembly = _transpose_10x_cov(broken_assembly, broken_info,
+                                         breaks=breaks, cores=cores, prefix=prefix, regex2=regex2)
+    broken_assembly = _transpose_hic_cov(broken_assembly, broken_info,
+                                         breaks=breaks, cores=cores, prefix=prefix, regex2=regex2)
 
-    print("Finished anchoring")
+    assembly_new = dict()
+    for key in ["info", "molecules", "cssaln", ]
+
+
+    print("Finished anchoring after breaking chimeras")
     return assembly_new

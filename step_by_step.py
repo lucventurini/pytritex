@@ -129,7 +129,7 @@ def main():
     with io.BufferedWriter(gzip.open(args.save_prefix + ".breaks.pickle.gz",
                                      "wb", compresslevel=1)) as dump:
         pickle.dump(a["breaks"], dump)
-    grid_evaluation(assembly, args)
+    # grid_evaluation(assembly, args)
 
     return
 
