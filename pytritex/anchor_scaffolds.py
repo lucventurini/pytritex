@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from .utils.chrnames import chrNames
 from scipy.stats import median_absolute_deviation
+from .utils import first, second
 
 
 def anchor_scaffolds(assembly: dict,
@@ -31,15 +32,12 @@ def anchor_scaffolds(assembly: dict,
     # cssaln[! is.na(sorted_alphachr),.N, keyby =.(scaffold, sorted_alphachr)]->z
     # For each scaffold in the assembly, for each chromosomal bin: how many CSS contigs confirm each possible bin?
     z = cssaln[~cssaln["sorted_alphachr"].isna()].copy()
-    z.loc[:, "N"] = z.groupby(["scaffold", "sorted_alphachr"]).transform("count").iloc[:, 0]
+    z.loc[:, "N"] = z.groupby(["scaffold", "sorted_alphachr"])["scaffold"].transform("size")
     zgrouped = z.sort_values(["scaffold", "N"], ascending=[True, False]).groupby("scaffold")
-    z = zgrouped.agg(
-        Ncss=("N", np.sum),
-        sorted_Ncss1=("N", lambda series: series.iloc[0]),
-        sorted_Ncss2=("N", lambda series: np.nan if series.shape[0] < 2 else series.iloc[-1]),
-        sorted_alphachr=("sorted_alphachr", lambda series: series.iloc[0]),
-        sorted_alphachr2=("sorted_alphachr", lambda series: np.nan if series.shape[0] < 2 else series.iloc[1])
-    ).reset_index(drop=False)
+
+    z = zgrouped.agg(Ncss=("N", np.sum), sorted_Ncss1=("N", first), sorted_Ncss2=("N", second),
+                     sorted_alphachr=("sorted_alphachr", first), sorted_alphachr2=("sorted_alphachr", second)
+                     ).reset_index(drop=False)
     z.loc[:, "sorted_pchr"] = z["sorted_Ncss1"] / z["Ncss"]
     z.loc[:, "sorted_p12"] = z["sorted_Ncss2"] / z["sorted_Ncss1"]
 
@@ -87,10 +85,8 @@ def anchor_scaffolds(assembly: dict,
     zz.loc[:, "popseq_Ncss"] = zz.groupby("scaffold")["N"].transform(np.sum)
     # Create a different dataframe now, we'll merge soon
     x = zz.sort_values(["scaffold", "N"], ascending=[True, False]).groupby("scaffold").agg(
-        {"N": [lambda series: series.iloc[0],
-               lambda series: 0 if series.shape[0] == 1 else series.iloc[1]],
-         "popseq_alphachr": [lambda series: series.iloc[0],
-                             lambda series: 0 if series.shape[0] == 1 else series.iloc[1]]
+        {"N": [first, second],
+         "popseq_alphachr": [first, second]
          })
     x.columns = ["popseq_Ncss1", "popseq_Ncss2", "popseq_alphachr", "popseq_alphachr2"]
     x.reset_index(drop=False, inplace=True)
@@ -120,10 +116,10 @@ def anchor_scaffolds(assembly: dict,
         ).groupby(["scaffold", "hic_chr"]).size().to_frame("N").reset_index(drop=False)
         zgrouped = z.sort_values(["scaffold", "N"], ascending=[True, False]).groupby("scaffold")
         zz = zgrouped.agg(
-            hic_chr=("hic_chr", lambda series: series.iloc[0]),
-            hic_chr2=("hic_chr", lambda series: np.nan if series.shape[0] == 1 else series.iloc[1]),
-            hic_N1=("N", lambda series: series.iloc[0]),
-            hic_N2=("N", lambda series: np.nan if series.shape[0] == 1 else series.iloc[1]),
+            hic_chr=("hic_chr", first),
+            hic_chr2=("hic_chr", second),
+            hic_N1=("N", first),
+            hic_N2=("N", second),
             Nhic=("N", "sum")
         )
         zz["hic_pchr"] = zz["hic_N1"] / zz["Nhic"]

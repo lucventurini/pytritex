@@ -18,9 +18,9 @@ def _group_analyser(group, binsize):
     return assigned
 
 
-# Calculate physical coverage with Hi-C links in sliding windows along the scaffolds
 def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1):
     """
+    Calculate physical coverage with Hi-C links in sliding windows along the scaffolds.
     :param assembly:
     :param scaffolds:
     :param binsize:

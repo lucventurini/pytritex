@@ -22,9 +22,16 @@ def orient_scaffolds(info: pd.DataFrame, res: pd.DataFrame,
         a, on=["scaffold2"], how="left")
     a = a.loc[(a.super1 == a.super2) & (a.bin1 != a.bin2), ].assign(d=lambda df: (df["bin2"] - df["bin1"]).abs())
     a = a.loc[a["d"] <= max_dist_orientation]
+
+    def _previous(series):
+        return (series.loc[a["bin2"] < a["bin1"]]).mean()
+
+    def _next(series):
+        return (series.loc[a["bin1"] < a["bin2"]]).mean()
+
     aa = a.rename(columns={"scaffold1": "scaffold"}).groupby("scaffold").agg(
-        prv=("pos1", lambda series: (series.loc[a["bin2"] < a["bin1"]]).mean()),
-        nxt=("pos1", lambda series: (series.loc[a["bin1"] < a["bin2"]]).mean()))
+        prv=("pos1", _previous),
+        nxt=("pos1", _next))
     aa = info.loc[:, ["scaffold", "length"]].merge(aa, on="scaffold", how="right")
     bait = (~aa["prv"].isna()) & (~aa["nxt"].isna())
 

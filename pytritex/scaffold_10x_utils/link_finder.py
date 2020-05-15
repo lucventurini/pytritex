@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from ..utils import unique_count
 
 
 def _initial_link_finder(info: pd.DataFrame, molecules: pd.DataFrame,
@@ -15,8 +16,7 @@ def _initial_link_finder(info: pd.DataFrame, molecules: pd.DataFrame,
     z = z.loc[(z["end"] <= max_dist) | (z["scaffold_length"] - z["start"] <= max_dist), :]
     # Group by barcode and sample. Only keep those lines in the table where a barcode in a given sample
     # is linking two different scaffolds.
-    z.loc[:, "nsc"] = z.groupby(["barcode", "sample"])["scaffold"].transform(
-        lambda series: series.unique().shape[0])
+    z.loc[:, "nsc"] = z.groupby(["barcode", "sample"])["scaffold"].transform(unique_count)
     z = z.loc[z["nsc"] >= 2, :]
     x = z.loc[:, ["scaffold", "npairs", "start", "end", "sample", "barcode"]].rename(
         columns={"scaffold": "scaffold1", "npairs": "npairs1"}).assign(pos1=(z["start"] + z["end"]) // 2)[
@@ -28,7 +28,7 @@ def _initial_link_finder(info: pd.DataFrame, molecules: pd.DataFrame,
     link_pos = xy.copy()
     w = xy.groupby(["scaffold1", "scaffold2", "sample"]).size().to_frame("nmol").reset_index(drop=False)
     ww = w.loc[w["nmol"] >= min_nmol]
-    ww2 = ww.groupby(["scaffold1", "scaffold2"]).agg(nsample=("sample", lambda series: series.unique().shape[0])).loc[
+    ww2 = ww.groupby(["scaffold1", "scaffold2"]).agg(nsample=("sample", unique_count)).loc[
         lambda df: df["nsample"] >= min_nsample].reset_index(drop=False)
     basic = info.loc[:, ["scaffold", "popseq_chr", "length", "popseq_pchr", "popseq_cM"]]
     ww2 = basic.rename(columns=dict((col, col + "1") for col in basic.columns)).merge(
