@@ -2,6 +2,7 @@ import pandas as pd
 from .chrnames import chrNames
 import subprocess as sp
 
+
 def read_cssaln(bam: str, popseq: pd.DataFrame,
                 fai: pd.DataFrame, minqual=30, minlen=10000):
     wheatchr = chrNames(species="wheat")
@@ -30,20 +31,25 @@ def read_cssaln(bam: str, popseq: pd.DataFrame,
     return cssaln
 
 
-def read_morexaln_minimap(paf, popseq: pd.DataFrame, minqual=30, minlen=500,
+def read_morexaln_minimap(paf: str,
+                          popseq: pd.DataFrame,
+                          fai: pd.DataFrame,
+                          minqual=30, minlen=500,
                           ref=True,
                           prefix=True):
     command = "zgrep tp:A:P {paf} | awk -v l={minlen} -v q={minqual} '$2>=l && $12>=q'"
     if ref is True:
-        names = ["css_contig", "scaffold", "scaffold_length", "pos"]
-        cols = [0, 5, 6, 7]
+        names = ["css_contig", "scaffold", "pos"]
+        cols = [0, 5, 7]
     else:
-        names= ["scaffold", "scaffold_length", "pos", "css_contig"]
-        cols = [0, 1, 2, 5]
+        names= ["scaffold", "pos", "css_contig"]
+        cols = [0, 2, 5]
     morex = pd.read_csv(
         sp.Popen(command.format(paf=paf, minqual=minqual, minlen=minlen), shell=True, stdout=sp.PIPE).stdout,
         sep="\t", names=names, usecols=cols)
     if prefix is True:
         morex["css_contig"] = morex.css_contig.str.replace("^", "morex_")
-    morex = popseq.merge(morex, on="css_contig", how="right")
+    morex = popseq.merge(morex, on="css_contig", how="right").drop("css_contig", axis=1)
+    morex = fai[["scaffold", "scaffold_index", "length"]].merge(
+        morex, left_on=["scaffold"], right_on=["scaffold"]).drop("scaffold", axis=1)
     return morex

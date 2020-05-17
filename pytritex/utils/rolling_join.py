@@ -1,47 +1,26 @@
 import pandas as pd
 import numpy as np
-import re
 
 
-def rolling_join(left: pd.DataFrame, right: pd.DataFrame, on, by, right_key):
-    """Implementation of the R data.table rolling join procedure, when the
-    "by" key is numeric."""
-    restore_right_index = False
-    index_names = None
-    if not isinstance(right.index, pd.RangeIndex) and right.index.names != [None]:
-        restore_right_index = True
-        index_names = right.index.names
-        right.reset_index(drop=False, inplace=True)
-    initial = pd.merge(left, right, on=on, suffixes=("_left", "_right"), how="right")
-    initial.loc[:, "distance"] = (initial[by + "_left"] - initial[by + "_right"])
-    if not isinstance(by, list):
-        by = [by]
-    if not isinstance(right_key, list):
-        right_key = [right_key]
-    retain_columns = []
-    for column in initial.columns:
-        keep = True
-        if column in right:
-            keep = False
-        elif column == "distance":
-            keep = False
-        if keep:
-            if re.sub("_right$", "", column) in by:
-                keep = False
-            elif re.sub("_left$", "", column) in by:
-                keep = False
-            elif column in left.columns:
-                keep = True
-        if keep:
-            retain_columns.append(column)
+def rolling_join(left: pd.DataFrame, right: pd.DataFrame, on, by, how="left"):
+    """Implementation of the R data.table rolling join procedure."""
 
-    retain_columns = right_key + retain_columns
-    renamer = dict((_, re.sub("_right$", "", _)) for _ in retain_columns if _.endswith("_right"))
-    vals = initial.sort_values("distance", ascending=True).groupby(right_key, as_index=False).head(1).loc[:,
-           retain_columns].rename(columns=renamer)
-    right_cols = [_ for _ in right.columns]
-    right = pd.merge(vals.set_index(right_key), right.loc[:, right_cols].set_index(right_key),
-                     left_index=True, right_index=True, how="inner").reset_index(drop=False)
-    if restore_right_index:
-        right.set_index(index_names, inplace=True)
-    return right
+    def nearest(array, value, how="left"):
+        idx = np.searchsorted(array, value, side="left")
+        if idx == array.shape[0]:  # It would be beyond the data
+            idx -= 1
+        if how == "left":
+            pass
+        elif how == "right":
+            idx += 1
+        return idx
+
+    _cp_right = right.sort_values([on, by])
+    groups = _cp_right.groupby([on])
+    _cp_right.loc[:, "__idx_pos"] = groups[by].transform(lambda s: np.arange(s.shape[0], dtype=np.int))
+    hashed_groups = dict((key, groups.get_group(key)) for key in groups.groups)
+    left.loc[:, "__idx_pos"] = left.apply(lambda row: np.nan if row[on] not in groups.groups else
+                                          nearest(hashed_groups[row[on]][by], row[by], how=how), axis=1)
+    res = left.drop(by, axis=1).merge(_cp_right, on=[on, "__idx_pos"], how="right").drop("__idx_pos", axis=1)
+    assert res.loc[res[by].isna()].shape[0] <= right.loc[right[by].isna()].shape[0]
+    return res

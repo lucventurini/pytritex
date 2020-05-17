@@ -26,14 +26,20 @@ def _transpose_cssaln(cssaln, fai):
     return z
 
 
-def _transpose_10x_cov(broken_assembly: dict, info, breaks, cores, prefix, regex2) -> dict:
+def _transpose_10x_cov(broken_assembly: dict, assembly: dict, info, breaks, cores, prefix, regex2) -> dict:
     if "molecule_cov" in assembly and assembly["molecule_cov"].shape[0] > 0:
         print("10X molecule coverage")
+        broken_assembly["mol_binsize"] = assembly["mol_binsize"]
+        print(breaks.shape[0])
+        print(broken_assembly["info"].shape[0])
         cov = add_molecule_cov(
             broken_assembly, scaffolds=broken_assembly["info"]["scaffold"],
             binsize=broken_assembly["mol_binsize"], cores=cores)
         # #   info[!breaks$scaffold, on="scaffold"]->x
         x = info.loc[~info["scaffold"].isin(breaks["scaffold"]), :].copy()
+        print(x.shape[0])
+        # TODO: this will have to disappear. The idea of using strings and then using REGEXes to find the index
+        # TODO: is absolute bonkers.
         x.loc[:, "scaffold"] = prefix + x.loc[:, "scaffold"].str.replace(regex2, "\\2", regex=True)
         x.loc[:, "split"] = True
         print([column for column in cov["info"] if column not in x.columns])
@@ -97,13 +103,17 @@ def _transpose_fpairs(fpairs: pd.DataFrame, fai: pd.DataFrame) -> pd.DataFrame:
                      "orig_start": "orig_start2"}).assign(
             orig_pos2=fai["orig_start"]).loc[:, ["scaffold2", "orig_scaffold2", "orig_start2", "orig_pos2"]]
         f2.loc[:, "orig_pos2"] = f2.loc[:, "orig_pos2"].astype(int)
-        z = rolling_join(f1, z, ["orig_scaffold1"], "orig_pos1", ["orig_scaffold1", "orig_scaffold2"])
-        z = rolling_join(f2, z, ["orig_scaffold2"], "orig_pos2", ["orig_scaffold1", "orig_scaffold2"])
+        print(f1["orig_start1"].describe())
+        z = rolling_join(f1, z, on="orig_scaffold1", by="orig_pos1", how="right")
+        z = rolling_join(f2, z, on="orig_scaffold2", by="orig_pos2", how="right")
         remainder = fpairs.loc[~((fpairs["orig_scaffold1"].isin(z["orig_scaffold1"])) |
                                  (fpairs["orig_scaffold1"].isin(z["orig_scaffold2"])))]
         assert remainder.shape[0] == 0
-        z.loc[:, "pos1"] = z["orig_pos1"] - z["orig_start1"] + 1
-        assert z["pos1"].min() > 0
+        try:
+            z.loc[:, "pos1"] = z["orig_pos1"] - z["orig_start1"] + 1
+        except KeyError as exc:
+            raise KeyError((exc, z.columns))
+        assert z["pos1"].min() > 0, (z.shape[0], z.loc[z.pos1.isna()].shape[0])
         z.loc[:, "pos2"] = z["orig_pos2"] - z["orig_start2"] + 1
         assert z["pos2"].min() > 0
         del z["orig_start1"]
@@ -120,12 +130,14 @@ def _transpose_molecules(molecules: pd.DataFrame, fai: pd.DataFrame) -> pd.DataF
         del z["scaffold"]
         #   fai[, .(scaffold, orig_scaffold, orig_start,
         #   s_length=orig_end - orig_start + 1, orig_pos=orig_start)][z, on=c("orig_scaffold", "orig_start"), roll=T]->z
+        print(z.columns)
+        assert "orig_scaffold" in z.columns, z.columns
         z = rolling_join(
             fai.loc[:, ["scaffold", "orig_scaffold", "orig_start"]].assign(
                 s_length=fai["orig_end"] - fai["orig_start"] + 1,
                 orig_pos=fai["orig_start"]
             ),
-            z, on=["orig_scaffold"], by="orig_start", right_key=["orig_scaffold"]
+            z, on="orig_scaffold", by="orig_start"
         )
         z = z.assign(start=z["orig_start"] - z["orig_pos"] + 1,
                      end=z["orig_end"] - z["orig_pos"] + 1)
@@ -285,14 +297,14 @@ def break_scaffolds(breaks: pd.DataFrame, assembly: dict, prefix: str,
     broken_assembly["info"].drop("mr_10x", axis=1, errors="ignore")
     broken_assembly["info"].drop("mr", axis=1, errors="ignore")
     broken_assembly["info"].drop("mri", axis=1, errors="ignore")
-    broken_assembly = _transpose_10x_cov(broken_assembly, broken_info,
+    broken_assembly = _transpose_10x_cov(broken_assembly, assembly, broken_info,
                                          breaks=breaks, cores=cores, prefix=prefix, regex2=regex2)
-    broken_assembly = _transpose_hic_cov(broken_assembly, broken_info,
+    broken_assembly = _transpose_hic_cov(broken_assembly, broken_info, fai=fai, info=broken_info,
                                          breaks=breaks, cores=cores, prefix=prefix, regex2=regex2)
 
     assembly_new = dict()
-    for key in ["info", "molecules", "cssaln", ]
-
-
+    # for key in ["info", "molecules", "cssaln", ]
+    #
+    #
     print("Finished anchoring after breaking chimeras")
     return assembly_new
