@@ -13,7 +13,9 @@ def break_10x(assembly: dict, prefix="scaffold_corrected",
         dist = 2 * slop + 1
 
     if breaks is None:
-        breaks = find_10x_breaks(assembly, interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
+        breaks = find_10x_breaks(assembly["molecule_cov"].copy(),
+                                 interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
+    print(breaks.head())
     i = 0
     lbreaks = dict()
     assemblies = dict()
@@ -27,7 +29,8 @@ def break_10x(assembly: dict, prefix="scaffold_corrected",
                                    slop=slop, cores=ncores)
         if intermediate is True:
             assemblies[i] = assembly
-        breaks = find_10x_breaks(assembly, interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
+        breaks = find_10x_breaks(assembly["molecule_cov"].copy(),
+                                 interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
         if breaks is None or breaks.shape[0] == 0:
             break
         lbreaks[i] = breaks

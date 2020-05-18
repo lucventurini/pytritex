@@ -1,9 +1,9 @@
 import pandas as pd
-import numpy as np
-from .anchor_scaffolds import anchor_scaffolds
+from pytritex.anchoring.anchor_scaffolds import anchor_scaffolds
 from .add_hic_cov import add_hic_cov
 from .add_molecule_cov import add_molecule_cov
 from .utils.rolling_join import rolling_join
+from time import ctime
 
 
 def _transpose_cssaln(cssaln, fai):
@@ -26,27 +26,29 @@ def _transpose_cssaln(cssaln, fai):
     return z
 
 
-def _transpose_10x_cov(broken_assembly: dict, assembly: dict, info, breaks, cores, prefix, regex2) -> dict:
+def _transpose_10x_cov(broken_assembly: dict, assembly: dict, info, breaks, cores, prefix) -> dict:
     if "molecule_cov" in assembly and assembly["molecule_cov"].shape[0] > 0:
         print("10X molecule coverage")
         broken_assembly["mol_binsize"] = assembly["mol_binsize"]
         print(breaks.shape[0])
         print(broken_assembly["info"].shape[0])
         cov = add_molecule_cov(
-            broken_assembly, scaffolds=broken_assembly["info"]["scaffold"],
+            broken_assembly, scaffolds=broken_assembly["info"]["scaffold_index"],
             binsize=broken_assembly["mol_binsize"], cores=cores)
         # #   info[!breaks$scaffold, on="scaffold"]->x
-        x = info.loc[~info["scaffold"].isin(breaks["scaffold"]), :].copy()
+        x = info.loc[~info["scaffold_index"].isin(breaks["scaffold_index"]), :].copy()
         print(x.shape[0])
         # TODO: this will have to disappear. The idea of using strings and then using REGEXes to find the index
         # TODO: is absolute bonkers.
-        x.loc[:, "scaffold"] = prefix + x.loc[:, "scaffold"].str.replace(regex2, "\\2", regex=True)
+        x.loc[:, "scaffold_index"] = prefix + x.loc[:, "scaffold_index"].str.replace(regex2, "\\2", regex=True)
         x.loc[:, "split"] = True
         print([column for column in cov["info"] if column not in x.columns])
         broken_assembly["info"] = pd.concat([x.loc[:, cov["info"].columns], cov["info"]])
         broken_assembly["mol_binsize"] = assembly["mol_binsize"]
-        x = assembly["molecule_cov"].loc[~assembly["molecule_cov"]["scaffold"].isin(breaks["scaffold"]), :].copy()
-        x.loc[:, "scaffold"] = prefix + x.loc[:, "scaffold"].str.replace(regex2, "\\2", regex=True)
+        x = assembly["molecule_cov"].loc[~assembly["molecule_cov"]["scaffold_index"].isin(
+            breaks["scaffold_index"]), :].copy()
+        # TODO: NOOOO!
+        x.loc[:, "scaffold_index"] = prefix + x.loc[:, "scaffold_index"].str.replace(regex2, "\\2", regex=True)
         if cov["molecule_cov"].shape[0] > 0:
             broken_assembly["molecule_cov"] = pd.concat([x, cov["molecule_cov"]])
         else:
@@ -186,97 +188,108 @@ def _concatenate_br_and_fai(br, fai, prefix, regex2):
     return fai
 
 
-def _calculate_breaks(br, fai, prefix, regex1, slop, regex2):
-    assert br[br["br"].isna()].shape[0] == 0, br
-    br = fai.merge(br, how="right", on="scaffold")
-    assert br[br["length"] == 0].shape[0] == 0
-    br.loc[:, "orig_br"] = br["orig_start"] + br["br"] - 1
-    br = br.sort_values(["scaffold", "br"])
-    nbr = br.loc[br["scaffold"].duplicated(), :]
-    br = br.loc[~br["scaffold"].duplicated(), :]
-    maxidx = fai["scaffold"].str.replace(regex1, "\\3", regex=True).astype(int).max()
-    br.loc[:, "idx"] = 3 * np.arange(1, br.shape[0] + 1) - 2
-    br.loc[:, "scaffold1"] = prefix + pd.Series(maxidx + br["idx"]).astype(str)
-    br.loc[:, "start1"] = 1
-    assert br[br["br"].isna()].shape[0] == 0, br[br["br"].isna()]
-    br.loc[:, "end1"] = np.maximum(0, br["br"] - slop - 1)
-    # br[, scaffold2 := paste0(prefix, maxidx + idx + 1)]
-    br.loc[:, "scaffold2"] = prefix + pd.Series(maxidx + br["idx"] + 1).astype(str)
-    # br[, start2 := pmax(1, br - slop)]
-    br.loc[:, "start2"] = np.maximum(1, br["br"] - slop)
-    # br[, end2 := pmin(br + slop - 1, length)]
-    br.loc[:, "end2"] = np.minimum(br["br"] + slop - 1, br["length"])
-    #   br[, scaffold3 := paste0(prefix, maxidx+idx+2)]
-    br.loc[:, "scaffold3"] = prefix + pd.Series(maxidx + br["idx"] + 2).astype(str)
-    #   br[, start3 := pmin(length + 1, br + slop)]
-    br.loc[:, "start3"] = np.minimum(br["length"] + 1, br["br"] + slop)
-    #   br[, end3 := length]
-    br.loc[:, "end3"] = br.loc[:, "length"]
-    #   br[, length1 := 1 + end1 - start1]
-    br.loc[:, "length1"] = 1 + br["end1"] - br["start1"]
-    #   br[, length2 := 1 + end2 - start2]
-    br.loc[:, "length2"] = 1 + br["end2"] - br["start2"]
-    #   br[, length3 := 1 + end3 - start3]
-    br.loc[:, "length3"] = 1 + br["end3"] - br["start3"]
-    fai = _concatenate_br_and_fai(br, fai, prefix, regex2)
-    assert fai[fai["length"].isna()].shape[0] == 0, fai[fai["length"].isna()]
-    # assert fai[fai["length"] == 0].shape[0] == 0, fai[fai["length"] == 0]
-    fai = fai.loc[fai["length"] > 0, :]
-    # The "roll" functionality is NOT present in pandas. It is necessary to do a double merge.
-    current_cols = ["orig_scaffold", "orig_br"]
-    f = fai.loc[:, ["scaffold", "orig_scaffold", "orig_start"]].assign(orig_br=fai["orig_start"])
-    nbr = f.merge(nbr.loc[:, current_cols], on=["orig_scaffold", "orig_br"], how="right")
-    nbr.loc[nbr["scaffold"].isna(), ["scaffold", "orig_start"]] = f.merge(
-        nbr.loc[nbr["scaffold"].isna(), current_cols],
-        on=["orig_scaffold"]).loc[:, ["scaffold", "orig_start"]]
-    nbr.loc[:, "br"] = nbr["orig_br"] - nbr["orig_start"] + 1
-    br = nbr.loc[:, ["scaffold", "br"]]
-    return br, nbr, fai
+def _calculate_breaks(breaks, fai, prefix, slop):
+    print(breaks.head())
+    raise AssertionError
+    grouped_breaks = breaks.groupby("scaffold_index")
+
+
+    # assert breaks[breaks["break"].isna()].shape[0] == 0, breaks
+    # br = fai.merge(breaks, how="right", on="scaffold_index")
+    # assert br[br["length"] == 0].shape[0] == 0
+    # br.loc[:, "original_break"] = br["orig_start"] + br["break"] - 1
+    # br = br.sort_values(["scaffold", "break"])
+    # nbr = br.loc[br["scaffold_index"].duplicated(), :]
+    #
+    # # First
+    # br = br.loc[~br["scaffold_index"].duplicated(), :]
+    # # maxidx = fai["scaffold"].str.replace(regex1, "\\3", regex=True).astype(int).max()
+    # maxidx = fai["scaffold_index"].max()
+    # br.loc[:, "idx"] = 3 * np.arange(1, br.shape[0] + 1) - 2
+    # br.loc[:, "scaffold_index1"] = prefix + pd.Series(maxidx + br["idx"]).astype(str)
+    # br.loc[:, "start1"] = 1
+    # assert br[br["break"].isna()].shape[0] == 0, br[br["break"].isna()]
+    # br.loc[:, "end1"] = np.maximum(0, br["break"] - slop - 1)
+    # # br[, scaffold2 := paste0(prefix, maxidx + idx + 1)]
+    # br.loc[:, "scaffold2"] = prefix + pd.Series(maxidx + br["idx"] + 1).astype(str)
+    # # br[, start2 := pmax(1, br - slop)]
+    # br.loc[:, "start2"] = np.maximum(1, br["break"] - slop)
+    # # br[, end2 := pmin(br + slop - 1, length)]
+    # br.loc[:, "end2"] = np.minimum(br["break"] + slop - 1, br["length"])
+    # #   br[, scaffold3 := paste0(prefix, maxidx+idx+2)]
+    # br.loc[:, "scaffold3"] = prefix + pd.Series(maxidx + br["idx"] + 2).astype(str)
+    # #   br[, start3 := pmin(length + 1, br + slop)]
+    # br.loc[:, "start3"] = np.minimum(br["length"] + 1, br["break"] + slop)
+    # #   br[, end3 := length]
+    # br.loc[:, "end3"] = br.loc[:, "length"]
+    # #   br[, length1 := 1 + end1 - start1]
+    # br.loc[:, "length1"] = 1 + br["end1"] - br["start1"]
+    # #   br[, length2 := 1 + end2 - start2]
+    # br.loc[:, "length2"] = 1 + br["end2"] - br["start2"]
+    # #   br[, length3 := 1 + end3 - start3]
+    # br.loc[:, "length3"] = 1 + br["end3"] - br["start3"]
+    # fai = _concatenate_br_and_fai(br, fai, prefix, regex2)
+    # assert fai[fai["length"].isna()].shape[0] == 0, fai[fai["length"].isna()]
+    # # assert fai[fai["length"] == 0].shape[0] == 0, fai[fai["length"] == 0]
+    # fai = fai.loc[fai["length"] > 0, :]
+    # # The "roll" functionality is NOT present in pandas. It is necessary to do a double merge.
+    # current_cols = ["orig_scaffold", "orig_break"]
+    # f = fai.loc[:, ["scaffold", "orig_scaffold", "orig_start"]].assign(orig_break=fai["orig_start"])
+    # nbr = f.merge(nbr.loc[:, current_cols], on=["orig_scaffold", "orig_break"], how="right")
+    # nbr.loc[nbr["scaffold"].isna(), ["scaffold", "orig_start"]] = f.merge(
+    #     nbr.loc[nbr["scaffold"].isna(), current_cols],
+    #     on=["orig_scaffold"]).loc[:, ["scaffold", "orig_start"]]
+    # nbr.loc[:, "break"] = nbr["orig_break"] - nbr["orig_start"] + 1
+    # br = nbr.loc[:, ["scaffold", "break"]]
+    # return br, nbr, fai
 
 
 # # Break scaffolds at specified points and lift positional information to updated assembly
 def break_scaffolds(breaks: pd.DataFrame, assembly: dict, prefix: str,
-                    slop: float, cores=1, species="wheat",
-                    regex1=r"(^.*[^-0-9])(([0-9]+)(-[0-9]+)?$)",
-                    regex2=r"(^.*[^-0-9])([0-9]+(-[0-9]+)?$)"):
+                    slop: float, cores=1, species="wheat"):
 
-    info, cov, fpairs, cssaln = assembly["info"], assembly["cov"], assembly["fpairs"], assembly["cssaln"]
+    info, cov, cssaln = assembly["info"], assembly["cov"], assembly["cssaln"]
     # Do we have the HiC coverage? Check
-    fpairs_present = (assembly.get("fpairs", None) is not None) and (assembly["fpairs"].shape[0] > 0)
+    fpairs = assembly.get("fpairs", None)
+    fpairs_present = (fpairs is not None) and (fpairs.shape[0] > 0)
     # Copy the breaks table
     br = breaks.copy()
     del br["length"]
-    fai = info.loc[:, ["scaffold", "orig_scaffold", "orig_start", "orig_end", "length"]]
-    fai.loc[:, "old_scaffold"] = fai.loc[:, "scaffold"]
-    fai.loc[:, "split"] = fai["scaffold"].isin(br["scaffold"])
-    stable = fai.loc[~fai["scaffold"].isin(br["scaffold"])]
-    fai_to_break = fai.loc[fai["scaffold"].isin(br["scaffold"])]
-    print("Split scaffolds")
+    keys = ["scaffold_index", "orig_scaffold_index", "orig_start", "orig_end", "length"]
+    try:
+        fai = info.loc[:, ["scaffold_index", "orig_scaffold_index", "orig_start", "orig_end", "length"]]
+    except KeyError:
+        raise KeyError((keys, info.columns))
+    fai.loc[:, "old_scaffold_index"] = fai.loc[:, "scaffold_index"]
+    fai.loc[:, "split"] = fai["scaffold_index"].isin(br["scaffold_index"])
+    stable = fai.loc[~fai["scaffold_index"].isin(br["scaffold_index"])]
+    fai_to_break = fai.loc[fai["scaffold_index"].isin(br["scaffold_index"])]
+    print(ctime(), "Split scaffolds")
     j = 0
     while br.shape[0] > 0:
         j += 1
         o = fai_to_break.shape[0]
-        br, nbr, fai_to_break = _calculate_breaks(br, fai_to_break, prefix, regex1=regex1, regex2=regex2, slop=slop)
+        br, nbr, fai_to_break = _calculate_breaks(br, fai_to_break, prefix, slop=slop)
         assert o <= fai_to_break.shape[0], (o, fai_to_break.shape[0])
-        print("Iteration", j, "finished.")
+        print(ctime(), "Iteration", j, "finished.")
         if o < fai_to_break.shape[0]:
-            print("The number of scaffolds increased from ", o, " to {}.".format(fai_to_break.shape[0]))
+            print(ctime(), "The number of scaffolds increased from ", o, " to {}.".format(fai_to_break.shape[0]))
 
     old_shape = fai.shape[0]
     stable_assembly = {"binsize": assembly["binsize"], "innerDist": assembly["innerDist"],
                        "minNbin": assembly["minNbin"]}
     broken_assembly = {"binsize": assembly["binsize"], "innerDist": assembly["innerDist"],
                        "minNbin": assembly["minNbin"]}
-    broken_info = info.loc[info["scaffold"].isin(breaks["scaffold"])]
+    broken_info = info.loc[info["scaffold_index"].isin(breaks["scaffold_index"])]
     stable_assembly["info"] = stable
     broken_assembly["info"] = fai_to_break
     print("Transpose cssaln")
-    css_to_break = cssaln["scaffold"].isin(breaks["scaffold"])
+    css_to_break = cssaln["scaffold_index"].isin(breaks["scaffold_index"])
     stable_assembly["cssaln"] = cssaln.loc[~css_to_break]
     broken_assembly["cssaln"] = _transpose_cssaln(cssaln.loc[css_to_break], fai_to_break)
     if fpairs_present is True:
-        fpairs_to_break = (fpairs["scaffold1"].isin(breaks["scaffold"]) |
-                           fpairs["scaffold2"].isin(breaks["scaffold"]))
+        fpairs_to_break = (fpairs["scaffold_index1"].isin(breaks["scaffold_index"]) |
+                           fpairs["scaffold_index2"].isin(breaks["scaffold_index"]))
         stable_assembly["fpairs"] = fpairs.loc[~fpairs_to_break]
         broken_assembly["fpairs"] = _transpose_fpairs(fpairs.loc[fpairs_to_break], broken_assembly["info"])
         assert breaks.shape[0] == 0 or (broken_assembly["fpairs"] is not None and
@@ -285,7 +298,7 @@ def break_scaffolds(breaks: pd.DataFrame, assembly: dict, prefix: str,
         assert breaks.shape[0] == 0 or broken_assembly["fpairs"]["pos2"].min() > 0
     molecules = assembly.get("molecules", None)
     if molecules is not None:
-        molecules_to_break = molecules["scaffold"].isin(breaks["scaffold"])
+        molecules_to_break = molecules["scaffold_index"].isin(breaks["scaffold_index"])
         stable_assembly["molecules"] = molecules.loc[~molecules_to_break]
         broken_assembly["molecules"] = _transpose_molecules(molecules.loc[molecules_to_break],
                                                             broken_assembly["info"])
@@ -298,13 +311,10 @@ def break_scaffolds(breaks: pd.DataFrame, assembly: dict, prefix: str,
     broken_assembly["info"].drop("mr", axis=1, errors="ignore")
     broken_assembly["info"].drop("mri", axis=1, errors="ignore")
     broken_assembly = _transpose_10x_cov(broken_assembly, assembly, broken_info,
-                                         breaks=breaks, cores=cores, prefix=prefix, regex2=regex2)
+                                         breaks=breaks, cores=cores, prefix=prefix)
     broken_assembly = _transpose_hic_cov(broken_assembly, broken_info, fai=fai, info=broken_info,
-                                         breaks=breaks, cores=cores, prefix=prefix, regex2=regex2)
+                                         breaks=breaks, cores=cores, prefix=prefix)
 
     assembly_new = dict()
-    # for key in ["info", "molecules", "cssaln", ]
-    #
-    #
     print("Finished anchoring after breaking chimeras")
     return assembly_new

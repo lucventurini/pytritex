@@ -1,5 +1,5 @@
 import pandas as pd
-from .chrnames import chrNames
+from pytritex.utils.chrnames import chrNames
 import subprocess as sp
 
 
@@ -52,4 +52,6 @@ def read_morexaln_minimap(paf: str,
     morex = popseq.merge(morex, on="css_contig", how="right").drop("css_contig", axis=1)
     morex = fai[["scaffold", "scaffold_index", "length"]].merge(
         morex, left_on=["scaffold"], right_on=["scaffold"]).drop("scaffold", axis=1)
+    morex.loc[:, "orig_scaffold_index"] = morex["scaffold_index"]
+    morex.loc[:, "orig_pos"] = morex["pos"]
     return morex

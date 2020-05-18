@@ -11,14 +11,20 @@ def _10xreader(item):
     return df
 
 
-def read_10x_molecules(files: list, fai: pd.DataFrame, ncores=1):
+def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1):
     """Read the files as produced by run_10x_mapping.zsh"""
     pool = mp.Pool(ncores)
-    mol = pd.concat(pool.map(_10xreader, files))
+    mol = pd.concat(pool.map(_10xreader, samples[["index", "fname"]].itertuples(index=False, name=None)))
     pool.close()
-    mol = fai.loc[["scaffold", "scaffold_index"]].merge(mol, on=["scaffold"], how="right")
-    assert ~mol["scaffold_index"].isna()
+    mol = fai[["scaffold", "scaffold_index"]].merge(mol, on=["scaffold"], how="right")
+    assert (~mol["scaffold_index"].isna()).all()
     mol.drop("scaffold", axis=1, inplace=True)
     mol["length"] = mol.end - mol.start
     mol.start += 1
-    return mol
+    mol.loc[:, "orig_start"] = mol["start"]
+    mol.loc[:, "orig_end"] = mol["end"]
+    mol.loc[:, "orig_scaffold_index"] = mol["scaffold_index"]
+    barcodes = pd.DataFrame({"barcode_index": np.arange(mol.shape[0], dtype=np.int),
+                             "barcode": mol["barcode"]})
+    mol = barcodes.merge(mol, how="right", on="barcode").drop("barcode", axis=1)
+    return mol, barcodes
