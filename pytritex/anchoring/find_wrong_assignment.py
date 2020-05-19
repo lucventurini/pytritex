@@ -60,8 +60,8 @@ def find_wrong_assignments(anchored_css: pd.DataFrame, measure: list, sorted_per
         hic_threshold = anchored_css.loc[anchored_css["Nhic"] >= 30,
                                          "hic_p12"].quantile((hic_percentile + 1) / 100)
         anchored_css.loc[anchored_css["Nhic"] >= 30, "bad_hic"] = ((anchored_css["hic_p12"] >= hic_threshold) & (
-                anchored_css["hic_N2"] >= 2))
-        anchored_css.loc[anchored_css["bad_hic"].isna(), "bad_hic"] = False
+                anchored_css["hic_N2"] >= 2)).astype(bool)
+        anchored_css.loc[:, "bad_hic"] = anchored_css["bad_hic"].fillna(False).astype(bool)
         measure.append("bad_hic")
 
     # Finally, let's count how many bad assignments we found for each scaffold. This can be between 0 and 3.

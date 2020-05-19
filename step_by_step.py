@@ -1,6 +1,7 @@
 import pandas as pd
 import argparse
 import multiprocessing as mp
+import os
 import pickle
 from time import ctime
 from pytritex.anchoring.anchor_scaffolds import anchor_scaffolds
@@ -42,6 +43,30 @@ def grid_evaluation(assembly, args):
     return result
 
 
+def saver(fname, dictionary):
+    error_set = False
+    companion = os.path.splitext(fname)[0] + ".pickle"
+    companion_d = dict()
+    with pd.HDFStore(fname, complevel=6, complib="blosc", mode="w") as store:
+        for key in dictionary:
+            if isinstance(dictionary[key], pd.DataFrame):
+                try:
+                    dictionary[key].to_hdf(store, key=key, format="table")
+                except (TypeError, KeyError) as exc:
+                    error_set = True
+                    print("Failed to serialise", key, ", exception:", exc)
+            else:
+                companion_d[key] = dictionary[key]
+
+    with open(companion, "wb") as h_companion:
+        pickle.dump(companion_d, h_companion)
+
+    if error_set:
+        pickled = os.path.splitext(fname)[0] + ".bk.pickle"
+        with open(pickled, "wb") as h_pick:
+            pickle.dump(dictionary, h_pick)
+        raise NotImplementedError("Something went wrong with the saving!")
+
 def main():
 
     parser = argparse.ArgumentParser()
@@ -54,13 +79,13 @@ def main():
     parser.add_argument("hic")
     parser.add_argument("fasta")
     args = parser.parse_args()
-    popseq = pd.read_pickle(args.popseq)
+    popseq = pd.read_hdf(args.popseq)
     popseq.columns = popseq.columns.str.replace("morex", "css")
     assembly = initial(args, popseq)
-    initial_fname = args.save_prefix + ".initial_assembly.pickle"
-    with io.BufferedWriter(open(initial_fname, "wb")) as dump:
-        pickle.dump(assembly, dump)
-    sp.call(["gzip", "-f", initial_fname])
+    if args.save is True:
+        initial_fname = args.save_prefix + ".initial_assembly.h5"
+        saver(initial_fname, assembly)
+
     assembly = anchor_scaffolds(assembly, popseq=popseq, species="wheat")
     assembly = add_molecule_cov(assembly, cores=args.procs, binsize=200)
     assembly = add_hic_cov(assembly, cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
@@ -68,28 +93,18 @@ def main():
     b = breaks[breaks["d"] >= 1e4].sort_values("d", ascending=False).head(100)
     if args.save is True:
         print(ctime(), "Started to save the data")
-        fname = args.save_prefix + ".anchored_assembly.pickle"
-        with open(fname, "wb") as dump:
-            pickle.dump(assembly, dump)
-        sp.call(["gzip", "-f", fname])
-        fname = args.save_prefix + ".initial_breaks.pickle"
-        with open(fname, "wb") as dump:
-            pickle.dump(breaks, dump)
-        sp.call(["gzip", "-f", fname])
+        fname = args.save_prefix + ".anchored_assembly.h5"
+        assembly.update({"breaks": breaks})
+        saver(fname, assembly)
         print(ctime(), "Finished saving the data")
     a = break_10x(
         assembly, ratio=-3,
         interval=5e4, minNbin=20, dist=2e3, slop=2e2, species="wheat", intermediate=False, cores=args.procs)
     print("Broken chimeras")
     assembly_v1 = a["assembly"]
-    fname = args.save_prefix + ".assembly_v1.pickle"
-    with open(fname, "wb") as dump:
-        pickle.dump(assembly_v1, dump)
-    sp.call(["gzip", "-f", fname])
-    fname = args.save_prefix + ".breaks.pickle.gz"
-    with open(fname, "wb") as dump:
-        pickle.dump(a["breaks"], dump)
-    sp.call(["gzip", "-f", fname])
+    if args.save is True:
+        fname = args.save_prefix + ".assembly_v1.h5"
+        saver(fname, assembly_v1)
     # grid_evaluation(assembly, args)
     return
 

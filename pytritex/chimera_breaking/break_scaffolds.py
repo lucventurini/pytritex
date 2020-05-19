@@ -32,4 +32,7 @@ def break_scaffolds(breaks, assembly, slop, cores=1, species="wheat") -> dict:
     new_assembly = _transpose_hic_cov(new_assembly, assembly["info"], fai,
                                       assembly["cov"], assembly["fpairs"], cores=cores)
     new_assembly = _transpose_molecule_cov(new_assembly, fai, assembly, cores=cores)
+    for key in ["popseq_alphachr2", "popseq_alphachr", "sorted_alphachr", "sorted_alphachr2"]:
+        new_assembly["info"].loc[lambda df: df[key] == 0, key] = np.nan
+    new_assembly["info"].loc[:, "derived_from_split"] = new_assembly["info"]["derived_from_split"].fillna(False)
     return new_assembly

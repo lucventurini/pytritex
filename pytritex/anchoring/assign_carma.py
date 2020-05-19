@@ -52,7 +52,8 @@ def assign_carma(cssaln: pd.DataFrame, fai: pd.DataFrame, wheatchr: pd.DataFrame
         long_arm_counts.merge(combined_stats, left_index=True, right_index=True, how="right"),
         left_index=True, right_index=True, how="right")
     combined_stats.loc[:, ["NL", "NS"]] = combined_stats[["NL", "NS"]].fillna(0)
-    combined_stats.loc[:, "sorted_arm"] = (combined_stats["NS"] > combined_stats["NL"]).map({True: "S", False: "L"})
+    combined_stats.loc[:, "sorted_arm"] = (combined_stats["NS"] > combined_stats["NL"]).map(
+        {True: "S", False: "L"}).astype(bool)
     combined_stats.loc[combined_stats["sorted_alphachr"].isin(["1H", "3B"]), "sorted_arm"] = np.nan
     combined_stats.loc[combined_stats["sorted_arm"] == "S", "sorted_parm"] = combined_stats["NS"].div(
         combined_stats["sorted_Ncss1"], fill_value=0)
@@ -70,10 +71,10 @@ def assign_carma(cssaln: pd.DataFrame, fai: pd.DataFrame, wheatchr: pd.DataFrame
     #  info[is.na(sorted_Ncss2), sorted_Ncss2 := 0]
 
     wheatchr1 = wheatchr.copy().rename(columns={"chr": "sorted_chr", "alphachr": "sorted_alphachr"})
-    combined_stats.loc[:, "sorted_alphachr"] = pd.Categorical(combined_stats["sorted_alphachr"])
+    # combined_stats.loc[:, "sorted_alphachr"] = pd.Categorical(combined_stats["sorted_alphachr"])
     combined_stats = wheatchr1.merge(combined_stats, how="right", on="sorted_alphachr")
     wheatchr2 = wheatchr.copy().rename(columns={"chr": "sorted_chr2", "alphachr": "sorted_alphachr2"})
-    combined_stats.loc[:, "sorted_alphachr2"] = pd.Categorical(combined_stats["sorted_alphachr2"])
+    # combined_stats.loc[:, "sorted_alphachr2"] = pd.Categorical(combined_stats["sorted_alphachr2"])
     combined_stats = wheatchr2.merge(combined_stats, how="right", on="sorted_alphachr2")
     info = pd.merge(combined_stats, fai, on="scaffold_index", how="right").drop("scaffold", axis=1)
     for col in ["Ncss", "NS", "NL", "sorted_Ncss1", "sorted_Ncss2"]:
