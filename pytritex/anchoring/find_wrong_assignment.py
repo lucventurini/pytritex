@@ -8,15 +8,40 @@ def find_wrong_assignments(anchored_css: pd.DataFrame, measure: list, sorted_per
     """This function will find those scaffolds for which the assignment smells "fishy", ie
     scaffolds where the ratio of second-best to best is over the defined percentiles."""
 
+    # melt(info, id.vars="scaffold", measure.vars=measure, variable.factor=F, variable.name="map", na.rm=T, value.name="chr")->w
+    #  w[, .N, key=.(scaffold, chr)]->w
+    #  w[order(-N), .(Nchr_ass = sum(N), Nchr_ass_uniq = .N), keyby=scaffold]->w
+    #  w[info, on="scaffold"]->info
+    #  info[is.na(Nchr_ass), Nchr_ass := 0]
+    #  info[is.na(Nchr_ass_uniq), Nchr_ass_uniq := 0]
+    #
+    #  x<-info[Ncss >= 30, quantile(na.omit(sorted_p12), 0:100/100)][sorted_percentile+1]
+    #  info[, bad_sorted := (sorted_p12 >= x & sorted_Ncss2 >= 2)]
+    #  x<-info[popseq_Ncss >= 30, quantile(na.omit(popseq_p12), 0:100/100)][popseq_percentile+1]
+    #  info[, bad_popseq := (popseq_p12 >= x & popseq_Ncss2 >= 2)]
+    #
+    #  info[is.na(bad_sorted), bad_sorted := F]
+    #  info[is.na(bad_popseq), bad_popseq:= F]
+    #
+    #  if(hic){
+    #   x<-info[Nhic >= 30, quantile(na.omit(hic_p12), 0:100/100)][hic_percentile+1]
+    #   info[Nhic >= 30, bad_hic := hic_p12 >= x & hic_N2 >= 2]
+    #   info[is.na(bad_hic), bad_hic := F]
+    #  }
+    #
+    #  melt(info, id.vars="scaffold", measure.vars=grep(value=T, "bad_", names(info)), variable.factor=F, variable.name="map", na.rm=T, value.name="bad")[bad == T]->w
+    #  w[, .(Nbad=.N), key=scaffold]->w
+    #  w[info, on="scaffold"]->info
+    #  info[is.na(Nbad), Nbad := 0]
+
     melted = pd.melt(anchored_css, id_vars="scaffold_index",
                      value_vars=measure, var_name="map", value_name="chr").dropna()
     #  w[, .N, key=.(scaffold, chr)]->w
     melted = melted.groupby(["scaffold_index", "chr"]).size().to_frame("N").reset_index(drop=False)
-    melted = melted.sort_values("N", ascending=False).groupby("scaffold_index").agg(
-        {"N": ["sum", "size"]})
     # Nchr_ass: number of assignments for the scaffold.
     # Nchr_ass_uniq: number of unique assignments for the scaffold.
-    melted.columns = ["Nchr_ass", "Nchr_ass_uniq"]
+    melted = melted.sort_values("N", ascending=False).groupby("scaffold_index").agg(
+        Nchr_ass=("N", "sum"), Nchr_ass_uniq=("N", "size"))
     anchored_css = melted.merge(anchored_css, right_on="scaffold_index", left_index=True, how="right")
     anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].astype(np.int)
     anchored_css.loc[: "Nchr_ass"] = anchored_css.loc[: "Nchr_ass_uniq"].fillna(0)

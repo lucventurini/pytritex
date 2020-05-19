@@ -1,7 +1,7 @@
 import pandas as pd
 from pytritex.utils.chrnames import chrNames
-from .anchor_css_alignment import anchor_css_alignment
-from .add_centimorgans import add_centimorgans
+from .assign_carma import assign_carma
+from .assign_popseq_position import assign_popseq_position
 from .add_hic_statistics import add_hic_statistics
 from .find_wrong_assignment import find_wrong_assignments
 import numpy as np
@@ -21,10 +21,8 @@ def anchor_scaffolds(assembly: dict,
         raise KeyError(
             "Parameter 'species' is not valid. Please set 'species' to one of "
             "\"wheat\", \"barley\", \"oats\", \"lolium\", \"sharonensis\" or \"rye\".")
-    wheatchr = chrNames(species=species).rename(columns={"alphachr": "popseq_alphachr", "chr": "popseq_chr"})
-
+    wheatchr = chrNames(species=species)
     fai = assembly["fai"]
-    initial_size = fai.shape[0]
     cssaln = assembly["cssaln"]
     if "fpairs" not in assembly:
         fpairs = None
@@ -33,10 +31,9 @@ def anchor_scaffolds(assembly: dict,
         fpairs = assembly["fpairs"]
         hic = (assembly["fpairs"].shape[0] > 0)
 
-    anchored_css = anchor_css_alignment(cssaln, fai, wheatchr)
+    anchored_css = assign_carma(cssaln, fai, wheatchr)
     anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].astype(np.int)
-    # anchored_css.loc[:, "popseq_index"] = anchored_css["popseq_index"].astype(np.int)
-    anchored_css = add_centimorgans(cssaln, popseq, anchored_css, wheatchr)
+    anchored_css = assign_popseq_position(cssaln, popseq, anchored_css, wheatchr)
     anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].astype(np.int)
     # anchored_css.loc[:, "popseq_index"] = anchored_css["popseq_index"].astype(np.int)
 
@@ -51,7 +48,7 @@ def anchor_scaffolds(assembly: dict,
                                           sorted_percentile=sorted_percentile, hic_percentile=hic_percentile,
                                           popseq_percentile=popseq_percentile, hic=hic)
 
-    anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].fillna(0).astype(np.int)
+    # anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].fillna(0).astype(np.int)
     assembly["info"] = anchored_css
     assembly["popseq"] = popseq
     if hic is True:
