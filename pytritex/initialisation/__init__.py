@@ -41,6 +41,8 @@ def initial(args, popseq):
     fpairs = fai[["scaffold", "scaffold_index"]].rename(columns={"scaffold": "scaffold2",
                                                                      "scaffold_index": "scaffold_index2"}).merge(
         fpairs, on="scaffold2").drop("scaffold2", axis=1)
+    fpairs.loc[:, "orig_scaffold_index1"] = fpairs["scaffold_index1"]
+    fpairs.loc[:, "orig_scaffold_index2"] = fpairs["scaffold_index2"]
     fpairs.loc[:, "orig_pos1"] = fpairs["pos1"]
     fpairs.loc[:, "orig_pos2"] = fpairs["pos2"]
 

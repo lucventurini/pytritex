@@ -45,18 +45,21 @@ Supplied values: {}, {}".format(binsize, binsize2))
     info = assembly["info"]
     if "mr" in info.columns or "mri" in info.columns:
         raise KeyError("Assembly[info] already has mr and/or mri columns; aborting.")
-    fpairs = assembly["fpairs"]
+    fpairs = assembly["fpairs"].copy()
 
     if scaffolds is None:
         null = True
     else:
-        info = info[info.scaffold.isin(scaffolds)]
-        fpairs = fpairs[fpairs.scaffold1.isin(scaffolds)]
+        info = info[info.scaffold_index.isin(scaffolds)]
+        fpairs = fpairs[fpairs.scaffold_index1.isin(scaffolds)]
         null = False
 
     # First step: get pairs on the same scaffold
     bait = (fpairs["scaffold_index1"] == fpairs["scaffold_index2"])
-    bait2 = bait & (fpairs["pos1"] > fpairs["pos2"])
+    try:
+        bait2 = bait & (fpairs["pos1"] > fpairs["pos2"])
+    except KeyError:
+        raise KeyError(fpairs.columns)
     # Switch columns for those positions
     fpairs.loc[bait2, ["pos1", "pos2"]] = fpairs.loc[bait2, ["pos2", "pos1"]].values
     # assert fpairs.loc[bait, :].shape[0] > 0 and fpairs.loc[bait, "pos1"].min() >= 0, fpairs.loc[bait, "pos1"]

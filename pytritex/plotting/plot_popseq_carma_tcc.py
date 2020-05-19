@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from .utils.chrnames import chrNames
+from pytritex.utils.chrnames import chrNames
 
 
 def plot_popseq_carma_tcc(figure: plt.Figure,

@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import itertools
+from .rolling_join import rolling_join
 
 
 def n50(array: np.array, p=0.5):

@@ -4,10 +4,10 @@ import multiprocessing as mp
 import pickle
 from time import ctime
 from pytritex.anchoring.anchor_scaffolds import anchor_scaffolds
-from pytritex.add_molecule_cov import add_molecule_cov
-from pytritex.add_hic_cov import add_hic_cov
-from pytritex.find_10x_breaks import find_10x_breaks
-from pytritex.break_10x import break_10x
+from pytritex.sequencing_coverage.add_molecule_cov import add_molecule_cov
+from pytritex.sequencing_coverage.add_hic_cov import add_hic_cov
+from pytritex.chimera_breaking.find_10x_breaks import find_10x_breaks
+from pytritex.chimera_breaking.break_10x import break_10x
 import io
 import itertools
 from pytritex.scaffold_10x import scaffold_10x
@@ -69,30 +69,28 @@ def main():
     if args.save is True:
         print(ctime(), "Started to save the data")
         fname = args.save_prefix + ".anchored_assembly.pickle"
-        with io.BufferedWriter(open(fname, "wb")) as dump:
+        with open(fname, "wb") as dump:
             pickle.dump(assembly, dump)
         sp.call(["gzip", "-f", fname])
         fname = args.save_prefix + ".initial_breaks.pickle"
-        with io.BufferedWriter(open(fname, "wb")) as dump:
+        with open(fname, "wb") as dump:
             pickle.dump(breaks, dump)
         sp.call(["gzip", "-f", fname])
         print(ctime(), "Finished saving the data")
-    return
     a = break_10x(
-        assembly, prefix="scaffold_corrected", ratio=-3,
-        interval=5e4, minNbin=20, dist=2e3, slop=2e2, species="wheat", intermediate=False, ncores=8)
+        assembly, ratio=-3,
+        interval=5e4, minNbin=20, dist=2e3, slop=2e2, species="wheat", intermediate=False, cores=args.procs)
     print("Broken chimeras")
     assembly_v1 = a["assembly"]
-    fname = args.save_prefix + ".assembly_v1.pickle",
-    with io.BufferedWriter(open(fname, "wb")) as dump:
+    fname = args.save_prefix + ".assembly_v1.pickle"
+    with open(fname, "wb") as dump:
         pickle.dump(assembly_v1, dump)
     sp.call(["gzip", "-f", fname])
     fname = args.save_prefix + ".breaks.pickle.gz"
-    with io.BufferedWriter(open(fname, "wb")) as dump:
+    with open(fname, "wb") as dump:
         pickle.dump(a["breaks"], dump)
     sp.call(["gzip", "-f", fname])
     # grid_evaluation(assembly, args)
-
     return
 
 

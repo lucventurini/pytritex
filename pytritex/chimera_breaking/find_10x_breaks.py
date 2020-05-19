@@ -25,8 +25,8 @@ def find_10x_breaks(cov: pd.DataFrame, scaffolds=None, interval=5e4, minNbin=20,
         raise KeyError(cov.head())
     bait = (cov["nbin"] >= minNbin) & (np.minimum(cov["bin"], cov["length"] - cov["bin"]) >= dist)
     bait &= (cov["r"] <= ratio)
-    e = cov.loc[bait, :]
-    if e.shape[0] == 0:
-        return None
-    e = e.sort_values("r").groupby(["scaffold_index", "b"]).head(1).rename(columns={"bin": "break"})
-    return e.copy()[:]
+    broken = cov.loc[bait, :]
+    if broken.shape[0] == 0:
+        return pd.DataFrame()
+    broken = broken.sort_values("r").groupby(["scaffold_index", "b"]).head(1).rename(columns={"bin": "breakpoint"})
+    return broken.copy()
