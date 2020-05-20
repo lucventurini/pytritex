@@ -95,9 +95,10 @@ Supplied values: {}, {}".format(binsize, binsize2))
     results = deque()
     finalised = []
     for group in iter(temp_frame.groupby(["scaffold_index", "bin_group"])):
-        while len(results) > 100:
+        while len(results) >= cores:
             finalised.append(results.popleft().get())
         results.append(pool.apply_async(_gr, group))
+    finalised.extend([res.get() for res in results])
     coverage_df = pd.concat(finalised).reset_index(level=0, drop=True)
     pool.close()
     pool.join()
