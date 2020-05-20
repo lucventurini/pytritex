@@ -72,7 +72,7 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
     for group in iter(temp_dataframe[["scaffold_index", "bin1", "bin2"]].groupby("scaffold_index")):
         while len(results) >= cores:
             finalised.append(results.popleft().get())
-        results.append(pool.apply_async(_gr, group))
+        results.append(pool.apply_async(_gr, (group, )))
     finalised.extend([res.get() for res in results])
     coverage_df = pd.concat(finalised).reset_index(level=0, drop=True)
     pool.close()
