@@ -17,7 +17,7 @@ def initial(args, popseq):
     )
 
     fai.loc[:, "scaffold_index"] = pd.to_numeric(fai["scaffold_index"] + int(1), downcast="signed")
-    fai.loc[:, "length"] = pd.to_numeric(fai["length"], downcast="unsigned")
+    fai.loc[:, "length"] = pd.to_numeric(fai["length"], downcast="signed")
     fai.loc[:, "orig_scaffold_index"] = fai["scaffold_index"]
     fai.loc[:, "start"] = fai.loc[:, "orig_start"] = np.array([1], dtype=fai["length"].dtype)
     fai.loc[:, "end"] = fai.loc[:, "orig_end"] = fai["length"]
@@ -46,8 +46,8 @@ def initial(args, popseq):
         fpairs, on="scaffold2").drop("scaffold2", axis=1)
     fpairs.loc[:, "orig_scaffold_index1"] = fpairs["scaffold_index1"]
     fpairs.loc[:, "orig_scaffold_index2"] = fpairs["scaffold_index2"]
-    fpairs.loc[:, "pos1"] = pd.to_numeric(fpairs["pos1"], downcast="unsigned")
-    fpairs.loc[:, "pos2"] = pd.to_numeric(fpairs["pos2"], downcast="unsigned")
+    fpairs.loc[:, "pos1"] = pd.to_numeric(fpairs["pos1"], downcast="signed")
+    fpairs.loc[:, "pos2"] = pd.to_numeric(fpairs["pos2"], downcast="signed")
     fpairs.loc[:, "orig_pos1"] = fpairs["pos1"]
     fpairs.loc[:, "orig_pos2"] = fpairs["pos2"]
 

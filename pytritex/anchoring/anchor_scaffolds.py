@@ -35,7 +35,7 @@ def anchor_scaffolds(assembly: dict,
     anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].astype(fai["scaffold_index"].dtype)
     anchored_css = assign_popseq_position(cssaln, popseq, anchored_css, wheatchr)
     anchored_css.loc[:, "scaffold_index"] = pd.to_numeric(anchored_css["scaffold_index"].fillna(0),
-                                                          downcast="unsigned")
+                                                          downcast="signed")
 
     # # Assignment of POPSEQ genetic positions
     if hic is True:

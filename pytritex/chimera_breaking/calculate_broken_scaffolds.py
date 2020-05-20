@@ -53,7 +53,7 @@ def _create_children_dataframes(broken):
         for col in df.columns:
             if col in ["scaffold", "derived_from_split"]:
                 continue
-            df.loc[:, col] = pd.to_numeric(df[col], downcast="unsigned")
+            df.loc[:, col] = pd.to_numeric(df[col], downcast="signed")
 
         df = df.loc[df["length"] > 0, :].copy()
         dfs.append(df)

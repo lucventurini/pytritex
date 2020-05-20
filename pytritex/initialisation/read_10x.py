@@ -8,7 +8,7 @@ def _10xreader(item):
     df = pd.read_csv(fname, header=None, names=("scaffold", "start", "end", "barcode", "npairs"), sep="\t")
     df.loc[:, "sample"] = sample
     for key in ["start", "end", "npairs"]:
-        df.loc[:, key] = pd.to_numeric(df[key], downcast="unsigned")
+        df.loc[:, key] = pd.to_numeric(df[key], downcast="signed")
     return df
 
 
@@ -27,7 +27,7 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1):
     mol.loc[:, "orig_scaffold_index"] = mol["scaffold_index"]
     barcodes = pd.DataFrame({"barcode_index": np.arange(mol.shape[0], dtype=np.int),
                              "barcode": mol["barcode"]})
-    barcodes.loc[:, "barcode_index"] = pd.to_numeric(barcodes["barcode_index"], downcast="unsigned")
+    barcodes.loc[:, "barcode_index"] = pd.to_numeric(barcodes["barcode_index"], downcast="signed")
     mol = barcodes.merge(mol, how="right", on="barcode").drop("barcode", axis=1)
     mol.loc[:, "sample"] = pd.Categorical(mol["sample"])
     return mol, barcodes

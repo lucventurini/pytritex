@@ -23,8 +23,8 @@ def _group_analyser(group, binsize):
                     index=group.index)
     assigned = group.assign(bin=bin_series).explode("bin").reset_index(drop=True).groupby(
         "bin").size().to_frame("n").reset_index().assign(scaffold_index=scaffold_index)
-    assigned.loc[:, "bin"] = pd.to_numeric(assigned["bin"].fillna(0), downcast="unsigned")
-    assigned.loc[:, "n"] = pd.to_numeric(assigned["n"].fillna(0), downcast="unsigned")
+    assigned.loc[:, "bin"] = pd.to_numeric(assigned["bin"].fillna(0), downcast="signed")
+    assigned.loc[:, "n"] = pd.to_numeric(assigned["n"].fillna(0), downcast="signed")
     return assigned
 
 
@@ -82,12 +82,12 @@ Supplied values: {}, {}".format(binsize, binsize2))
          "bin1": pos1 // binsize * binsize,
          "bin2": pos2 // binsize * binsize
          }).loc[lambda df: df.eval("bin2 - bin1 > 2 * {binsize}".format(binsize=binsize)), :]
-    temp_frame.loc[:, "bin1"] = pd.to_numeric(temp_frame["bin1"], downcast="unsigned")
-    temp_frame.loc[:, "bin2"] = pd.to_numeric(temp_frame["bin2"], downcast="unsigned")
+    temp_frame.loc[:, "bin1"] = pd.to_numeric(temp_frame["bin1"], downcast="signed")
+    temp_frame.loc[:, "bin2"] = pd.to_numeric(temp_frame["bin2"], downcast="signed")
     # Create a greater bin group for each bin1, based on bin1 (default: 100x bin2).
     bin1 = temp_frame["bin1"].values
     #  (temp_frame["bin1"] // binsize2)
-    temp_frame.loc[:, "bin_group"] = pd.to_numeric(np.floor(ne.evaluate("bin1 / binsize2")), downcast="unsigned")
+    temp_frame.loc[:, "bin_group"] = pd.to_numeric(np.floor(ne.evaluate("bin1 / binsize2")), downcast="signed")
     # pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
     pool = mp.Pool(processes=cores)
     _gr = functools.partial(_group_analyser, binsize=binsize)
@@ -125,7 +125,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
 
         # Number of bins found in each scaffold
         coverage_df.loc[:, "nbin"] = pd.to_numeric(
-            coverage_df.groupby("scaffold_index")["scaffold_index"].transform("size"), downcast="unsigned")
+            coverage_df.groupby("scaffold_index")["scaffold_index"].transform("size"), downcast="signed")
         # Mean number of pairs covering each bin (cut at the rightmost side)
         coverage_df.loc[:, "mn"] = pd.to_numeric(coverage_df.loc[:, ["d", "n"]].groupby("d")["n"].transform("mean"),
                                                  downcast="float")

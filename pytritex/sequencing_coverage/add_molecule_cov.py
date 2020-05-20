@@ -22,8 +22,8 @@ def _group_analyser(group: pd.DataFrame, binsize):
     assigned = group.assign(bin=bin_series).explode("bin").groupby(
         ["scaffold_index", "bin"]).size().to_frame("n").reset_index(
         drop=False).assign(scaffold_index=scaffold_index)
-    assigned.loc[:, "bin"] = pd.to_numeric(assigned["bin"].fillna(0), downcast="unsigned")
-    assigned.loc[:, "n"] = pd.to_numeric(assigned["n"].fillna(0), downcast="unsigned")
+    assigned.loc[:, "bin"] = pd.to_numeric(assigned["bin"].fillna(0), downcast="signed")
+    assigned.loc[:, "n"] = pd.to_numeric(assigned["n"].fillna(0), downcast="signed")
     return assigned
 
 
@@ -62,8 +62,8 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
     bin1, bin2 = temp_dataframe["bin1"].values, temp_dataframe["bin2"].values
     temp_dataframe = temp_dataframe.loc[
                      ne.evaluate("bin2 - bin1 > 2 * binsize"), :].copy()
-    temp_dataframe.loc[:, "bin1"] = pd.to_numeric(temp_dataframe["bin1"], downcast="unsigned")
-    temp_dataframe.loc[:, "bin2"] = pd.to_numeric(temp_dataframe["bin2"], downcast="unsigned")
+    temp_dataframe.loc[:, "bin1"] = pd.to_numeric(temp_dataframe["bin1"], downcast="signed")
+    temp_dataframe.loc[:, "bin2"] = pd.to_numeric(temp_dataframe["bin2"], downcast="signed")
     # pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
     _gr = functools.partial(_group_analyser, binsize=binsize)
     pool = mp.Pool(processes=cores)
@@ -97,7 +97,7 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
         coverage_df.loc[:, "d"] = pd.to_numeric(np.minimum(
             coverage_df["bin"],  ne.evaluate("bincol * binsize")), downcast="integer")
         coverage_df.loc[:, "nbin"] = pd.to_numeric(coverage_df.groupby(
-            "scaffold_index")["scaffold_index"].transform("size"), downcast="unsigned")
+            "scaffold_index")["scaffold_index"].transform("size"), downcast="signed")
         coverage_df.loc[:, "mn"] = pd.to_numeric(coverage_df.groupby("d")["n"].transform("mean"),
                                                  downcast="float")
         coverage_df.loc[:, "r"] = pd.to_numeric(np.log2(coverage_df["n"] / coverage_df["mn"]),

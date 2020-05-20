@@ -20,8 +20,8 @@ def _transpose_cssaln(cssaln: pd.DataFrame, fai: pd.DataFrame):
     fai = fai[["scaffold_index", "length", "orig_scaffold_index", "orig_start"]].copy().rename(
         columns={"length": "scaffold_length"}).assign(orig_pos=lambda df: df["orig_start"])
     cssaln = rolling_join(fai, cssaln, on="orig_scaffold_index", by="orig_pos")
-    orig_pos = pd.to_numeric(cssaln["orig_pos"].view(), downcast="signed").values
-    orig_start = pd.to_numeric(cssaln["orig_start"].view(), downcast="signed").values
+    orig_pos = cssaln["orig_pos"].values
+    orig_start = cssaln["orig_start"].values
     cssaln.loc[:, "pos"] = ne.evaluate("orig_pos- orig_start + 1")
     cssaln.drop("orig_start", axis=1, inplace=True)
     return cssaln

@@ -55,5 +55,5 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame, anchored_
     anchored_css = popseq_stats.merge(anchored_css, on="scaffold_index", how="right")
     for column in ["popseq_Ncss", "popseq_Ncss1", "popseq_Ncss2"]:
         anchored_css.loc[:, column] = pd.to_numeric(anchored_css[column].fillna(0),
-                                                    downcast="unsigned")
+                                                    downcast="signed")
     return anchored_css
