@@ -60,7 +60,7 @@ def main():
     parser.add_argument("fasta")
     args = parser.parse_args()
     ne.set_num_threads(args.procs)
-    popseq = pd.read_pickle(args.popseq)
+    popseq = load(args.popseq)
     popseq.columns = popseq.columns.str.replace("morex", "css")
     memory = Memory(os.path.join(".", args.save_prefix))
     assembly = memory.cache(initial)(args, popseq)
@@ -88,7 +88,10 @@ def main():
         os.makedirs(os.path.dirname(res), exist_ok=True)
         dump(assembly, res, compress=("zlib", 6))
     breaks = memory.cache(find_10x_breaks)(assembly["molecule_cov"])
-    b = breaks[breaks["d"] >= 1e4].sort_values("d", ascending=False).head(100)
+    try:
+        b = breaks[breaks["d"] >= 1e4].sort_values("d", ascending=False).head(100)
+    except KeyError:
+        raise KeyError(breaks.head())
     res = os.path.join(args.save_prefix, "joblib", "pytritex", "chimera_breaking", "break_10x",
                        "v0.pkl")
     if os.path.exists(res):

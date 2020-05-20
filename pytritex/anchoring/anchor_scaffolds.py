@@ -32,10 +32,10 @@ def anchor_scaffolds(assembly: dict,
         hic = (assembly["fpairs"].shape[0] > 0)
 
     anchored_css = assign_carma(cssaln, fai, wheatchr)
-    anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].astype(np.int)
+    anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].astype(fai["scaffold_index"].dtype)
     anchored_css = assign_popseq_position(cssaln, popseq, anchored_css, wheatchr)
-    anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].astype(np.int)
-    # anchored_css.loc[:, "popseq_index"] = anchored_css["popseq_index"].astype(np.int)
+    anchored_css.loc[:, "scaffold_index"] = pd.to_numeric(anchored_css["scaffold_index"].fillna(0),
+                                                          downcast="unsigned")
 
     # # Assignment of POPSEQ genetic positions
     if hic is True:

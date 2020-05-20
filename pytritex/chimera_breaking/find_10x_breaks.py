@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import numexpr as ne
 
 
 def find_10x_breaks(cov: pd.DataFrame, scaffolds=None, interval=5e4, minNbin=20, dist=5e3, ratio=-3):
@@ -20,10 +21,13 @@ def find_10x_breaks(cov: pd.DataFrame, scaffolds=None, interval=5e4, minNbin=20,
     if scaffolds is not None:
         cov = cov.merge(scaffolds, on="scaffold_index", how="right").drop("scaffold", axis=1, errors="ignore")
     try:
-        cov.loc[:, "b"] = cov["bin"] // interval * interval
+        bincol = cov["bin"].values
+        bincol = np.floor(ne.evaluate("bincol / interval")).astype(dtype=bincol.dtype)
+        cov.loc[:, "b"] = ne.evaluate("bincol * interval")
     except KeyError:
         raise KeyError(cov.head())
-    bait = (cov["nbin"] >= minNbin) & (np.minimum(cov["bin"], cov["length"] - cov["bin"]) >= dist)
+    lencol, bincol = cov["length"].values, cov["bin"].values
+    bait = (cov["nbin"] >= minNbin) & (np.minimum(cov["bin"], ne.evaluate("lencol - bincol")) >= dist)
     bait &= (cov["r"] <= ratio)
     broken = cov.loc[bait, :]
     if broken.shape[0] == 0:

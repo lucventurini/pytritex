@@ -49,6 +49,7 @@ def read_morexaln_minimap(paf: str,
         sep="\t", names=names, usecols=cols)
     if prefix is True:
         morex["css_contig"] = morex.css_contig.str.replace("^", "morex_")
+    morex.loc[:, "pos"] = pd.to_numeric(morex["pos"], downcast="unsigned")
     morex = popseq.merge(morex, on="css_contig", how="right").drop("css_contig", axis=1)
     morex = fai[["scaffold", "scaffold_index", "length"]].merge(
         morex, left_on=["scaffold"], right_on=["scaffold"]).drop("scaffold", axis=1)

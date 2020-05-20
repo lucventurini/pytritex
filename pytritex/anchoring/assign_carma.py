@@ -51,7 +51,9 @@ def assign_carma(cssaln: pd.DataFrame, fai: pd.DataFrame, wheatchr: pd.DataFrame
     combined_stats = short_arm_counts.merge(
         long_arm_counts.merge(combined_stats, left_index=True, right_index=True, how="right"),
         left_index=True, right_index=True, how="right")
-    combined_stats.loc[:, ["NL", "NS"]] = combined_stats[["NL", "NS"]].fillna(0)
+    combined_stats.loc[:, "NL"] = pd.to_numeric(combined_stats["NL"].fillna(0), downcast="unsigned")
+    combined_stats.loc[:, "NS"] = pd.to_numeric(combined_stats["NS"].fillna(0), downcast="unsigned")
+
     combined_stats.loc[:, "sorted_arm"] = (combined_stats["NS"] > combined_stats["NL"]).map(
         {True: "S", False: "L"}).astype(bool)
     combined_stats.loc[combined_stats["sorted_alphachr"].isin(["1H", "3B"]), "sorted_arm"] = np.nan
@@ -79,4 +81,5 @@ def assign_carma(cssaln: pd.DataFrame, fai: pd.DataFrame, wheatchr: pd.DataFrame
     info = pd.merge(combined_stats, fai, on="scaffold_index", how="right").drop("scaffold", axis=1)
     for col in ["Ncss", "NS", "NL", "sorted_Ncss1", "sorted_Ncss2"]:
         info.loc[:, col] = info[col].fillna(0)
+    info.loc[:, "scaffold_index"] = info["scaffold_index"].astype(fai["scaffold_index"].dtype)
     return info

@@ -6,6 +6,8 @@ import itertools
 pd.options.mode.chained_assignment = 'raise'
 from time import ctime
 import multiprocessing as mp
+import numexpr as ne
+import re
 
 
 def _group_analyser(group, binsize):
@@ -13,11 +15,14 @@ def _group_analyser(group, binsize):
     (scaffold_index, bin_group), group = group
     # assert group["scaffold_index"].unique().shape[0] == 1, group["scaffold_index"]
     # scaffold = group["scaffold_index"].head(1).values[0]
+    bin1 = group["bin1"].values
     bin_series = pd.Series(itertools.starmap(range, pd.DataFrame().assign(
         bin1=group["bin1"] + binsize, bin2=group["bin2"], binsize=binsize).astype(np.int).values),
                     index=group.index)
     assigned = group.assign(bin=bin_series).explode("bin").reset_index(drop=True).groupby(
         "bin").size().to_frame("n").reset_index().assign(scaffold_index=scaffold_index)
+    assigned.loc[:, "bin"] = pd.to_numeric(assigned["bin"].fillna(0), downcast="unsigned")
+    assigned.loc[:, "n"] = pd.to_numeric(assigned["n"].fillna(0), downcast="unsigned")
     return assigned
 
 
@@ -69,22 +74,24 @@ Supplied values: {}, {}".format(binsize, binsize2))
 
     # Bin positions of the match by BinSize; only select those bins where the distance between the two bins is
     # greater than the double of the binsize.
+    pos1, pos2 = fpairs.loc[bait, "pos1"].values, fpairs.loc[bait, "pos2"].values
     temp_frame = pd.DataFrame(
         {"scaffold_index": fpairs.loc[bait, "scaffold_index1"],
-         "bin1": (fpairs.loc[bait, "pos1"] // binsize) * binsize,
-         "bin2": (fpairs.loc[bait, "pos2"] // binsize) * binsize,
-         }
-    ).loc[lambda df: df["bin2"] - df["bin1"] > 2 * binsize, :].astype({"bin1": np.int, "bin2": np.int})
+         "bin1": pos1 // binsize * binsize,
+         "bin2": pos2 // binsize * binsize
+         }).loc[lambda df: df.eval("bin2 - bin1 > 2 * {binsize}".format(binsize=binsize)), :]
+    temp_frame.loc[:, "bin1"] = pd.to_numeric(temp_frame["bin1"], downcast="unsigned")
+    temp_frame.loc[:, "bin2"] = pd.to_numeric(temp_frame["bin2"], downcast="unsigned")
     # Create a greater bin group for each bin1, based on bin1 (default: 100x bin2).
-    temp_frame.loc[:, "bin_group"] = (temp_frame["bin1"] // binsize2)
+    bin1 = temp_frame["bin1"].values
+    #  (temp_frame["bin1"] // binsize2)
+    temp_frame.loc[:, "bin_group"] = pd.to_numeric(np.floor(ne.evaluate("bin1 / binsize2")), downcast="unsigned")
     # pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
     pool = mp.Pool(processes=cores)
     _gr = functools.partial(_group_analyser, binsize=binsize)
     # Count how many pairs cover each smaller bin within the greater bin.
-    coverage_df = pd.concat(pool.map(_gr, iter(temp_frame.groupby(
-        ["scaffold_index", "bin_group"])))).reset_index(level=0, drop=True)
-    # coverage_df = .parallel_apply(_gr).reset_index(level=0, drop=True)
-    # coverage_df = temp_frame.groupby(["scaffold_index", "bin_group"]).apply(_gr).reset_index(level=0, drop=True)
+    results = pool.map_async(_gr, iter(temp_frame.groupby(["scaffold_index", "bin_group"])))
+    coverage_df = pd.concat(results.get()).reset_index(level=0, drop=True)
 
     if coverage_df.shape[0] > 0:
         print(ctime(), "Merging on coverage DF (HiC)")
@@ -96,15 +103,25 @@ Supplied values: {}, {}".format(binsize, binsize2))
         except KeyError:
             raise KeyError(info.columns)
         # D is again the bin, but cutting it at the rightmost side
-        coverage_df.loc[:, "d"] = np.minimum(
-            coverage_df["bin"],
-            (coverage_df["length"] - coverage_df["bin"]) // binsize * binsize)
+        lencol = coverage_df["length"].values.view()
+        lencol = lencol.astype(copy=False, casting="unsafe",
+                               dtype=re.sub(r"^u", "", lencol.dtype.name))
+        bincol = coverage_df["bin"].values.view()
+        bincol = bincol.astype(copy=False, casting="unsafe",
+                               dtype=re.sub(r"^u", "", bincol.dtype.name))
+        bincol = np.floor(ne.evaluate("(lencol - bincol) / binsize")).astype(lencol.dtype)
+        coverage_df.loc[:, "d"] = pd.to_numeric(np.minimum(
+            coverage_df["bin"], ne.evaluate("bincol * binsize")), downcast="integer")
+
         # Number of bins found in each scaffold
-        coverage_df.loc[:, "nbin"] = coverage_df.groupby("scaffold_index")["scaffold_index"].transform("size")
+        coverage_df.loc[:, "nbin"] = pd.to_numeric(
+            coverage_df.groupby("scaffold_index")["scaffold_index"].transform("size"), downcast="unsigned")
         # Mean number of pairs covering each bin (cut at the rightmost side)
-        coverage_df.loc[:, "mn"] = coverage_df.loc[:, ["d", "n"]].groupby("d")["n"].transform("mean")
+        coverage_df.loc[:, "mn"] = pd.to_numeric(coverage_df.loc[:, ["d", "n"]].groupby("d")["n"].transform("mean"),
+                                                 downcast="float")
         # Logarithm of number of pairs in bin divided by mean of number of pairs in bin?
-        coverage_df.loc[:, "r"] = np.log2(coverage_df["n"] / coverage_df["mn"])
+        coverage_df.loc[:, "r"] = pd.to_numeric(np.log2(coverage_df["n"] / coverage_df["mn"]),
+                                                downcast="float")
         # For each scaffold where the number of found bins is greater than minNbin,
         # calculate the minimum ratio (in log2) of the coverage per-bin divided by the mean coverage (in the scaffold)
         z = coverage_df.loc[coverage_df["nbin"] >= minNbin, ["scaffold_index", "r"]].groupby(

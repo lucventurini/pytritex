@@ -43,10 +43,14 @@ def find_wrong_assignments(anchored_css: pd.DataFrame, measure: list, sorted_per
     melted = melted.sort_values("N", ascending=False).groupby("scaffold_index").agg(
         Nchr_ass=("N", "sum"), Nchr_ass_uniq=("N", "size"))
     anchored_css = melted.merge(anchored_css, right_on="scaffold_index", left_index=True, how="right")
-    anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].astype(np.int)
-    anchored_css.loc[: "Nchr_ass"] = anchored_css.loc[: "Nchr_ass_uniq"].fillna(0)
-    anchored_css.loc[: "Nchr_ass_uniq"] = anchored_css.loc[: "Nchr_ass_uniq"].fillna(0)
-    sorted_threshold = anchored_css.loc[anchored_css["Ncss"] >= 30, "sorted_p12"].quantile((sorted_percentile + 1) / 100)
+    anchored_css.loc[:, "scaffold_index"] = pd.to_numeric(anchored_css["scaffold_index"].fillna(0),
+                                                          downcast="unsigned")
+    anchored_css.loc[:, "Nchr_ass"] = pd.to_numeric(anchored_css["Nchr_ass"].fillna(0),
+                                                    downcast="unsigned")
+    anchored_css.loc[:, "Nchr_ass_uniq"] = pd.to_numeric(anchored_css["Nchr_ass_uniq"].fillna(0),
+                                                         downcast="unsigned")
+    sorted_threshold = anchored_css.loc[
+        anchored_css["Ncss"] >= 30, "sorted_p12"].quantile((sorted_percentile + 1) / 100)
     anchored_css.loc[:, "bad_sorted"] = (anchored_css["sorted_p12"] >= sorted_threshold) & (
             anchored_css["sorted_Ncss2"] >= 2)
     pop_threshold = anchored_css.loc[anchored_css["popseq_Ncss"] >= 30, "popseq_p12"].quantile(
@@ -72,5 +76,6 @@ def find_wrong_assignments(anchored_css: pd.DataFrame, measure: list, sorted_per
                 var_name="map").dropna().loc[lambda df: df["bad"] == True, :]
     melted = melted.groupby("scaffold_index").size().to_frame("Nbad").reset_index(drop=False)
     anchored_css = melted.merge(anchored_css, on="scaffold_index", how="right")
-    anchored_css.loc[:, "Nbad"] = anchored_css["Nbad"].fillna(0)
+    anchored_css.loc[:, "Nbad"] = pd.to_numeric(anchored_css["Nbad"].fillna(0),
+                                                downcast="unsigned")
     return anchored_css

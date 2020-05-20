@@ -28,14 +28,21 @@ def add_hic_statistics(anchored_css: pd.DataFrame, fpairs: pd.DataFrame):
     hic_stats = anchored_hic_links[~anchored_hic_links["chr1"].isna()].rename(
         columns={"scaffold_index2": "scaffold_index", "chr1": "hic_chr"}
     ).groupby(["scaffold_index", "hic_chr"]).size().to_frame("N").reset_index(drop=False)
+    hic_stats.loc[:, "N"] = pd.to_numeric(hic_stats["N"], downcast="unsigned")
     grouped_hic_stats = hic_stats.sort_values(["scaffold_index", "N"], ascending=[True, False])
     hic_stats = grouped_hic_stats.groupby("scaffold_index", sort=False).agg(
         hic_chr=("hic_chr", first), hic_chr2=("hic_chr", second), hic_N1=("N", first), hic_N2=("N", second),
-        Nhic=("N", "sum"))
-    hic_stats["hic_pchr"] = hic_stats["hic_N1"].div(hic_stats["Nhic"], fill_value=0)
-    hic_stats["hic_p12"] = hic_stats["hic_N2"].div(hic_stats["hic_N1"], fill_value=0)
+        Nhic=("N", "sum")).astype({"hic_N1": hic_stats["N"].dtype, "hic_N2": hic_stats["N"].dtype,
+                                   "hic_chr": hic_stats["hic_chr"].dtype, "hic_chr2": hic_stats["hic_chr"].dtype})
+    hic_stats.loc[:, "Nhic"] = pd.to_numeric(hic_stats["Nhic"], downcast="float")
+    hic_stats.loc[:, "hic_pchr"] = pd.to_numeric(hic_stats["hic_N1"].div(hic_stats["Nhic"], fill_value=0),
+                                                 downcast="float")
+    hic_stats.loc[:, "hic_p12"] = pd.to_numeric(hic_stats["hic_N2"].div(hic_stats["hic_N1"], fill_value=0),
+                                                downcast="float")
     anchored_css = hic_stats.merge(anchored_css, right_on="scaffold_index", how="right", left_index=True)
-    anchored_css.loc[:, ["Nhic", "hic_N1", "hic_N2"]] = anchored_css[["Nhic", "hic_N1", "hic_N2"]].fillna(0)
+    anchored_css.loc[:, ["Nhic", "hic_N1", "hic_N2"]] = anchored_css[["Nhic", "hic_N1", "hic_N2"]].fillna(0).astype(
+        {"Nhic": hic_stats["Nhic"].dtype, "hic_N1": hic_stats["hic_N1"].dtype, "hic_N2": hic_stats["hic_N2"].dtype}
+    )
     # for col in ["Nhic", "hic_N1", "hic_N2"]:
     #     anchored_css.loc[:, col] = anchored_css[col].fillna(0)
     return anchored_css, anchored_hic_links
