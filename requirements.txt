@@ -5,3 +5,5 @@ pandarallel
 networkx
 matplotlib
 networkit
+joblib
+pytables
