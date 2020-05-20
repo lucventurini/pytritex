@@ -3,13 +3,13 @@ from ...utils.rolling_join import rolling_join
 from ...sequencing_coverage import add_hic_cov
 
 
-def _transpose_hic_cov(new_assembly, old_info, fai, coverage, fpairs, cores=1):
+def _transpose_hic_cov(new_assembly, old_info, fai, coverage, fpairs, cores=1, use_memory_fs=False):
     if coverage is not None and fpairs.shape[0] > 0:
         binsize, minNbin, innerDist = new_assembly["binsize"], new_assembly["minNbin"], new_assembly["innerDist"]
         scaffolds = fai.loc[fai["derived_from_split"], "scaffold_index"]
         old_to_keep = fai.loc[~fai["derived_from_split"], "scaffold_index"]
         new_coverage = add_hic_cov(new_assembly, scaffolds=scaffolds,
-                    binsize=binsize, minNbin=minNbin, innerDist=innerDist, cores=cores)
+                    binsize=binsize, minNbin=minNbin, innerDist=innerDist, cores=cores, use_memory_fs=use_memory_fs)
         previous_to_keep = coverage[coverage["scaffold_index"].isin(old_to_keep)]
         if new_coverage["cov"].shape[0] > 0:
             new_assembly["cov"] = pd.concat([previous_to_keep, new_coverage["cov"]])

@@ -19,7 +19,8 @@ def _group_analyser(group, binsize):
     return assigned
 
 
-def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1):
+def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1,
+                use_memory_fs=True):
     """
     Calculate physical coverage with Hi-C links in sliding windows along the scaffolds.
     :param assembly:
@@ -29,6 +30,7 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
     :param minNbin:
     :param innerDist:
     :param cores:
+    :param use_memory_fs: for pandarallel.
     :return:
     """
 
@@ -75,7 +77,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
     ).loc[lambda df: df["bin2"] - df["bin1"] > 2 * binsize, :].astype({"bin1": np.int, "bin2": np.int})
     # Create a greater bin group for each bin1, based on bin1 (default: 100x bin2).
     temp_frame.loc[:, "bin_group"] = (temp_frame["bin1"] // binsize2)
-    pandarallel.pandarallel.initialize(nb_workers=cores)
+    pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
     _gr = functools.partial(_group_analyser, binsize=binsize)
     # Count how many pairs cover each smaller bin within the greater bin.
     coverage_df = temp_frame.groupby(["scaffold_index",

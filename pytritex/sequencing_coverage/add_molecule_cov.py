@@ -19,7 +19,7 @@ def _group_analyser(group: pd.DataFrame, binsize):
     return assigned
 
 
-def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
+def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1, use_memory_fs=True):
     info = assembly["info"]
     print("Starting adding molecule coverage")
     binsize = np.int(np.floor(binsize))
@@ -48,7 +48,7 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
     temp_dataframe = temp_dataframe.loc[temp_dataframe.eval(
         "bin2 - bin1 > 2 *{binsize}".format(binsize=binsize)), :].copy().astype({"bin1": np.int,
                                                                                  "bin2": np.int})
-    pandarallel.pandarallel.initialize(nb_workers=cores)
+    pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
     _gr = functools.partial(_group_analyser, binsize=binsize)
     coverage_df = temp_dataframe.groupby("scaffold_index").parallel_apply(_gr).reset_index(level=0, drop=True)
 

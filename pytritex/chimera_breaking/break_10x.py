@@ -6,7 +6,7 @@ from functools import partial
 
 
 def break_10x(assembly, species="wheat", ratio=-3, interval=5e4, minNbin=20,
-              dist=2e3, slop=1e3, intermediate=False, cores=1, maxcycle=float("inf")):
+              dist=2e3, slop=1e3, intermediate=False, cores=1, maxcycle=float("inf"), use_memory_fs=False):
     """Iteratively break scaffolds using 10X physical coverage. Proceed until no more breakpoints are found.
         :param assembly: dictionary containing data so far
         :param species: default wheat, species under analysis
@@ -31,7 +31,8 @@ def break_10x(assembly, species="wheat", ratio=-3, interval=5e4, minNbin=20,
 
     while breaks.shape[0] > 0 and cycle <= maxcycle:
         cycle += 1
-        assembly = break_scaffolds(breaks=breaks, assembly=assembly, slop=slop, cores=cores, species=species)
+        assembly = break_scaffolds(breaks=breaks, assembly=assembly, slop=slop, cores=cores, species=species,
+                                   use_memory_fs=use_memory_fs)
         if intermediate is True:
             assemblies[cycle] = assembly
         breaks = break_finder(assembly.get("molecule_cov", None))

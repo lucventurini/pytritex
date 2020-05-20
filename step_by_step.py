@@ -49,6 +49,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--processes", dest="procs", default=mp.cpu_count(), type=int)
     parser.add_argument("-s", "--save-prefix", default="assembly")
+    parser.add_argument("-umfs", "--use-memory_fs", default=False, action="store_true")
     parser.add_argument("--save", default=False, action="store_true")
     parser.add_argument("--10x", dest="tenx")
     parser.add_argument("popseq")
@@ -61,14 +62,17 @@ def main():
     memory = Memory(os.path.join(".", args.save_prefix), mmap_mode="r+")
     assembly = memory.cache(initial)(args, popseq)
     assembly = memory.cache(anchor_scaffolds)(assembly, popseq=popseq, species="wheat")
-    assembly = memory.cache(add_molecule_cov)(assembly, cores=args.procs, binsize=200)
+    assembly = memory.cache(add_molecule_cov)(assembly,
+                                              cores=args.procs, binsize=200, use_memory_fs=args.use_memory_fs)
     assembly = memory.cache(add_hic_cov)(
-        assembly, cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
+        assembly, cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5,
+        use_memory_fs=args.use_memory_fs)
     breaks = memory.cache(find_10x_breaks)(assembly["molecule_cov"])
     b = breaks[breaks["d"] >= 1e4].sort_values("d", ascending=False).head(100)
     a = memory.cache(break_10x)(
         assembly, ratio=-3,
-        interval=5e4, minNbin=20, dist=2e3, slop=2e2, species="wheat", intermediate=False, cores=args.procs)
+        interval=5e4, minNbin=20, dist=2e3, slop=2e2, species="wheat", intermediate=False, cores=args.procs,
+        use_memory_fs=args.use_memory_fs)
     print("Broken chimeras")
     assembly_v1 = a["assembly"]
     # grid_evaluation(assembly, args)

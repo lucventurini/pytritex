@@ -3,7 +3,7 @@ from ...utils.rolling_join import rolling_join
 from ...sequencing_coverage import add_molecule_cov
 
 
-def _transpose_molecule_cov(new_assembly, fai, assembly, cores=1):
+def _transpose_molecule_cov(new_assembly, fai, assembly, cores=1, use_memory_fs=False):
     #  if("molecule_cov" %in% names(assembly) & nrow(molecules) > 0){
     #   cat("10X molecule coverage\n")
     #   add_molecule_cov(assembly_new, scaffolds=fai[split == T]$scaffold, binsize=assembly$mol_binsize, cores=cores)->cov
@@ -29,7 +29,8 @@ def _transpose_molecule_cov(new_assembly, fai, assembly, cores=1):
         old_to_keep = fai.loc[~fai["derived_from_split"], "scaffold_index"]
         assert "mr_10x" not in new_assembly["info"].columns
         coverage = add_molecule_cov(new_assembly,
-                                    scaffolds=scaffolds, binsize=assembly["mol_binsize"], cores=cores)
+                                    scaffolds=scaffolds, binsize=assembly["mol_binsize"], cores=cores,
+                                    use_memory_fs=use_memory_fs)
         old_info = assembly["info"].loc[assembly["info"].scaffold_index.isin(old_to_keep)]
         new_assembly["info"] = pd.concat([old_info, coverage["info"]]).reset_index(drop=True)
         new_assembly["mol_binsize"] = assembly["mol_binsize"]
