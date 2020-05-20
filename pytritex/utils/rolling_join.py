@@ -6,6 +6,7 @@ def rolling_join(left: pd.DataFrame, right: pd.DataFrame, on, by):
     """Implementation of the R data.table rolling join procedure."""
 
     _cp_right = right.sort_values([on, by])
+    left = left.sort_values([on, by])
     groups = left.groupby([on])
     left.loc[:, "__idx_pos"] = groups[by].transform(lambda s: np.arange(s.shape[0], dtype=np.int))
     assert "__idx_pos" in left.columns
