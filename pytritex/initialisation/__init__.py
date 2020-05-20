@@ -22,8 +22,10 @@ def initial(args, popseq):
     fai.loc[:, "start"] = fai.loc[:, "orig_start"] = np.array([1], dtype=fai["length"].dtype)
     fai.loc[:, "end"] = fai.loc[:, "orig_end"] = fai["length"]
 
+    fai = fai.convert_dtypes()
     # Alignment of genetic markers used for the genetic map. In this example, the Morex WGS assembly by IBSC (2012).
     cssaln = read_morexaln_minimap(paf=args.css, popseq=popseq, fai=fai, minqual=30, minlen=500, ref=True)
+    cssaln = cssaln.convert_dtypes()
 
     # Read the list of Hi-C links.
     fpairs_command = 'find {} -type f | grep "_fragment_pairs.tsv.gz$"'.format(args.hic)
@@ -49,6 +51,7 @@ def initial(args, popseq):
     fpairs.loc[:, "orig_pos1"] = fpairs["pos1"]
     fpairs.loc[:, "orig_pos2"] = fpairs["pos2"]
 
+    fpairs = fpairs.convert_dtypes()
     tenx_command = 'find {} -type f | grep "molecules.tsv.gz$"'.format(args.tenx)
     tenx_files = [line.rstrip().decode() for line in
                   sp.Popen(tenx_command, shell=True, stdout=sp.PIPE).stdout]
@@ -66,6 +69,7 @@ def initial(args, popseq):
         import sys
         sys.exit(1)
 
+    molecules = molecules.convert_dtypes()
     assembly = {"popseq": popseq,
                 "fai": fai,
                 "cssaln": cssaln,

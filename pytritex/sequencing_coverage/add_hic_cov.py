@@ -8,6 +8,8 @@ from time import ctime
 import multiprocessing as mp
 import numexpr as ne
 import re
+from time import sleep
+from collections import deque
 
 
 def _group_analyser(group, binsize):
@@ -90,8 +92,15 @@ Supplied values: {}, {}".format(binsize, binsize2))
     pool = mp.Pool(processes=cores)
     _gr = functools.partial(_group_analyser, binsize=binsize)
     # Count how many pairs cover each smaller bin within the greater bin.
-    results = pool.map_async(_gr, iter(temp_frame.groupby(["scaffold_index", "bin_group"])))
-    coverage_df = pd.concat(results.get()).reset_index(level=0, drop=True)
+    results = deque()
+    finalised = []
+    for group in iter(temp_frame.groupby(["scaffold_index", "bin_group"])):
+        while len(results) > 100:
+            finalised.append(results.popleft().get())
+        results.append(pool.apply_async(_gr, group))
+    coverage_df = pd.concat(finalised).reset_index(level=0, drop=True)
+    pool.close()
+    pool.join()
 
     if coverage_df.shape[0] > 0:
         print(ctime(), "Merging on coverage DF (HiC)")

@@ -7,6 +7,7 @@ from time import ctime
 import multiprocessing as mp
 import numexpr as ne
 import re
+from collections import deque
 
 
 def _group_analyser(group: pd.DataFrame, binsize):
@@ -66,9 +67,15 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
     # pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
     _gr = functools.partial(_group_analyser, binsize=binsize)
     pool = mp.Pool(processes=cores)
-    results = pool.map_async(_gr, iter(temp_dataframe[["scaffold_index", "bin1", "bin2"]].groupby(
-        "scaffold_index")))
-    coverage_df = pd.concat(results.get()).reset_index(level=0, drop=True)
+    results = deque()
+    finalised = []
+    for group in iter(temp_dataframe[["scaffold_index", "bin1", "bin2"]].groupby("scaffold_index")):
+        while len(results) > 100:
+            finalised.append(results.popleft().get())
+        results.append(pool.apply_async(_gr, group))
+    coverage_df = pd.concat(finalised).reset_index(level=0, drop=True)
+    pool.close()
+    pool.join()
 
     if coverage_df.shape[0] > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
