@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import multiprocessing as mp
-from time import ctime
 
 
 def _10xreader(item):
@@ -30,4 +29,5 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1):
                              "barcode": mol["barcode"]})
     barcodes.loc[:, "barcode_index"] = pd.to_numeric(barcodes["barcode_index"], downcast="unsigned")
     mol = barcodes.merge(mol, how="right", on="barcode").drop("barcode", axis=1)
+    mol.loc[:, "sample"] = pd.Categorical(mol["sample"])
     return mol, barcodes

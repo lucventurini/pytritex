@@ -2,21 +2,16 @@ import pandas as pd
 import argparse
 import multiprocessing as mp
 import os
-import pickle
-from time import ctime
 from pytritex.anchoring.anchor_scaffolds import anchor_scaffolds
 from pytritex.sequencing_coverage.add_molecule_cov import add_molecule_cov
 from pytritex.sequencing_coverage.add_hic_cov import add_hic_cov
 from pytritex.chimera_breaking.find_10x_breaks import find_10x_breaks
 from pytritex.chimera_breaking.break_10x import break_10x
-import io
 import itertools
 from pytritex.scaffold_10x import scaffold_10x
 from pytritex.utils import n50
 from pytritex.initialisation import initial
 from joblib import Memory, dump, load
-import subprocess as sp
-import shutil
 import numexpr as ne
 
 
@@ -58,6 +53,7 @@ def main():
     parser.add_argument("css")
     parser.add_argument("hic")
     parser.add_argument("fasta")
+    mp.set_start_method("spawn", force=True)
     args = parser.parse_args()
     ne.set_num_threads(args.procs)
     popseq = load(args.popseq)
