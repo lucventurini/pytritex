@@ -17,7 +17,7 @@ def rolling_join(left: pd.DataFrame, right: pd.DataFrame, on, by):
         else:
             _cp_right.loc[right_indices, "__idx_pos"] = np.nan
 
-    res = left.drop(by, axis=1).merge(_cp_right, on=[on, "__idx_pos"], how="right")
+    res = left.drop(by, axis=1).merge(_cp_right, on=[on, "__idx_pos"], how="right").drop("__idx_pos", axis=1)
     # assert res.loc[res[by].isna()].shape[0] <= right.loc[right[by].isna()].shape[0]
     return res
 
