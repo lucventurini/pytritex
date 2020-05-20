@@ -6,7 +6,7 @@ from .calculate_broken_scaffolds import calculate_broken_scaffolds
 from ..anchoring import anchor_scaffolds
 
 
-def break_scaffolds(breaks, assembly, slop, cores=1, species="wheat", use_memory_fs=False) -> dict:
+def break_scaffolds(breaks, assembly, slop, cores=1, species="wheat") -> dict:
 
     new_assembly = calculate_broken_scaffolds(breaks, assembly, slop)
     for key in ["binsize", "innerDist", "minNbin"]:
@@ -30,8 +30,8 @@ def break_scaffolds(breaks, assembly, slop, cores=1, species="wheat", use_memory
     new_assembly["info"] = new_assembly["info"].drop("mr", axis=1, errors="ignore")
     new_assembly["info"] = new_assembly["info"].drop("mri", axis=1, errors="ignore")
     new_assembly = _transpose_hic_cov(new_assembly, assembly["info"], fai,
-                                      assembly["cov"], assembly["fpairs"], cores=cores, use_memory_fs=use_memory_fs)
-    new_assembly = _transpose_molecule_cov(new_assembly, fai, assembly, cores=cores, use_memory_fs=use_memory_fs)
+                                      assembly["cov"], assembly["fpairs"], cores=cores)
+    new_assembly = _transpose_molecule_cov(new_assembly, fai, assembly, cores=cores)
     for key in ["popseq_alphachr2", "popseq_alphachr", "sorted_alphachr", "sorted_alphachr2"]:
         new_assembly["info"].loc[lambda df: df[key] == 0, key] = np.nan
     new_assembly["info"].loc[:, "derived_from_split"] = new_assembly["info"]["derived_from_split"].fillna(False)

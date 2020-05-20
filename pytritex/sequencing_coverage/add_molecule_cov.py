@@ -1,25 +1,27 @@
 import pandas as pd
 import numpy as np
 import itertools
-import pandarallel
+# import pandarallel
 import functools
 from time import ctime
+import multiprocessing as mp
 
 
 def _group_analyser(group: pd.DataFrame, binsize):
-    assert group["scaffold_index"].unique().shape[0] == 1, group["scaffold_index"]
-    scaffold = group["scaffold_index"].head(1).values[0]
+    # assert group["scaffold_index"].unique().shape[0] == 1, group["scaffold_index"]
+    scaffold_index, group = group
+    # scaffold = group["scaffold_index"].head(1).values[0]
     bin_series = pd.Series(itertools.starmap(range, pd.DataFrame().assign(
         bin1=group["bin1"] + binsize, bin2=group["bin2"], binsize=binsize).astype(np.int).values),
                            index=group.index,
                            name="bin")
     assigned = group.assign(bin=bin_series).explode("bin").groupby(
         ["scaffold_index", "bin"]).size().to_frame("n").reset_index(
-        drop=False).assign(scaffold_index=scaffold)
+        drop=False).assign(scaffold_index=scaffold_index)
     return assigned
 
 
-def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1, use_memory_fs=True):
+def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
     info = assembly["info"]
     print("Starting adding molecule coverage")
     binsize = np.int(np.floor(binsize))
@@ -48,9 +50,12 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1, use_m
     temp_dataframe = temp_dataframe.loc[temp_dataframe.eval(
         "bin2 - bin1 > 2 *{binsize}".format(binsize=binsize)), :].copy().astype({"bin1": np.int,
                                                                                  "bin2": np.int})
-    pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
+    # pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
     _gr = functools.partial(_group_analyser, binsize=binsize)
-    coverage_df = temp_dataframe.groupby("scaffold_index").parallel_apply(_gr).reset_index(level=0, drop=True)
+    pool = mp.Pool(processes=cores)
+    coverage_df = pd.concat(pool.map(
+        _gr, iter(temp_dataframe.groupby("scaffold_index")))).reset_index(level=0, drop=True)
+    # coverage_df = .parallel_apply(_gr).reset_index(level=0, drop=True)
 
     if coverage_df.shape[0] > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff

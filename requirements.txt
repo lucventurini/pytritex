@@ -1,9 +1,7 @@
 pandas
 scipy
 numpy
-pandarallel
 networkx
 matplotlib
 networkit
 joblib
-tables

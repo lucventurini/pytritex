@@ -14,8 +14,10 @@ import itertools
 from pytritex.scaffold_10x import scaffold_10x
 from pytritex.utils import n50
 from pytritex.initialisation import initial
-from joblib import Memory
+from joblib import Memory, dump, load
 import subprocess as sp
+import shutil
+import numexpr as ne
 
 
 def dispatcher(assembly, row):
@@ -49,7 +51,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--processes", dest="procs", default=mp.cpu_count(), type=int)
     parser.add_argument("-s", "--save-prefix", default="assembly")
-    parser.add_argument("-umfs", "--use-memory_fs", default=False, action="store_true")
+    # parser.add_argument("-umfs", "--use-memory_fs", default=False, action="store_true")
     parser.add_argument("--save", default=False, action="store_true")
     parser.add_argument("--10x", dest="tenx")
     parser.add_argument("popseq")
@@ -57,24 +59,46 @@ def main():
     parser.add_argument("hic")
     parser.add_argument("fasta")
     args = parser.parse_args()
+    ne.set_num_threads(args.procs)
     popseq = pd.read_pickle(args.popseq)
     popseq.columns = popseq.columns.str.replace("morex", "css")
-    memory = Memory(os.path.join(".", args.save_prefix), mmap_mode="r+")
+    memory = Memory(os.path.join(".", args.save_prefix))
     assembly = memory.cache(initial)(args, popseq)
-    assembly = memory.cache(anchor_scaffolds)(assembly, popseq=popseq, species="wheat")
-    assembly = memory.cache(add_molecule_cov)(assembly,
-                                              cores=args.procs, binsize=200, use_memory_fs=args.use_memory_fs)
-    assembly = memory.cache(add_hic_cov)(
-        assembly, cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5,
-        use_memory_fs=args.use_memory_fs)
+    res = os.path.join(args.save_prefix, "joblib", "pytritex", "anchoring", "anchor_scaffolds", "result.pkl")
+    if os.path.exists(res):
+        assembly = load(res)
+    else:
+        assembly = anchor_scaffolds(assembly, popseq=popseq, species="wheat")
+        os.makedirs(os.path.dirname(res), exist_ok=True)
+        dump(assembly, res, compress=("zlib", 6))
+    res = os.path.join(args.save_prefix, "joblib", "pytritex", "sequencing_coverage", "add_molecule_cov",
+                       "initial.pkl")
+    if os.path.exists(res):
+        assembly = load(res)
+    else:
+        assembly = add_molecule_cov(assembly, cores=args.procs, binsize=200)
+        os.makedirs(os.path.dirname(res), exist_ok=True)
+        dump(assembly, res, compress=("zlib", 6))
+    res = os.path.join(args.save_prefix, "joblib", "pytritex", "sequencing_coverage", "add_hic_cov",
+                       "initial.pkl")
+    if os.path.exists(res):
+        assembly = load(res)
+    else:
+        assembly = add_hic_cov(assembly, cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
+        os.makedirs(os.path.dirname(res), exist_ok=True)
+        dump(assembly, res, compress=("zlib", 6))
     breaks = memory.cache(find_10x_breaks)(assembly["molecule_cov"])
     b = breaks[breaks["d"] >= 1e4].sort_values("d", ascending=False).head(100)
-    a = memory.cache(break_10x)(
-        assembly, ratio=-3,
-        interval=5e4, minNbin=20, dist=2e3, slop=2e2, species="wheat", intermediate=False, cores=args.procs,
-        use_memory_fs=args.use_memory_fs)
+    res = os.path.join(args.save_prefix, "joblib", "pytritex", "chimera_breaking", "break_10x",
+                       "v0.pkl")
+    if os.path.exists(res):
+        assembly_v1 = load(res)
+    else:
+        assembly_v1 = break_10x(assembly, ratio=-3, interval=5e4, minNbin=20, dist=2e3,
+                                slop=2e2, species="wheat", intermediate=False, cores=args.procs)["assembly"]
+        os.makedirs(os.path.dirname(res), exist_ok=True)
+        dump(assembly_v1, res, compress=("zlib", 6))
     print("Broken chimeras")
-    assembly_v1 = a["assembly"]
     # grid_evaluation(assembly, args)
     return
 

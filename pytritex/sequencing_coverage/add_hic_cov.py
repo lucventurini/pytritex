@@ -1,26 +1,27 @@
 import pandas as pd
 import numpy as np
-import pandarallel
+# import pandarallel
 import functools
 import itertools
 pd.options.mode.chained_assignment = 'raise'
 from time import ctime
+import multiprocessing as mp
 
 
 def _group_analyser(group, binsize):
     """Count how many pairs cover a given bin; return into a column called "n"."""
-    assert group["scaffold_index"].unique().shape[0] == 1, group["scaffold_index"]
-    scaffold = group["scaffold_index"].head(1).values[0]
+    (scaffold_index, bin_group), group = group
+    # assert group["scaffold_index"].unique().shape[0] == 1, group["scaffold_index"]
+    # scaffold = group["scaffold_index"].head(1).values[0]
     bin_series = pd.Series(itertools.starmap(range, pd.DataFrame().assign(
         bin1=group["bin1"] + binsize, bin2=group["bin2"], binsize=binsize).astype(np.int).values),
                     index=group.index)
     assigned = group.assign(bin=bin_series).explode("bin").reset_index(drop=True).groupby(
-        "bin").size().to_frame("n").reset_index().assign(scaffold_index=scaffold)
+        "bin").size().to_frame("n").reset_index().assign(scaffold_index=scaffold_index)
     return assigned
 
 
-def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1,
-                use_memory_fs=True):
+def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1):
     """
     Calculate physical coverage with Hi-C links in sliding windows along the scaffolds.
     :param assembly:
@@ -30,7 +31,6 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
     :param minNbin:
     :param innerDist:
     :param cores:
-    :param use_memory_fs: for pandarallel.
     :return:
     """
 
@@ -77,11 +77,13 @@ Supplied values: {}, {}".format(binsize, binsize2))
     ).loc[lambda df: df["bin2"] - df["bin1"] > 2 * binsize, :].astype({"bin1": np.int, "bin2": np.int})
     # Create a greater bin group for each bin1, based on bin1 (default: 100x bin2).
     temp_frame.loc[:, "bin_group"] = (temp_frame["bin1"] // binsize2)
-    pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
+    # pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
+    pool = mp.Pool(processes=cores)
     _gr = functools.partial(_group_analyser, binsize=binsize)
     # Count how many pairs cover each smaller bin within the greater bin.
-    coverage_df = temp_frame.groupby(["scaffold_index",
-                                      "bin_group"]).parallel_apply(_gr).reset_index(level=0, drop=True)
+    coverage_df = pd.concat(pool.map(_gr, iter(temp_frame.groupby(
+        ["scaffold_index", "bin_group"])))).reset_index(level=0, drop=True)
+    # coverage_df = .parallel_apply(_gr).reset_index(level=0, drop=True)
     # coverage_df = temp_frame.groupby(["scaffold_index", "bin_group"]).apply(_gr).reset_index(level=0, drop=True)
 
     if coverage_df.shape[0] > 0:
