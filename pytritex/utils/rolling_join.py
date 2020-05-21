@@ -5,6 +5,8 @@ from functools import partial
 
 def _ssorted(row, by, how):
     res = np.searchsorted(row["by"], row[by], side="left")
+    if row["by"][res] == row[by]:
+        return res
     if how == "right":
         res -= 1
         if res < 0:
