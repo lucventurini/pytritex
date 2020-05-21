@@ -4,7 +4,6 @@ from .assign_carma import assign_carma
 from .assign_popseq_position import assign_popseq_position
 from .add_hic_statistics import add_hic_statistics
 from .find_wrong_assignment import find_wrong_assignments
-import numpy as np
 
 
 def anchor_scaffolds(assembly: dict,

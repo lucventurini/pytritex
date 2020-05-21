@@ -16,12 +16,20 @@ def _transpose_cssaln(cssaln: pd.DataFrame, fai: pd.DataFrame):
     #  z[, orig_start := NULL]
     #  assembly_new$cssaln <- z
 
-    cssaln = cssaln.copy().drop("length", axis=1).drop("scaffold_index", axis=1)
-    fai = fai[["scaffold_index", "length", "orig_scaffold_index", "orig_start"]].copy().rename(
-        columns={"length": "scaffold_length"}).assign(orig_pos=lambda df: df["orig_start"])
-    cssaln = rolling_join(fai, cssaln, on="orig_scaffold_index", by="orig_pos")
-    orig_pos = cssaln["orig_pos"].values
-    orig_start = cssaln["orig_start"].values
-    cssaln.loc[:, "pos"] = ne.evaluate("orig_pos- orig_start + 1")
+    derived = fai.loc[fai.derived_from_split]
+    to_keep = fai.loc[~fai.orig_scaffold_index.isin(derived.orig_scaffold_index)]
+    derived = derived[["scaffold_index", "length", "orig_scaffold_index", "orig_start"]].copy().assign(
+        orig_pos=lambda df: df["orig_start"])
+
+    # These are not split
+    cols = cssaln.columns[:]
+    cssaln_up = cssaln.copy().loc[cssaln["orig_scaffold_index"].isin(to_keep["orig_scaffold_index"])]
+    cssaln_down= cssaln.copy().loc[~cssaln["orig_scaffold_index"].isin(to_keep["orig_scaffold_index"])]
+    cssaln_down = cssaln_down.copy().drop("length", axis=1).drop("scaffold_index", axis=1)
+    cssaln_down = rolling_join(derived, cssaln_down, on="orig_scaffold_index", by="orig_pos")
+    cssaln = pd.concat([cssaln_up, cssaln_down]).sort_values(["scaffold_index", "orig_pos"]).reset_index(drop=True)
+    cssaln.loc[:, "pos"] = cssaln.eval("orig_pos - orig_start + 1")
     cssaln.drop("orig_start", axis=1, inplace=True)
+    print("Original css columns:", cols)
+    print("New css columns:", cssaln.columns)
     return cssaln

@@ -60,11 +60,17 @@ def _transpose_molecules(molecules, fai):
     #  }
 
     if molecules is not None and molecules.shape[0] > 0:
-        molecules = molecules.copy().drop("scaffold_index", axis=1)
-        fai = fai[["scaffold_index", "orig_scaffold_index", "orig_start", "length"]].rename(
+        derived = fai.loc[fai.derived_from_split]
+        to_keep = fai.loc[~fai.orig_scaffold_index.isin(derived.orig_scaffold_index)]
+        derived = derived[["scaffold_index", "orig_scaffold_index", "orig_start", "length"]].rename(
             columns={"length": "s_length"}).copy().assign(orig_pos=lambda df: df["orig_start"])
-        molecules = rolling_join(fai, molecules, on="orig_scaffold_index", by="orig_start")
+        molecules_up = molecules.loc[molecules["orig_scaffold_index"].isin(to_keep["orig_scaffold_index"])]
+        molecules_down = molecules.loc[molecules["orig_scaffold_index"].isin(derived["orig_scaffold_index"])].drop(
+            "scaffold_index", axis=1)
+        molecules_down = rolling_join(derived, molecules_down, on="orig_scaffold_index", by="orig_start")
         # TODO I think this is wrong, we should switch start and pos
+        molecules = pd.concat([molecules_up, molecules_down]).sort_values(
+            ["scaffold_index", "orig_start"]).reset_index(drop=True)
         molecules.loc[:, "start"] = molecules["orig_start"] - molecules["orig_pos"] + 1
         molecules.loc[:, "end"] = molecules["orig_end"] - molecules["orig_pos"] + 1
         molecules = molecules.loc[molecules["end"] <= molecules["s_length"]].drop("orig_pos", axis=1).drop(

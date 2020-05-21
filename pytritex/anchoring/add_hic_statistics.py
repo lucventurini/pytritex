@@ -21,14 +21,22 @@ def add_hic_statistics(anchored_css: pd.DataFrame, fpairs: pd.DataFrame):
     anchored0 = anchored_css.loc[anchored_css.eval("popseq_chr == sorted_chr"),
                                      ["scaffold_index", "popseq_chr"]].rename(columns={"popseq_chr": "chr"})
     anchored_hic_links = anchored0.copy().rename(
-        columns={"chr": "chr1", "scaffold_index": "scaffold_index1"}).merge(fpairs, on="scaffold_index1", how="right")
+        columns={"chr": "chr1",
+                 "scaffold_index": "scaffold_index1"}).merge(fpairs, on="scaffold_index1", how="right")
+    anchored_hic_links.loc[:, "scaffold_index1"] = pd.to_numeric(anchored_hic_links["scaffold_index1"],
+                                                                 downcast="unsigned")
     anchored_hic_links = anchored0.rename(
-        columns={"chr": "chr2", "scaffold_index": "scaffold_index2"}).merge(anchored_hic_links,
-                                                                            on="scaffold_index2", how="right")
-    hic_stats = anchored_hic_links[~anchored_hic_links["chr1"].isna()].rename(
+        columns={"chr": "chr2",
+                 "scaffold_index": "scaffold_index2"}).merge(anchored_hic_links,
+                                                             on="scaffold_index2", how="right")
+    anchored_hic_links.loc[:, "scaffold_index2"] = pd.to_numeric(anchored_hic_links["scaffold_index2"],
+                                                                 downcast="unsigned")
+    print("Anchored HiC links columns", anchored_hic_links.columns)
+    hic_stats = anchored_hic_links[~(anchored_hic_links["chr1"].isna() |
+                                     anchored_hic_links["chr1"].isna())].rename(
         columns={"scaffold_index2": "scaffold_index", "chr1": "hic_chr"}
-    ).groupby(["scaffold_index", "hic_chr"]).size().to_frame("N").reset_index(drop=False)
-    hic_stats.loc[:, "N"] = pd.to_numeric(hic_stats["N"], downcast="signed")
+    ).groupby(["scaffold_index", "hic_chr"]).size().to_frame("N").reset_index(drop=False).apply(
+        pd.to_numeric, downcast="signed")
     N_dtype, chr_dtype = hic_stats["N"].dtype, hic_stats["hic_chr"].dtype
     grouped_hic_stats = hic_stats.sort_values(["scaffold_index", "N"], ascending=[True, False])
     hic_stats = grouped_hic_stats.groupby("scaffold_index", sort=False).agg(

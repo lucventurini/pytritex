@@ -27,6 +27,7 @@ def break_scaffolds(breaks, assembly, slop, cores=1, species="wheat") -> dict:
     new_assembly["cssaln"] = _transpose_cssaln(assembly["cssaln"], fai)
     print(ctime(), "Transposing the HiC alignments")
     new_assembly["fpairs"] = _transpose_fpairs(assembly.get("fpairs", None), fai)
+    # assert "chr1" in new_assembly["fpairs"].columns
     print(ctime(), "Transposing the 10X alignments")
     new_assembly["molecules"] = _transpose_molecules(assembly.get("molecules", None), fai)
     print(ctime(), "Anchoring the transposed data")
