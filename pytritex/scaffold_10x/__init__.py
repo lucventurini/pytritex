@@ -1,9 +1,7 @@
-import pandas as pd
-import numpy as np
-from .scaffold_10x_utils.branch_remover import _initial_branch_remover
-from .scaffold_10x_utils.link_finder import _initial_link_finder
-from .scaffold_10x_utils.orient_scaffolds import orient_scaffolds
-from .scaffold_10x_utils.non_raw_analyser import non_raw_analyser
+from ..graph_utils.branch_remover import _initial_branch_remover
+from .link_finder import _initial_link_finder
+from .orient_scaffolds import orient_scaffolds
+from .non_raw_analyser import non_raw_analyser
 
 
 def scaffold_10x(assembly: dict, prefix="super", min_npairs=5, max_dist=1e5, min_nmol=6,

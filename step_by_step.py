@@ -2,15 +2,15 @@ import pandas as pd
 import argparse
 import multiprocessing as mp
 import os
+from pytritex.initialisation import initial
 from pytritex.anchoring.anchor_scaffolds import anchor_scaffolds
 from pytritex.sequencing_coverage.add_molecule_cov import add_molecule_cov
 from pytritex.sequencing_coverage.add_hic_cov import add_hic_cov
 from pytritex.chimera_breaking.find_10x_breaks import find_10x_breaks
 from pytritex.chimera_breaking.break_10x import break_10x
 import itertools
-from pytritex.scaffold_10x import scaffold_10x
+from pytritex.scaffold_10x.__init__ import scaffold_10x
 from pytritex.utils import n50
-from pytritex.initialisation import initial
 from joblib import Memory, dump, load
 import numexpr as ne
 
@@ -98,7 +98,7 @@ def main():
         os.makedirs(os.path.dirname(res), exist_ok=True)
         dump(assembly_v1, res, compress=("zlib", 6))
     print("Broken chimeras")
-    # grid_evaluation(assembly, args)
+    grid_evaluation(assembly_v1, args)
     return
 
 

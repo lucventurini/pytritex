@@ -32,27 +32,27 @@ def checker(df, edge_list):
         ["cluster1", "cluster2", "weight"]]
     m.columns = ["cluster1", "cluster2", "weight12"]
     m.loc[:, "dummy"] = 1
-    m = df.copy().rename(
-        {"cluster": "cluster1", "bin": "bin1"}).set_index("cluster1").merge(m, how="right",
-                                                                            left_index=True, right_on="cluster1")
-    m = df.copy().rename(
-        {"cluster": "cluster2", "bin": "bin2"}).set_index("cluster2").merge(m, how="right",
-                                                                            left_index=True, right_on="cluster2")
+    __left = df.copy().rename(columns={"cluster": "cluster1", "bin": "bin1"}).set_index("cluster1")
+    m = __left.merge(m, how="right", left_index=True, right_on="cluster1")
+    __left = df.copy().rename(columns={"cluster": "cluster2", "bin": "bin2"}).set_index("cluster2")
+    m = __left.merge(m, how="right", left_index=True, right_on="cluster2")
     n = m.copy().rename(columns={"cluster1": "cluster3",
                                  "cluster2": "cluster4",
                                  "bin1": "bin3",
                                  "bin2": "bin4",
                                  "weight12": "weight34"})
-    mn = n.merge(m, on="dummy", how="outer").loc[lambda _mn: _mn["bin1"] < _mn["bin3"]]
-    del mn["dummy"]
-    o = edge_list[["cluster1", "cluster2", "weight"]]
-    mn = o.copy.rename(columns={"cluster1": "cluster1", "cluster2": "cluster3", "weight": "weight13"}).merge(
-        mn, on=["cluster1", "cluster3"])
-    mn = o.copy.rename(columns={"cluster1": "cluster2", "cluster2": "cluster4", "weight": "weight24"}).merge(
-        mn, on=["cluster2", "cluster4"])
-    mn.loc[:, "old"] = mn["weight12"] + mn["weight34"]
-    mn.loc[:, "new"] = mn["weight13"] + mn["weight24"]
-    mn.loc[:, "diff"] = mn["old"] - mn["new"]
+    mn = n.merge(m, on="dummy", how="outer").query("bin1 < bin3").drop("dummy", axis=1)
+    # Cluster1, cluster2 are in the index
+    o = edge_list.loc[:, "weight"].reset_index(drop=False)
+    mn = o.copy().rename(columns={"cluster1": "cluster1",
+                                  "cluster2": "cluster3",
+                                  "weight": "weight13"}).merge(mn, on=["cluster1", "cluster3"])
+    mn = o.copy().rename(columns={"cluster1": "cluster2",
+                                  "cluster2": "cluster4",
+                                  "weight": "weight24"}).merge(mn, on=["cluster2", "cluster4"])
+    mn.eval("old = weight12 + weight34", inplace=True)
+    mn.eval("new = weight13 + weight24", inplace=True)
+    mn.eval("diff = old - new", inplace=True)
     mn = mn.sort_values("diff", ascending=False)
     return mn
 
@@ -63,10 +63,14 @@ def kopt2(df, edge_list: pd.DataFrame):
     mn = checker(df, edge_list)
     while mn.loc[mn["diff"] > 0].shape[0] > 0:
         x = mn.head(1)
-        bin1 = df.loc[df["cluster"] == x["cluster1"], "bin"]
-        bin2 = df.loc[df["cluster"] == x["cluster2"], "bin"]
-        bin3 = df.loc[df["cluster"] == x["cluster3"], "bin"]
-        bin4 = df.loc[df["cluster"] == x["cluster4"], "bin"]
+        bin1 = df.query("cluster == @x.cluster1")["bin"]
+        bin2 = df.query("cluster == @x.cluster2")["bin"]
+        bin3 = df.query("cluster == @x.cluster3")["bin"]
+        bin4 = df.query("cluster == @x.cluster4")["bin"]
+        # bin1 = df.loc[df["cluster"] == x["cluster1"], "bin"]
+        # bin2 = df.loc[df["cluster"] == x["cluster2"], "bin"]
+        # bin3 = df.loc[df["cluster"] == x["cluster3"], "bin"]
+        # bin4 = df.loc[df["cluster"] == x["cluster4"], "bin"]
         df = pd.concat([df.iloc[:bin1], df.iloc[bin3:bin2], df.iloc[bin4:]]).assign(
             bin=lambda df: np.arange(df.shape[0], dtype=np.int))
         mn = checker(df, edge_list)

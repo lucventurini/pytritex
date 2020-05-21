@@ -1,14 +1,10 @@
 import pandas as pd
 # import graph_tool
-import multiprocessing as mp
-import numpy as np
-import itertools
 # import graph_tool as gt
 # import graph_tool.clustering
 import time
 import networkit as nk
-from .make_super_path import make_super_path
-import itertools
+from pytritex.graph_utils.make_super_path import make_super_path
 
 
 # make_super<-function(hl, cluster_info, prefix="super", cores=1, paths=T, path_max=0, known_ends=F,
@@ -54,14 +50,18 @@ import itertools
 # }
 
 
-def _concatenator(super_object, ssuper, known_ends=False, maxiter=100, verbose=False):
+def _concatenator(super_object, ssuper, known_ends=False, maxiter=100, verbose=False, prev_chrom=None):
     start = end = None
     if known_ends:
-        x = super_object["mem"].loc[
+        x = super_object["membership"].loc[
             lambda df: (df["super"] == ssuper) & (~df["cM"].isna())].sort_values(
             "cM")["cluster"]
         start, end = x.head(1), x.tail(1)
-    chrom = super_object["mem"].loc[lambda df: (df["super"] == ssuper), "chr"].head(1)
+    try:
+        chrom = super_object["membership"].query("super == @ssuper")["popseq_chr"].head(1).values[0]
+    except KeyError:
+        print(super_object["membership"].head(5))
+        raise
     print(time.ctime(), "Starting chromosome", chrom)
     final = make_super_path(super_object,
                             idx=ssuper, start=start, end=end,
@@ -87,7 +87,6 @@ def make_super(hl, cluster_info,
     edge_list = edge_list.merge(
         cidx.rename(columns={"cluster": "cluster1", "cidx": "cidx1"}), how="inner", on="cluster1").merge(
         cidx.rename(columns={"cluster": "cluster2", "cidx": "cidx2"}), how="inner", on="cluster2")
-    print("Edge list:", edge_list.shape)
     # Now we are ready to create the graph using the indices.
     #  hl[cluster1 < cluster2]->e
     #  graph.edgelist(as.matrix(e[, .(cluster1, cluster2)]), directed=F)->g
@@ -106,22 +105,40 @@ def make_super(hl, cluster_info,
     # info <- mem[, .(super_size=.N, length=.N, chr=unique(na.omit(chr))[1], cM=mean(na.omit(cM))),
     # keyby=super]
     info = membership.groupby("super").agg(
-        super_size=("super", "size"), length=("super", "size"), cM=("cM", "mean"))
-    edge_list = membership.rename(columns={"cluster": "cluster1"})[["cluster", "super"]].merge(
+        super_size=("super", "size"), length=("super", "size"), cM=("cM", "mean")).reset_index(drop=False)
+    assert "cluster" in membership, membership.columns
+    edge_list = membership.rename(columns={"cluster": "cluster1"})[["cluster1", "super"]].merge(
         hl, on="cluster1", how="right")
 
     super_object = {"super_info": info, "membership": membership, "graph": graph, "edges": edge_list}
 
+
     if paths is True:
         if path_max > 0:
-            idx = super_object["super_info"].sort_values("length", ascending=False
-                                                         ).head(path_max)["super"].unique()
+            idx = super_object["super_info"].sort_values("length", ascending=False).head(path_max)["super"].unique()
         else:
             idx = super_object["super_info"]["super"].unique()
 
-        super_object["membership"] = pd.concat(
-            itertools.starmap(_concatenator,
-                              [(super_object, ssuper, known_ends, maxiter, verbose) for ssuper in idx])
-        ).merge(super_object["membership"], on="cluster")
+        order = super_object["membership"].query("super in @idx")[[
+            "super", "popseq_chr"]].sort_values(["popseq_chr"])
+        print(time.ctime(), "Starting super, with", idx.shape[0], "positions to analyse.")
+        results = []
+        prev_chrom = None
+        for row in order.itertuples(name=None):
+            index, ssuper, popseq_chr = row
+            popseq_chr = int(popseq_chr)
+            print(type(prev_chrom), prev_chrom, type(popseq_chr), popseq_chr, popseq_chr == prev_chrom)
+            if popseq_chr == prev_chrom:
+                pass
+            else:
+                if prev_chrom is not None:
+                    print(time.ctime(), "Finished chromosome", prev_chrom)
+                print(time.ctime(), "Starting chromosome", popseq_chr)
+            prev_chrom = int(popseq_chr)
+            results.append(_concatenator(super_object, ssuper, known_ends, maxiter, verbose))
 
+        super_object["membership"] = pd.concat(results).merge(
+            super_object["membership"], on="cluster")
+
+    print(time.ctime(), "Finished make_super run")
     return super_object

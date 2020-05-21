@@ -1,6 +1,5 @@
 import pandas as pd
-import numpy as np
-from ..make_super_scaffolds import make_super_scaffolds
+from pytritex.graph_utils.make_super_scaffolds import make_super_scaffolds
 from .scaffold_unanchored import _scaffold_unanchored
 
 # if(!raw){

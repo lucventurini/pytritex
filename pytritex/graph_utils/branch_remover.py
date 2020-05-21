@@ -1,5 +1,4 @@
-import pandas as pd
-from ..make_super_scaffolds import make_super_scaffolds
+from pytritex.graph_utils.make_super_scaffolds import make_super_scaffolds
 
 
 def _initial_branch_remover(raw, links, info, excluded, ncores, prefix=None):
@@ -17,7 +16,10 @@ def _initial_branch_remover(raw, links, info, excluded, ncores, prefix=None):
             if add.shape[0] == 0:
                 run = False
             else:
-                excluded = excluded.extend(add["scaffold"].to_list())
+                if excluded is None:
+                    excluded = add["scaffold_index"].to_list()
+                else:
+                    excluded = excluded.extend(add["scaffold_index"].to_list())
     else:
         out = make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=excluded, ncores=ncores)
         membership = out["membership"]
