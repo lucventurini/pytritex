@@ -5,3 +5,4 @@ networkx
 matplotlib
 networkit
 joblib
+cython

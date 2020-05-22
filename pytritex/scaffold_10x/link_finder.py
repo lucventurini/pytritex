@@ -1,5 +1,4 @@
 import pandas as pd
-from pytritex.utils import unique_count
 
 
 def _initial_link_finder(info: pd.DataFrame, molecules: pd.DataFrame,
@@ -32,15 +31,16 @@ def _initial_link_finder(info: pd.DataFrame, molecules: pd.DataFrame,
     link_pos = xy.copy()
     w = xy.groupby(["scaffold_index1", "scaffold_index2", "sample"]).size().to_frame("nmol").reset_index(drop=False)
     ww = w.loc[w["nmol"] >= min_nmol]
-    ww2 = ww.groupby(["scaffold_index1", "scaffold_index2"]).agg(nsample=("sample", unique_count)).loc[
-        lambda df: df["nsample"] >= min_nsample].reset_index(drop=False)
+    ww2 = ww[["scaffold_index1", "scaffold_index2", "sample"]].drop_duplicates().groupby(
+        ["scaffold_index1", "scaffold_index2"]).agg(nsample=("sample", "size")).query(
+        "nsample >= @min_nsample").reset_index(drop=False)
     basic = info.loc[:, ["scaffold_index", "popseq_chr", "length", "popseq_pchr", "popseq_cM"]]
     ww2 = basic.rename(columns=dict((col, col + "1") for col in basic.columns)).merge(
         ww2, on=["scaffold_index1"], how="right")
     ww2 = basic.rename(columns=dict((col, col + "2") for col in basic.columns)).merge(
         ww2, on=["scaffold_index2"], how="right")
-    ww2.loc[:, "same_chr"] = ww2["popseq_chr2"] == ww2["popseq_chr1"]
-    ww2.loc[:, "weight"] = ww2.eval("-1 * log10((length1 + length2) / 1e9)")
+    ww2.eval("same_chr = (popseq_chr2 == popseq_chr1)", inplace=True)
+    ww2.eval("weight = -1 * log10((length1 + length2) / 1e9)", inplace=True)
 
     if popseq_dist > 0:
         links = ww2.query("(popseq_chr1 == popseq_chr2) & (abs(popseq_cM2 - popseq_cM1) <= @popseq_dist)")

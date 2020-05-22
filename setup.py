@@ -3,16 +3,16 @@
 """Setup file for PyPI"""
 
 from setuptools import setup, find_packages
-# from setuptools.extension import Extension
+from setuptools.extension import Extension
 # from distutils.extension import Extension
-# from Cython.Build import cythonize
+from Cython.Build import cythonize
 # from codecs import open
 from os import path
 import glob
 # import re
 import sys
-# import numpy as np
-# from scipy._build_utils import numpy_nodepr_api
+import numpy as np
+from scipy._build_utils import numpy_nodepr_api
 
 
 here = path.abspath(path.dirname("__file__"))
@@ -35,6 +35,11 @@ if sys.version_info.major != 3:
     raise EnvironmentError("""Mikado is a pipeline specifically programmed for python3,
     and is not compatible with Python2. Please upgrade your python before proceeding!""")
 
+extensions = [Extension("pytritex.graph_utils.k_opt_tsp",
+                        sources=[path.join("pytritex", "graph_utils", "k_opt_tsp.pyx")],
+                        include_dirs=[np.get_include()],
+                        language="c++",
+                        **numpy_nodepr_api)]
 
 setup(
     name="pytritex",
@@ -57,7 +62,7 @@ setup(
         "Programming Language :: Python :: 3.6",
         'Programming Language :: Python :: 3.7'
     ],
-    # ext_modules=cythonize(extensions, compiler_directives = {"language_level": "3"}),
+    ext_modules=cythonize(extensions, compiler_directives = {"language_level": "3"}),
     # zip_safe=False,
     keywords="wheat genomics",
     packages=find_packages(),

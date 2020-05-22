@@ -53,20 +53,11 @@ from pytritex.graph_utils.make_super_path import make_super_path
 def _concatenator(super_object, ssuper, known_ends=False, maxiter=100, verbose=False, prev_chrom=None):
     start = end = None
     if known_ends:
-        x = super_object["membership"].loc[
-            lambda df: (df["super"] == ssuper) & (~df["cM"].isna())].sort_values(
-            "cM")["cluster"]
+        x = super_object["membership"].query("(super == @ssuper) & (cM == cM)").sort_values("cM")["cluster"]
         start, end = x.head(1), x.tail(1)
-    try:
-        chrom = super_object["membership"].query("super == @ssuper")["popseq_chr"].head(1).values[0]
-    except KeyError:
-        print(super_object["membership"].head(5))
-        raise
-    print(time.ctime(), "Starting chromosome", chrom)
     final = make_super_path(super_object,
                             idx=ssuper, start=start, end=end,
                             maxiter=maxiter, verbose=verbose)
-    print(time.ctime(), "Finished chromosome", chrom)
     return final
 
 
@@ -112,7 +103,6 @@ def make_super(hl, cluster_info,
 
     super_object = {"super_info": info, "membership": membership, "graph": graph, "edges": edge_list}
 
-
     if paths is True:
         if path_max > 0:
             idx = super_object["super_info"].sort_values("length", ascending=False).head(path_max)["super"].unique()
@@ -124,13 +114,14 @@ def make_super(hl, cluster_info,
         print(time.ctime(), "Starting super, with", idx.shape[0], "positions to analyse.")
         results = []
         prev_chrom = None
+        print(order["popseq_chr"].value_counts())
         for row in order.itertuples(name=None):
             index, ssuper, popseq_chr = row
             popseq_chr = int(popseq_chr)
-            print(type(prev_chrom), prev_chrom, type(popseq_chr), popseq_chr, popseq_chr == prev_chrom)
-            if popseq_chr == prev_chrom:
-                pass
-            else:
+            check = (popseq_chr == prev_chrom)
+            assert check in (False, True)
+            # print(type(prev_chrom), prev_chrom, type(popseq_chr), popseq_chr, popseq_chr == prev_chrom)
+            if check is False:
                 if prev_chrom is not None:
                     print(time.ctime(), "Finished chromosome", prev_chrom)
                 print(time.ctime(), "Starting chromosome", popseq_chr)
@@ -141,4 +132,6 @@ def make_super(hl, cluster_info,
             super_object["membership"], on="cluster")
 
     print(time.ctime(), "Finished make_super run")
+    import sys
+    sys.exit(1)
     return super_object

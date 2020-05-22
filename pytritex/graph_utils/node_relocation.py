@@ -58,55 +58,88 @@ import numpy as np
 
 
 def checker(df, edge_list):
-    x = pd.DataFrame().assign(old_node1=df["cluster"][:-2],
-                              cluster=df["cluster"][1:-1],
-                              old_node2=df["cluster"][2:])
+    x = pd.DataFrame().assign(old_node1=df["cluster"].values[:-2],
+                              cluster=df["cluster"].values[1:-1],
+                              old_node2=df["cluster"].values[2:])
     # Extract the edge weights, indexed by ege
     ee = edge_list[["cluster1", "cluster2", "weight"]]
     # setnames(ee, c("cluster1", "cluster2"), c("old_node1", "old_node2"))
-    __left = ee.copy().rename(columns={"cluster1": "old_node1", "cluster2": "old_node2"})
+    key = ["old_node1", "old_node2"]
+    __left = ee.copy()
+    __left.columns = key + ["new_edge3"]
+    __left = __left.set_index(key)
     # setnames(ee[setkeyv(x, c("old_node1", "old_node2"))], "weight", "new_edge3")->x
-    x = __left.merge(x, on=["old_node1", "old_node2"], how="right").rename(columns={"weight": "new_edge3"})
+    x = __left.merge(x.set_index(key).sort_index(axis=1),
+                     left_index=True, right_index=True,
+                     how="right").reset_index(drop=False)
     # setnames(ee, c("old_node1", "old_node2"), c("cluster", "old_node1"))
-    __left = ee.rename(columns={"cluster1": "cluster", "cluster2": "old_node1"})
+    key = ["cluster", "old_node1"]
+    __left = ee.copy()
+    __left.columns = key + ["old_edge1"]
+    __left = __left.set_index(key)
     # setnames(ee[setkeyv(x, c("cluster", "old_node1"))], "weight", "old_edge1")->x
-    x = __left.merge(x, on=["cluster", "old_node1"], how="right").rename(columns={"weight": "old_edge1"})
+    assert key[0] in x.columns, (key[0], x.columns)
+    assert key[1] in x.columns, (key[1], x.columns)
+    try:
+        x = __left.merge(x.set_index(key),
+                         how="right", left_index=True, right_index=True).reset_index(drop=False)
+    except ValueError:
+        x = x.set_index(key)
+        print(x.head(5))
+        print()
+        print(__left.head(5))
+        raise
     # setnames(ee, "old_node1", "old_node2")
-    __left = ee.rename(columns={"cluster1": "cluster", "cluster2": "old_node2"})
+    key = ["cluster", "old_node2"]
+    __left = ee.copy()
+    __left.columns = key + ["old_edge2"]
+    __left = __left.set_index(key)
     # setnames(ee[setkeyv(x, c("cluster", "old_node2"))], "weight", "old_edge2")->x
-    x = __left.merge(x, on=["cluster", "old_node2"], how="right").rename(columns={"weight": "old_edge2"})
+    x = __left.merge(x.set_index(key), left_index=True, right_index=True, how="right").reset_index(drop=False)
     # x[!is.na(new_edge3) ]->x
     # This is a hack to exclude NaN values.
-    x = x.query("new_edge3 == new_edge3")
-    t = edge_list[["cluster1", "cluster2"]].merge(df.copy(), left_on="cluster2", right_on="cluster", how="right")
-    t.loc[:, "dist"] = t.groupby("cluster1")["bin"].transform(lambda s: 0 if s.shape[0] == 0 else
-                                                              np.concatenate([s[1:].values - s[:-1].values, [0]]))
+    xkey = "cluster"
+    x = x.query("new_edge3 == new_edge3").set_index(xkey).sort_index(axis=1)
+    key = "cluster2"
+    t = edge_list[["cluster1", "cluster2"]]
+    t.columns = ["cluster1", "cluster"]
+    t = t.set_index("cluster").merge(df.set_index("cluster"), left_index=True, right_index=True,
+                                     how="right").reset_index(drop=False).eval("cluster2 = cluster")
+    grouped = t.groupby("cluster1")
+    t.loc[:, "dist"] = (grouped["bin"].shift(-1) - grouped["bin"].shift(0)).fillna(0)
     idx = (t["dist"] == 1)
-    try:
-        t = pd.DataFrame().assign(
+    t = pd.DataFrame().assign(
             cluster=t.loc[idx, "cluster"].values, new_node1=t.loc[idx, "cluster2"].values,
             new_node2=t.loc[idx.shift().fillna(False), "cluster2"].values)
-    except KeyError as exc:
-        print(t.head(10))
-        print(t.columns)
-        raise KeyError(exc)
-    #    setkeyv(el[, .(cluster1, cluster2, weight)], c("cluster1", "cluster2"))->ee
-    ee = edge_list[["cluster1", "cluster2", "weight"]]
     # setnames(ee, c("cluster1", "cluster2"), c("cluster", "new_node1"))
-    __left = ee.rename(columns={"cluster1": "cluster", "cluster2": "new_node1"})
+    key= ["cluster", "new_node1"]
+    __left = ee.copy()
+    __left.columns = ["cluster", "new_node1", "new_edge1"]
+    __left = __left.set_index(key)
     # setnames(ee[setkeyv(t, c("cluster", "new_node1"))], "weight", "new_edge1")->t
-    t = __left.merge(t, on=["cluster", "new_node1"], how="right").rename(columns={"weight": "new_edge1"})
+    t = __left.merge(t.set_index(key),
+                     left_index=True, right_index=True,
+                     how="right").reset_index(drop=False)
     # setnames(ee, "new_node1", "new_node2")
-    __left = ee.rename(columns={"cluster1": "cluster", "cluster2": "new_node2"})
+    key = ["cluster", "new_node2"]
+    __left = ee.copy()
+    __left.columns = ["cluster", "new_node2", "new_edge2"]
+    __left = __left.set_index(key)
     # setnames(ee[setkeyv(t, c("cluster", "new_node2"))], "weight", "new_edge2")->t
-    t = __left.merge(t, on=["cluster", "new_node2"]).rename(columns={"weight": "new_edge2"})
+    t = __left.merge(t.set_index(key), left_index=True, right_index=True,
+                     how="right").reset_index(drop=False)
     # setnames(ee, c("cluster", "new_node2"), c("new_node1", "new_node2"))
-    __left = ee.rename(columns={"cluster1": "new_node1", "cluster2": "new_node2"})
+    key = ["new_node1", "new_node2"]
+    __left = ee.copy()
+    __left.columns = key + ["old_edge3"]
+    __left = __left.set_index(key)
     #    setnames(ee[setkeyv(t, c("new_node1", "new_node2"))], "weight", "old_edge3")->t
-    t = __left.merge(t, on=["new_node1", "new_node2"]).rename(columns={"weight": "old_edge3"})
+    t = __left.merge(t.set_index(key), left_index=True,
+                     right_index=True, how="right").reset_index(drop=False)
     #    setkey(x, "cluster")[setkey(t, "cluster")][!is.na(old_node1)]->m
     # Again the "x == x" trick to exclude NaN values
-    m = x.merge(t, on=["cluster"]).query("old_node1 == old_node1")
+    m = x.merge(t.set_index(xkey), left_index=True, right_index=True, how="right").query(
+        "old_node1 == old_node1").reset_index(drop=False)
     m.eval("diff = new_edge1 + new_edge2 + new_edge3 - old_edge1 - old_edge2 - old_edge3", inplace=True)
     m = m.query("diff < 0").sort_values("diff")
     return m
@@ -121,12 +154,12 @@ def node_relocation(df, edge_list, maxiter=100, verbose=True):
         while m.shape[0] > 0 and i <= maxiter:
             i += 1
             ne = m.head(1)
-            idx = pd.DataFrame().assign(cluster=df["cluster"],
-                                        idx=np.arange(1, df.shape[0] + 1, dtype=int))
+            idx = pd.DataFrame().assign(cluster=df["cluster"].values,
+                                        idx=np.arange(1, df.shape[0] + 1, dtype=int)).set_index("cluster")
             for column in ["cluster", "new_node1", "new_node2", "old_node1", "old_node2"]:
-                ne = pd.merge(ne, idx, left_on=column, right_on="cluster").rename(
+                ne = pd.merge(ne, idx, left_on=column, right_index=True).rename(
                     columns={"idx": "idx_{column}".format(column=column)})
-
+            ne = ne.reset_index(drop=False)
             # Now we have to do the reordering of the dataframe df
             # min_new <- min(idx_new_node1, idx_new_node2)
             # max_new <- max(idx_new_node1, idx_new_node2)

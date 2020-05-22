@@ -5,7 +5,6 @@ from pytritex.graph_utils.make_super import make_super
 def make_super_scaffolds(links, info: pd.DataFrame, excluded=pd.Series([]), ncores=1, prefix=None):
     info2 = info.loc[:, ["scaffold_index", "popseq_chr", "popseq_cM", "length"]].rename(
         columns={"pospeq_chr": "chr", "popseq_cM": "cM"})
-    excluded = pd.Series([], name="scaffold_index")
     if excluded is not None:
         excluded_scaffolds = excluded.copy()
     else:

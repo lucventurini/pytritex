@@ -27,29 +27,43 @@ import numpy as np
 
 
 def checker(df, edge_list):
-    m = pd.DataFrame({"cluster1": df["cluster"][:-1], "cluster2": df["cluster"][1:]})
+    # df has the columns "cluster", "bin"
+    m = pd.DataFrame({"cluster1": df["cluster"][:-1].values, "cluster2": df["cluster"][1:].values})
+    # Edge list is indexed on "cluster1", "cluster2"
     m = edge_list.merge(m, left_index=True, right_on=["cluster1", "cluster2"], how="right")[
         ["cluster1", "cluster2", "weight"]]
     m.columns = ["cluster1", "cluster2", "weight12"]
-    m.loc[:, "dummy"] = 1
-    __left = df.copy().rename(columns={"cluster": "cluster1", "bin": "bin1"}).set_index("cluster1")
-    m = __left.merge(m, how="right", left_index=True, right_on="cluster1")
-    __left = df.copy().rename(columns={"cluster": "cluster2", "bin": "bin2"}).set_index("cluster2")
-    m = __left.merge(m, how="right", left_index=True, right_on="cluster2")
+    __left = df.copy()  # "cluster", "bin"
+    __left.columns = ["cluster1", "bin1"]
+    __left = __left.set_index("cluster1")
+    m = __left.merge(m.set_index("cluster1").sort_index(axis=1),
+                     right_index=True, left_index=True).reset_index(drop=False)
+    __left = df.copy()
+    __left.columns = ["cluster2", "bin2"]
+    __left = __left.set_index("cluster2")
+    m = __left.merge(m.set_index("cluster2").sort_index(axis=1),
+                     how="right", left_index=True, right_index=True).reset_index(drop=False)
     n = m.copy().rename(columns={"cluster1": "cluster3",
                                  "cluster2": "cluster4",
                                  "bin1": "bin3",
                                  "bin2": "bin4",
-                                 "weight12": "weight34"})
-    mn = n.merge(m, on="dummy", how="outer").query("bin1 < bin3").drop("dummy", axis=1)
+                                 "weight12": "weight34"}, errors="raise")
+    # Cartesian product using a dummy key.
+    mn = n.assign(dummy=1).set_index("dummy").sort_index(axis=1).merge(
+        m.assign(dummy=1).set_index("dummy").sort_index(axis=1),
+        left_index=True, right_index=True, how="outer").query("bin1 < bin3").reset_index(drop=True)
     # Cluster1, cluster2 are in the index
     o = edge_list.loc[:, "weight"].reset_index(drop=False)
-    mn = o.copy().rename(columns={"cluster1": "cluster1",
-                                  "cluster2": "cluster3",
-                                  "weight": "weight13"}).merge(mn, on=["cluster1", "cluster3"])
-    mn = o.copy().rename(columns={"cluster1": "cluster2",
-                                  "cluster2": "cluster4",
-                                  "weight": "weight24"}).merge(mn, on=["cluster2", "cluster4"])
+    key = ["cluster1", "cluster3"]
+    __left = o.copy()
+    __left.columns = key + ["weight13"]
+    mn = __left.set_index(key).merge(mn.set_index(key),
+                                     left_index=True,
+                                     right_index=True).reset_index(drop=False)
+    key = ["cluster2", "cluster4"]
+    __left = o.copy()
+    __left.columns = key + ["weight24"]
+    mn = __left.set_index(key).merge(mn.set_index(key), left_index=True, right_index=True).reset_index(drop=False)
     mn.eval("old = weight12 + weight34", inplace=True)
     mn.eval("new = weight13 + weight24", inplace=True)
     mn.eval("diff = old - new", inplace=True)
@@ -58,7 +72,8 @@ def checker(df, edge_list):
 
 
 # Traveling salesman heuristic for Hi-C mapping construction
-def kopt2(df, edge_list: pd.DataFrame):
+def kopt2(df: pd.DataFrame, edge_list: pd.DataFrame):
+    # df has the columns "cluster", "bin"
     edge_list = edge_list.set_index(["cluster1", "cluster2"])
     mn = checker(df, edge_list)
     while mn.loc[mn["diff"] > 0].shape[0] > 0:
@@ -71,7 +86,7 @@ def kopt2(df, edge_list: pd.DataFrame):
         # bin2 = df.loc[df["cluster"] == x["cluster2"], "bin"]
         # bin3 = df.loc[df["cluster"] == x["cluster3"], "bin"]
         # bin4 = df.loc[df["cluster"] == x["cluster4"], "bin"]
-        df = pd.concat([df.iloc[:bin1], df.iloc[bin3:bin2], df.iloc[bin4:]]).assign(
-            bin=lambda df: np.arange(df.shape[0], dtype=np.int))
+        df = pd.concat([df.iloc[:bin1], df.iloc[bin3:bin2], df.iloc[bin4:]]).reset_index(drop=True)
+        df = df.assign(bin=np.arange(df.shape[0], dtype=np.int))
         mn = checker(df, edge_list)
     return df
