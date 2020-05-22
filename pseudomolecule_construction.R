@@ -846,13 +846,14 @@ scaffold_10x <- function(assembly, prefix="super", min_npairs=5, max_dist=1e5, m
   info2[, excluded := scaffold %in% excluded_scaffolds] -> input
   setnames(input, "scaffold", "cluster")
   setnames(copy(links), c("scaffold1", "scaffold2"), c("cluster1", "cluster2"))->hl
-  make_super(hl=hl, cluster_info=input, verbose=F, prefix=prefix, cores=ncores, paths=T, path_max=0, known_ends=F, maxiter=100)->s
+  make_super(hl=hl, cluster_info=input, verbose=F, prefix=prefix,
+             cores=ncores, paths=T, path_max=0, known_ends=F, maxiter=100)->s
   copy(s$membership) -> m
   setnames(m, "cluster", "scaffold")
 
   max(as.integer(sub(paste0(prefix, "_"), "", s$super_info$super))) -> maxidx
   rbind(m, info[!m$scaffold, on="scaffold"][, .(scaffold, bin=1, rank=0, backbone=T, chr=popseq_chr, cM=popseq_cM,
-					length=length, excluded=scaffold %in% excluded_scaffolds, super=paste0(prefix, "_", maxidx + 1:.N))])->m
+			    length=length, excluded=scaffold %in% excluded_scaffolds, super=paste0(prefix, "_", maxidx + 1:.N))])->m
 
   m[, .(n=.N, nbin=max(bin), max_rank=max(rank), length=sum(length)), key=super]->res
   res[, .(super, super_size=n, super_nbin=nbin)][m, on="super"]->m

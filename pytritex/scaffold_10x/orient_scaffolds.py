@@ -13,15 +13,15 @@ def orient_scaffolds(info: pd.DataFrame, res: pd.DataFrame,
 
     # orient scaffolds
     a = membership.loc[
-        membership["super_nbin"] > 1, ["scaffold", "bin", "super"]].rename(
-        columns={"scaffold": "scaffold1", "bin": "bin1", "super": "super1"}).merge(
-        link_pos, on=["scaffold1"], how="left")
+        membership["super_nbin"] > 1, ["scaffold_index", "bin", "super"]].rename(
+        columns={"scaffold_index": "scaffold_index1", "bin": "bin1", "super": "super1"}).merge(
+        link_pos, on=["scaffold_index1"], how="left")
     a = membership.loc[
-        membership["super_nbin"] > 1, ["scaffold", "bin", "super"]].rename(
-        columns={"scaffold": "scaffold2", "bin": "bin2", "super": "super2"}).merge(
+        membership["super_nbin"] > 1, ["scaffold_index", "bin", "super"]].rename(
+        columns={"scaffold_index": "scaffold_index2", "bin": "bin2", "super": "super2"}).merge(
         a, on=["scaffold2"], how="left")
-    a = a.loc[(a.super1 == a.super2) & (a.bin1 != a.bin2), ].assign(d=lambda df: (df["bin2"] - df["bin1"]).abs())
-    a = a.loc[a["d"] <= max_dist_orientation]
+    a = a.query("(super1 == super2) & (bin1 != bin2)").eval("d = abs(bin2 - bin1)").query(
+        "d <= @max_dist_orientation")
 
     def _previous(series):
         return (series.loc[a["bin2"] < a["bin1"]]).mean()
@@ -29,12 +29,13 @@ def orient_scaffolds(info: pd.DataFrame, res: pd.DataFrame,
     def _next(series):
         return (series.loc[a["bin1"] < a["bin2"]]).mean()
 
-    aa = a.rename(columns={"scaffold1": "scaffold"}).groupby("scaffold").agg(
+    aa = a.rename(columns={"scaffold_index1": "scaffold_index"}).groupby("scaffold_index").agg(
         prv=("pos1", _previous),
         nxt=("pos1", _next))
-    aa = info.loc[:, ["scaffold", "length"]].merge(aa, on="scaffold", how="right")
-    bait = (~aa["prv"].isna()) & (~aa["nxt"].isna())
+    aa = info.loc[:, ["scaffold_index", "length"]].set_index("scaffold_index").merge(
+        aa, left_index=True, right_index=True, how="right").reset_index(drop=False)
 
+    bait = (~aa["prv"].isna()) & (~aa["nxt"].isna())
     aa.loc[bait, "orientation"] = (aa.loc[bait, "nxt"] >= aa.loc[bait, "prv"]).map({True: 1, False: -1})
     bait = (aa["prv"].isna()) & (~aa["nxt"].isna())
     aa.loc[bait, "orientation"] = (aa.loc[bait, "nxt"] >= aa.loc[bait, "length"] - aa.loc[bait, "nxt"]).map(

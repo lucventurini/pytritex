@@ -2,11 +2,9 @@ import pandas as pd
 import numpy as np
 import networkit as nk
 from sys import float_info
-from pytritex.graph_utils.kopt2 import kopt2
 import scipy.sparse.csgraph
 import scipy.sparse
-from pytritex.graph_utils.insert_node import insert_node
-from pytritex.graph_utils.node_relocation import node_relocation
+from .k_opt_tsp import tsp_2_opt
 
 
 # This is necessary for networkit, as currently the distances can be "infinite"
@@ -14,6 +12,7 @@ from pytritex.graph_utils.node_relocation import node_relocation
 max_double = float_info.max
 
 
+# TODO: remove all unnecessary pandas code from here. It only slows down the function.
 def make_super_path(super_object, idx, start=None, end=None, maxiter=100, verbose=True, ncores=1):
     """Order scaffolds using Hi-C links for one chromosome."""
 
@@ -47,7 +46,7 @@ def make_super_path(super_object, idx, start=None, end=None, maxiter=100, verbos
     # Now back to NK
     nk.setNumberOfThreads(ncores)
     mgraph = nk.Graph(mst.shape[0], weighted=True, directed=False)
-    [mgraph.addEdge(x, y, mst[x, y]) for x, y in zip(mst.nonzero()[0], mst.nonzero()[1])]
+    [mgraph.addEdge(x, y, 1) for x, y in zip(mst.nonzero()[0], mst.nonzero()[1])]
     # Now that we have the new minimum-spanning-tree graph we can get the diameter or the distance
     nodes = np.fromiter(mgraph.iterNodes(), np.int)
     if start is None or end is None:
@@ -57,25 +56,30 @@ def make_super_path(super_object, idx, start=None, end=None, maxiter=100, verbos
         distances[(distances == max_double) | np.isnan(distances)] = -1
         best = np.where(distances == distances.max())
         start, end = nodes[best[0][0]], nodes[best[1][0]]
+    else:
+        # Get the local coordinates
+        start = cidx.query("cluster == @start").index.values[0]
+        end = cidx.query("cluster == @end").index.values[0]
 
     path = np.array(nk.distance.BFS(mgraph, start, target=end).run().getPath(end), dtype=np.int)
-    path = np.array([path, np.arange(path.shape[0], dtype=np.int)], dtype=np.int)
-    # Bins here are ordered from 1 to X. Use numpy array to keep the order.
-    df = pd.DataFrame().assign(cidx=path[0, :], bin=path[1, :]).merge(cidx, on="cidx").drop("cidx", axis=1)
-    df = insert_node(df, edge_list)
-    # # Traveling salesman heuristics
-    df = kopt2(df, edge_list)
-    df = node_relocation(df, edge_list, maxiter=maxiter, verbose=verbose)
+    # Now convert to coordinates
+    assert np.in1d(path, cidx).all()
+    # Now do the 2-OPT optimisation to find the correct path
+    path = tsp_2_opt(mst.toarray(), path)
+    # Get a database of the shape "cluster", "bin"
+    df = cidx.set_index("cidx").merge(
+        pd.DataFrame().assign(cidx=path, bin=np.arange(path.shape[0], dtype=np.int)).set_index("cidx"),
+        left_index=True, right_index=True).reset_index(drop=True)
     ranks = pd.DataFrame().assign(cluster=df["cluster"], rank=0)
     r = 0
-
     n = edge_list.loc[(~edge_list["cluster1"].isin(df["cluster"])) &
                       (edge_list["cluster2"].isin(df["cluster"])), "cluster1"].unique()
 
     while n.shape[0] > 0:
         r += 1
         tmp = edge_list.loc[(edge_list["cluster2"].isin(df["cluster"])) &
-                            (edge_list["cluster1"].isin(n))].loc[lambda _tmp: ~_tmp["cluster1"].duplicated()]
+                            (edge_list["cluster1"].isin(n))].loc[
+            lambda _tmp: ~_tmp["cluster1"].duplicated(keep="first")]
         # rbind(ranks, data.frame(cluster=tmp$cluster1, rank = r))->ranks
         ranks = pd.concat([ranks, pd.DataFrame().assign(cluster=tmp["cluster1"], rank=r)])
         #   merge(tmp, df[c("cluster", "bin")], by.x="cluster2", by.y="cluster")->x
@@ -99,6 +103,5 @@ def make_super_path(super_object, idx, start=None, end=None, maxiter=100, verbos
     # print("Final DF", df, sep="\n")
     # print("Path", path, sep="\n")
     # Remember we added the index earlier
-    path = path[0, :]
     df.eval("backbone = cidx in @path", inplace=True)
     return df[["cluster", "bin", "rank", "backbone"]]
