@@ -2,7 +2,7 @@ import pandas as pd
 
 
 def _initial_link_finder(info: pd.DataFrame, molecules: pd.DataFrame,
-                         verbose=False, popseq_dist=1e4,
+                         verbose=False, popseq_dist=5,
                          min_npairs=2, max_dist=1e3, min_nmol=2, min_nsample=2):
 
     if verbose:

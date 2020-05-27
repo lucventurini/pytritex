@@ -12,8 +12,9 @@ def dispatcher(assembly, row):
                           max_dist=row.dist, popseq_dist=5, max_dist_orientation=5,
                           min_nsample=row.nsample,
                           min_nmol=row.nmol, unanchored=False, ncores=1)
-    print("""Parameters: {row}\n
-Result: {res}\n""".format(row=row, res=n50(result["info"]["length"])))
+    joblib.dump(result, "1A_{}.pkl".format(row.index), compress=("zlib", 6))
+#     print("""Parameters: {row}\n
+# Result: {res}\n""".format(row=row, res=n50(result["info"]["length"])))
     return result
 
 
