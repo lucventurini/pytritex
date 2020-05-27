@@ -1520,25 +1520,40 @@ make_super_path<-function(super, idx=NULL, start=NULL, end=NULL, maxiter=100, ve
  data.frame(df)->df
  data.frame(el)->el
  data.frame(cluster=df$cluster, rank = 0)->ranks
- r=0
+ r <- 0
 
- while(length(n<-unique(subset(el, !cluster1 %in% df$cluster & cluster2 %in% df$cluster)$cluster1)) > 0) {
-  r = r+1
-  subset(el, cluster2 %in% df$cluster & cluster1 %in% n)->tmp
-  tmp[!duplicated(tmp$cluster1),]->tmp
+ while({
+  # Select those edges where the left side is not in the final dataframe
+  # while the right side is
+  cluster1_missing <- subset(el, !cluster1 %in% df$cluster & cluster2 %in% df$cluster)
+  n <-unique(cluster1_missing$cluster1)
+  length(n > 0)
+ }) {
+  r <- r+1
+  # Select those edges where the right side is accounted for and the left side is unaccounted for
+  tmp <- subset(el, cluster2 %in% df$cluster & cluster1 %in% n)
+  # Remove duplicated cluster1 (ie only keep *one* edge for node)
+  tmp <- tmp[!duplicated(tmp$cluster1),]
+  # Add the length of the tips to the rank dataframe
   rbind(ranks, data.frame(cluster=tmp$cluster1, rank=r))->ranks
+  # Now add the missing vertices to the list. The outward tips will be added to the same bin as the present ones.
   merge(tmp, df[c("cluster", "bin")], by.x="cluster2", by.y="cluster")->x
   rbind(df, data.frame(cluster=x$cluster1, bin=x$bin))->df
  }
 
  merge(df, submem)->df
  df$bin<-as.integer(df$bin)
- flip<-with(df, suppressWarnings(cor(bin, cM))) < 0
+ # Is the order the opposite of what it should be, according to the cM map?
+ flip <- with(df, suppressWarnings(cor(bin, cM))) < 0
  if((!is.na(flip)) & flip) {
+  # If so, flip the order
   with(df, max(bin) - bin + 1)->df$bin
  }
+
  ranks$rank<-as.numeric(ranks$rank)
+ # the final dataframe contains cluster, bin, rank
  merge(df, ranks)->df
+ # Also assign "is it in the backbone?" boolean qualifier
  df$backbone <- df$cluster %in% dia
 
  data.table(df)[, .(cluster, bin, rank, backbone)]

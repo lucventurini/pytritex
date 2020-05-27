@@ -18,15 +18,17 @@ def _initial_branch_remover(raw, links, info, excluded, ncores, prefix=None):
                 membership.loc[membership["rank"] > 1, ["super", "bin"]].drop_duplicates(),
                 how="inner", on=["super", "bin"])
             add = a.loc[a["rank"] == 0, :]
-            print(add.shape[0])
-            print(add.head())
             if add.shape[0] == 0:
                 run = False
             else:
                 if excluded is None:
-                    excluded = add["scaffold_index"].to_list()
+                    excluded = set(add["scaffold_index"].to_list())
                 else:
-                    excluded.extend(add["scaffold_index"].to_list())
+                    previous = len(excluded)
+                    excluded.update(set(add["scaffold_index"].to_list()))
+                    if previous == len(excluded):
+                        # Nothing more to remove
+                        run = False
                 assert excluded is not None
                 print(time.ctime(), "Run", counter, ", excluding", len(excluded))
     else:

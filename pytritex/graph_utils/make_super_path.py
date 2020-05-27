@@ -5,6 +5,12 @@ from sys import float_info
 import scipy.sparse.csgraph
 import scipy.sparse
 from .k_opt_tsp import tsp_2_opt
+from .insert_nodes import insert_nodes
+from .node_relocation import node_relocation
+from .block_optimise import block_optimise
+import scipy.stats
+import scipy.special
+scipy.special.seterr(all="raise")
 
 
 # This is necessary for networkit, as currently the distances can be "infinite"
@@ -12,44 +18,75 @@ from .k_opt_tsp import tsp_2_opt
 max_double = float_info.max
 
 
-# TODO: remove all unnecessary pandas code from here. It only slows down the function.
-def make_super_path(super_object, idx, start=None, end=None, maxiter=100, verbose=True, ncores=1):
-    """Order scaffolds using Hi-C links for one chromosome."""
+def convert_array(from_keys, to_keys, original):
+    sort_idx = np.argsort(from_keys)
+    idx = np.searchsorted(from_keys, original, sorter=sort_idx)
+    out = to_keys[sort_idx][idx]
+    return out
 
-    # Get backbone from minimum spanning tree (MST)
-    sub_membership = super_object["membership"].query("super == @idx")
-    edge_list = super_object["edges"].query(
-        "(super == @idx) & (cluster1 != cluster2)")[["cluster1", "cluster2", "weight"]]
 
-    # Get the new index and make sure it does not use much memory
-    cidx = pd.DataFrame().assign(
-        cluster=np.unique(edge_list[["cluster1", "cluster2"]].values.flatten())
-    ).reset_index(drop=False).rename(columns={"index": "cidx"})
-    cidx.loc[:, "cidx"] = pd.to_numeric(cidx["cidx"], downcast="unsigned")
+def _assign_ranks(edges, path, cidx, backbone):
+    """This method will assign to each node its *rank*, ie *its distance from the backbone*
+    as measured by the number of edges."""
 
-    # Assign the new index
-    edge_list = cidx.rename(columns={"cidx": "cidx1", "cluster": "cluster1"}).merge(edge_list, on="cluster1")
-    edge_list = cidx.rename(columns={"cidx": "cidx2", "cluster": "cluster2"}).merge(edge_list, on="cluster2")
-    coords, weights = edge_list[["cidx1", "cidx2"]].values, edge_list["weight"].values
-    shape = [int(coords.max() + 1)] * 2
-    try:
-        matrix = scipy.sparse.coo_matrix((weights, (coords[:, 0], coords[:, 1])), dtype=weights.dtype,
-                                         shape=shape)
-    except TypeError:
-        raise TypeError((weights, coords))
-    except ValueError:
-        raise ValueError((weights, coords))
+    # Create a vertical table. Each row is a node: node, bin, rank, backbone
+    ranks = np.repeat(np.arange(cidx.shape[1], dtype=np.float), 4).reshape(cidx.shape[1], 4)
+    ranks[:, [1, 2]] = np.nan
+    # Assign the rank (0) and the bin
+    ranks[path, 1] = np.arange(path.shape[0])
+    ranks[path, 2] = 0
+    rank = 0
+    ranks[:, 3] = False
+    ranks[backbone, 3] = True
 
-    # the sparse matrix from nk will already contain the weights
-    # matrix = nk.graphtools.subgraphFromNodes(graph, pd.concat([edge_list["cidx1"], edge_list["cidx2"]]).unique())
+    foundany = True
+    while np.isnan(ranks).any():
+        rank += 1
+        foundany = False
+        curr_nan = np.where(np.isnan(ranks[:, 1]))[0]
+        curr_not_na = np.where(~np.isnan(ranks[:, 1]))[0]
+        for node in curr_nan:
+            edge = edges[node]
+            cols = np.intersect1d(np.where(~np.isnan(edge)), curr_not_na, assume_unique=True)
+            if cols.shape[0] > 0:
+                best_score = edge[cols].max()
+                best_node = cols[np.where(edge[cols] == best_score)][0]
+                ranks[node, [1, 2]] = ranks[best_node, 1], rank
+                foundany = True
+        if not foundany:
+            # Infinite loop otherwise! Some nodes might be disconnected
+            break
+
+    nulls = np.isnan(ranks[:, 2])
+    ranks[nulls, 1] = -1
+    ranks[nulls, 2] = max(2, rank + 1)
+    ranks[nulls, 3] = False
+    return ranks
+
+
+def _get_path(matrix, cidx, start=None, end=None, ncores=1):
+    """Initial path. This method will:
+    - calculate the minimum spanning tree from the edges
+    - calculate the longest simple path (or the shortest path between start and end if given)
+    - return: the path, the minimum spanning tree, and the total edge cost of the MST.
+    """
     mst = scipy.sparse.csgraph.minimum_spanning_tree(matrix)
+    # This is our minimum cost after calculating the MST
+    # the sparse matrix from nk will already contain the weights
+    # As the matrix is symmetrical, it's the sum of the weights divided by 2.
+    mst_lower_bound = mst.toarray().sum() / 2
     # Now back to NK
     nk.setNumberOfThreads(ncores)
     mgraph = nk.Graph(mst.shape[0], weighted=True, directed=False)
-    [mgraph.addEdge(x, y, 1) for x, y in zip(mst.nonzero()[0], mst.nonzero()[1])]
+    marr = matrix.toarray()
+    for x, y in zip(mst.nonzero()[0], mst.nonzero()[1]):
+        if marr[x, y] == 0:
+            continue
+        mgraph.addEdge(x, y, 1)
     # Now that we have the new minimum-spanning-tree graph we can get the diameter or the distance
     nodes = np.fromiter(mgraph.iterNodes(), np.int)
     if start is None or end is None:
+        # This runs the Dijkstra's algorithm of BFS iteratively on each node.
         apsp = nk.distance.APSP(mgraph).run()
         distances = np.array(apsp.getDistances())
         # Set unavailable distances to -1
@@ -58,50 +95,113 @@ def make_super_path(super_object, idx, start=None, end=None, maxiter=100, verbos
         start, end = nodes[best[0][0]], nodes[best[1][0]]
     else:
         # Get the local coordinates
-        start = cidx.query("cluster == @start").index.values[0]
-        end = cidx.query("cluster == @end").index.values[0]
+        start = cidx[:, np.where(cidx[0, :] == start)[0]][1]
+        end = cidx[:, np.where(cidx[0, :] == end)[0]][1]
 
+    # Reconstruct the backbone path.
     path = np.array(nk.distance.BFS(mgraph, start, target=end).run().getPath(end), dtype=np.int)
-    # Now convert to coordinates
+
+    return path, mst, mst_lower_bound
+
+
+def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound):
+    if current_upper_bound > mst_lower_bound:
+        changed = True
+        previous = path[:]
+        while changed:
+            while changed:
+                prev = path[:]
+                path = tsp_2_opt(mst.toarray(), path)
+                if (path == prev).all():
+                    changed = False
+                else:
+                    changed = True
+                # The current upper bound is now the new weight cost
+                current_upper_bound = sum(
+                    edges[path[index], path[index + 1]] for index in np.arange(path.shape[0] - 1,
+                                                                                    dtype=np.int))
+            path, changed, current_upper_bound = node_relocation(edges, path, current_upper_bound)
+
+    return path, current_upper_bound
+
+
+# TODO: remove all unnecessary pandas code from here. It only slows down the function.
+def make_super_path(origin_edge_list, cms, start=None, end=None, maxiter=100, verbose=True, ncores=1):
+    """Order scaffolds using Hi-C links for one chromosome.
+    This procedure is based on Y. Wu et al. 2008,  doi:10.1371/journal.pgen.1000212
+
+    """
+
+    # Get backbone from minimum spanning tree (MST)
+    origin_edge_list = origin_edge_list[["cluster1", "cluster2", "weight"]].values
+    origin_edge_list = origin_edge_list[origin_edge_list[:, 0] != origin_edge_list[:, 1]][:]
+    # Now make it symmetrical
+    origin_edge_list = np.vstack(
+        [origin_edge_list,
+         np.vstack([origin_edge_list[:, 1], origin_edge_list[:, 0], origin_edge_list[:, 2]]).T])
+
+    orig_coords, weights = origin_edge_list[:, [0, 1]], origin_edge_list[:, 2]
+    # Transpose the ids to a new system of coordinates.
+    cidx = np.unique(orig_coords.flatten())
+    cidx = np.vstack([cidx, np.arange(cidx.shape[0])])
+    coords = convert_array(cidx[0, :], cidx[1,:], orig_coords)
+    # Assign the new index
+    shape = [int(coords.max() + 1)] * 2
+    assert weights.min() > 0
+    matrix = scipy.sparse.coo_matrix((weights, (coords[:, 0], coords[:, 1])), dtype=weights.dtype, shape=shape)
+    edges = matrix.toarray()
+    # Is the matrix symmetrical? If it is not, we have a problem.
+    assert (edges - edges.T == 0).all(), (edges.tolist())
+    edges[edges == 0] = np.nan
+    path, mst, mst_lower_bound = _get_path(matrix, cidx, start=start, end=end, ncores=ncores)
+    for pos in range(len(path) - 1):
+        assert not np.isnan(edges[path[pos], path[pos + 1]])
+        assert not np.isnan(edges[path[pos + 1], path[pos]])
+
+    # These are the nodes that constitute the backbone. Keep them aside for now.
+    backbone = path[:]
     assert np.in1d(path, cidx).all()
-    # Now do the 2-OPT optimisation to find the correct path
-    path = tsp_2_opt(mst.toarray(), path)
-    # Get a database of the shape "cluster", "bin"
-    df = cidx.set_index("cidx").merge(
-        pd.DataFrame().assign(cidx=path, bin=np.arange(path.shape[0], dtype=np.int)).set_index("cidx"),
-        left_index=True, right_index=True).reset_index(drop=True)
-    ranks = pd.DataFrame().assign(cluster=df["cluster"], rank=0)
-    r = 0
-    n = edge_list.loc[(~edge_list["cluster1"].isin(df["cluster"])) &
-                      (edge_list["cluster2"].isin(df["cluster"])), "cluster1"].unique()
+    if path.shape[0] != cidx.shape[0]:  # We are missing nodes
+        _prev = path[:]
+        path = insert_nodes(edges, path)
 
-    while n.shape[0] > 0:
-        r += 1
-        tmp = edge_list.loc[(edge_list["cluster2"].isin(df["cluster"])) &
-                            (edge_list["cluster1"].isin(n))].loc[
-            lambda _tmp: ~_tmp["cluster1"].duplicated(keep="first")]
-        # rbind(ranks, data.frame(cluster=tmp$cluster1, rank = r))->ranks
-        ranks = pd.concat([ranks, pd.DataFrame().assign(cluster=tmp["cluster1"], rank=r)])
-        #   merge(tmp, df[c("cluster", "bin")], by.x="cluster2", by.y="cluster")->x
-        # Do a merge and drop superfluous column
-        x = pd.merge(tmp, df[["cluster", "bin"]], left_on="cluster2", right_on="cluster").drop("cluster", axis=1)
-        df = pd.concat([df, pd.DataFrame().assign(cluster=x["cluster1"], bin=x["bin"])])
-        n = edge_list.loc[(~edge_list["cluster1"].isin(df["cluster"])) &
-                          (edge_list["cluster2"].isin(df["cluster"])), "cluster1"].unique()
-        continue
+    # Now get the current upper bound. This is the sum of the current path.
+    current_upper_bound = sum(edges[path[index], path[index + 1]]
+                              for index in np.arange(path.shape[0] - 1, dtype=np.int))
+    cost_after_initialization = current_upper_bound
+    # Run the improvement procedure ONLY IF the CUB is greater than the MST cost.
+    path, current_upper_bound = _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound)
+    # We will presume that we have to SKIP the block_optimise procedure
+    if False:
+        changed = True
+        while changed:
+            changed, path = block_optimise(edge_list, path)
 
-    df = pd.merge(df, sub_membership)
-    df.loc[:, "bin"] = df.loc[:, "bin"].astype(np.int)
-    # Now calculate the correlation between bins and cM. If the correlation is negative
-    # we have to flip the order!
-    flip = df["bin"].corr(df["cM"], method="pearson")
+    # Assign to each node its rank, ie the distance from the backbone.
+    ranks = _assign_ranks(edges, path, cidx, backbone)
+    ranks = np.hstack(
+        [convert_array(cidx[1, :], cidx[0, :], ranks[:, 0]).reshape(ranks.shape[0], 1),
+         ranks[:, [1, 2, 3]]])
+
+    try:
+        cms = cms.reindex(ranks[:, 0])["cM"].values
+        index = np.where(~np.isnan(cms))[0]
+        if index.shape[0] > 1:
+            _cms = cms[index]
+            _bins = ranks[index, 1].reshape(index.shape[0])
+            assert _cms.shape[0] == _bins.shape[0], (_cms, _bins)
+            flip = scipy.stats.pearsonr(_bins, _cms)[0]
+        else:
+            flip = np.nan
+    except KeyError as exc:
+        print(cms.index)
+        print(ranks[:, 0])
+        print(cidx)
+        raise KeyError(exc)
+
     if not np.isnan(flip) and flip < 0:
         # Flip the order
-        df.loc[:, "bin"] = df["bin"].max() - df["bin"] + 1
-    ranks.loc[:, "rank"] = pd.to_numeric(ranks["rank"])
-    df = pd.merge(df, ranks)
-    # print("Final DF", df, sep="\n")
-    # print("Path", path, sep="\n")
-    # Remember we added the index earlier
-    df.eval("backbone = cidx in @path", inplace=True)
-    return df[["cluster", "bin", "rank", "backbone"]]
+        ranks[:, 1] = ranks[:, 1].max() - ranks[:, 1] + 1
+        # df.eval("bin = bin.max() - bin", inplace=True)
+
+    return ranks

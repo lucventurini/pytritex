@@ -10,7 +10,7 @@ from .scaffold_unanchored import _scaffold_unanchored
 #   links[!scaffold2 %in% ex][, .(degree=.N), key=.(scaffold=scaffold1)]->b
 #   a <- b[
 #     m[m[rank == 1][, .(super=c(super, super, super), bin=c(bin, bin-1, bin+1))], on=c("super", "bin")],
-#          on="scaffold"]
+#          on="scaffold_index"]
 #   a[degree == 1 & length <= 1e4]$scaffold->add
 #   if(length(add) > 0){
 #    ex <- c(ex, add)
@@ -51,7 +51,7 @@ from .scaffold_unanchored import _scaffold_unanchored
 #
 #   # remove tips of rank 1
 #   links[!scaffold2 %in% ex][, .(degree=.N), key=.(scaffold=scaffold1)]->b
-#   b[m[rank == 1], on="scaffold"][degree == 1]$scaffold -> add
+#   b[m[rank == 1], on="scaffold_index"][degree == 1]$scaffold -> add
 #   if(length(add) > 0){
 #    ex <- c(ex, add)
 #    make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=ex, ncores=ncores) -> out
@@ -75,8 +75,8 @@ from .scaffold_unanchored import _scaffold_unanchored
 #    ww2[is.na(popseq_chr1), .(scaffold_link=scaffold1, scaffold2=scaffold2)]->y
 #    x[y, on="scaffold_link", allow.cartesian=T][scaffold1 != scaffold2]->xy
 #
-#    m[, .(scaffold1=scaffold, super1=super, chr1=chr, cM1=cM, size1=super_nbin, d1 = pmin(bin - 1, super_nbin - bin))][xy, on="scaffold1"]->xy
-#    m[, .(scaffold2=scaffold, super2=super, chr2=chr, cM2=cM, size2=super_nbin, d2 = pmin(bin - 1, super_nbin - bin))][xy, on="scaffold2"]->xy
+#    m[, .(scaffold1=scaffold, super1=super, chr1=chr, cM1=cM, size1=super_nbin, d1 = pmin(bin - 1, super_nbin - bin))][xy, on="scaffold_index1"]->xy
+#    m[, .(scaffold2=scaffold, super2=super, chr2=chr, cM2=cM, size2=super_nbin, d2 = pmin(bin - 1, super_nbin - bin))][xy, on="scaffold_index2"]->xy
 #    xy[super2 != super1 & d1 == 0 & d2 == 0 & size1 > 1 & size2 > 1 & chr1 == chr2]->xy
 #    xy[scaffold1 < scaffold2, .(nscl=.N), scaffold_link][xy, on="scaffold_link"]->xy
 #    xy[nscl == 1] -> xy
@@ -84,7 +84,7 @@ from .scaffold_unanchored import _scaffold_unanchored
 #
 #    sel <- zz[, .(scaffold1=c(scaffold_link, scaffold_link, scaffold1, scaffold2),
 # 	  scaffold2=c(scaffold1, scaffold2, scaffold_link, scaffold_link))]
-#    rbind(links, ww2[sel, on=c("scaffold1", "scaffold2")])->links2
+#    rbind(links, ww2[sel, on=c("scaffold_index1", "scaffold_index2")])->links2
 #
 #    make_super_scaffolds(links=links2, prefix=prefix, info=info, excluded=ex, ncores=ncores) -> out
 #    out$m -> m
@@ -126,24 +126,28 @@ def non_raw_analyser(links: pd.DataFrame, excluded, membership: pd.DataFrame, in
 
     # remove short tips of rank 1
     #   links[!scaffold2 %in% ex][, .(degree=.N), key=.(scaffold=scaffold1)]->b
-    b = links.loc[~links["scaffold2"].isin(excluded)].rename(
-        columns={"scaffold1": "scaffold"}).groupby(["scaffold"]).size().to_frame("degree")
+    try:
+        b = links.loc[~links["scaffold_index2"].isin(excluded)].rename(
+            columns={"scaffold_index1": "scaffold_index"}).groupby(["scaffold_index"]).size().to_frame("degree")
+    except KeyError:
+        raise KeyError(links.head())
     bait = membership["rank"] == 1
-    a = b.merge(
-        membership.merge(membership,
-                         pd.DataFrame().assign(super=pd.concat([membership.loc[bait, "super"]]),
-                              bin=pd.concat([membership.loc[bait]["bin"],
-                                             membership.loc[bait]["bin"] - 1,
-                                             membership.loc[bait]["bin"] + 1])), on=["super", "bin"]),
-        left_index=True, right_on=["scaffold"], how="right")
+    right_inner = pd.DataFrame().assign(
+        super=pd.concat([membership.loc[bait, "super"]]),
+        bin=pd.concat([membership.loc[bait]["bin"],
+        membership.loc[bait]["bin"] - 1,
+        membership.loc[bait]["bin"] + 1]))
+
+    a = b.merge(membership.merge(right_inner, on=["super", "bin"]),
+                left_index=True, right_on=["scaffold_index"], how="right")
     # TODO: why the hard limit on the length?
-    add = a.loc[(a["degree"] == 1) & (a["length"] <= 1e4)]["scaffold"]
+    add = a.loc[(a["degree"] == 1) & (a["length"] <= 1e4)]["scaffold_index"]
     if add.shape[0] > 0:
         excluded = excluded.extend(add)
         out = make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=excluded, ncores=ncores)
         membership = out["membership"]
     # Now do the same but on the new membership
-    add = membership.loc[(membership["rank"] == 1) & (membership["length"] <= 1e4), "scaffold"]
+    add = membership.loc[(membership["rank"] == 1) & (membership["length"] <= 1e4), "scaffold_index"]
     if add.shape[0] > 0:
         excluded = excluded.extend(add)
         out = make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=excluded, ncores=ncores)
@@ -152,9 +156,9 @@ def non_raw_analyser(links: pd.DataFrame, excluded, membership: pd.DataFrame, in
     # resolve length-one-bifurcations at the ends of paths
     x = membership.loc[(membership["rank"] > 0) &
                        ((membership["bin"] == 2) | (membership["super_nbin"] - 1 == membership["bin"])),
-    ["super", "super_nbin", "bin", "scaffold", "length"]].assign(type=lambda df: df["bin"] == 2,
+    ["super", "super_nbin", "bin", "scaffold_index", "length"]].assign(type=lambda df: df["bin"] == 2,
                                                                  bin0=lambda df: df["bin"]).loc[:,
-        ["super", "super_nbin", "type", "scaffold", "length", "bin0"]]
+        ["super", "super_nbin", "type", "scaffold_index", "length", "bin0"]]
     a = pd.concat(
         [
          membership.merge(x.loc[~x["type"], ["super", "bin0"]].assign(bin=1), on=["super", "bin"], how="right"),
@@ -163,8 +167,8 @@ def non_raw_analyser(links: pd.DataFrame, excluded, membership: pd.DataFrame, in
         ]
     )
 
-    __left = a.rename(columns={"scaffold": "scaffold2", "length": "length2"})[
-        ["super", "bin0", "scaffold2", "length2"]]
+    __left = a.rename(columns={"scaffold_index": "scaffold_index2", "length": "length2"})[
+        ["super", "bin0", "scaffold_index2", "length2"]]
     add = __left.merge(x, on=["super", "bin0"], how="right").apply(
         lambda row: row.scaffold2 if row.length >= row.length2 else row.scaffold)
     if add.shape[0] > 0:
@@ -173,24 +177,24 @@ def non_raw_analyser(links: pd.DataFrame, excluded, membership: pd.DataFrame, in
         membership = out["membership"]
 
     # Now re-do the same but on the new membership
-    add = membership.loc[(membership["rank"] == 1) & (membership["length"] <= 1e4), "scaffold"]
+    add = membership.loc[(membership["rank"] == 1) & (membership["length"] <= 1e4), "scaffold_index"]
     if add.shape[0] > 0:
         excluded = excluded.extend(add)
         out = make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=excluded, ncores=ncores)
         membership = out["membership"]
 
     # remove tips of rank 1
-    b = links[~links["scaffold2"].isin(excluded)].rename(columns={"scaffold1": "scaffold"}).groupby(
-        ["scaffold"]).size().to_frame("degree")
-    add = b.merge(membership.loc[membership["rank"] == 1, :], left_index=True, right_on=["scaffold"], how="inner").loc[
-        lambda df: df["degree"] == 1, "scaffold"]
+    b = links[~links["scaffold_index2"].isin(excluded)].rename(columns={"scaffold_index1": "scaffold_index"}).groupby(
+        ["scaffold_index"]).size().to_frame("degree")
+    add = b.merge(membership.loc[membership["rank"] == 1, :], left_index=True, right_on=["scaffold_index"], how="inner").loc[
+        lambda df: df["degree"] == 1, "scaffold_index"]
     if add.shape[0] > 0:
         excluded = excluded.extend(add.to_list())
         out = make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=excluded, ncores=ncores)
         membership = out["membership"]
 
     # remove remaining nodes of rank > 0
-    add = membership.loc[membership["rank"] > 0, "scaffold"]
+    add = membership.loc[membership["rank"] > 0, "scaffold_index"]
     if add.shape[0] > 0:
         excluded = excluded.extend(add.to_list())
         out = make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=excluded, ncores=ncores)

@@ -19,7 +19,7 @@ def scaffold_10x(assembly: dict, prefix="super", min_npairs=5, max_dist=1e5, min
                                       min_npairs=min_npairs, max_dist=max_dist, min_nmol=min_nmol,
                                       min_nsample=min_nsample)
     print(time.ctime(), "Found initial links")
-    excluded = []
+    excluded = set()
     print(time.ctime(), "Starting initial pruning")
     membership, res, excluded = _initial_branch_remover(
         raw, links=links, info=info, excluded=excluded, ncores=ncores, prefix=prefix)
@@ -34,8 +34,8 @@ def scaffold_10x(assembly: dict, prefix="super", min_npairs=5, max_dist=1e5, min
                          prefix=prefix, ncores=ncores, verbose=verbose, unanchored=unanchored,
                          popseq_dist=popseq_dist)
 
-    result = orient_scaffolds(info=info, res=res, membership=membership,
+    membership, result = orient_scaffolds(info=info, res=res, membership=membership,
                               link_pos=link_pos,
                               max_dist_orientation=max_dist_orientation,
                               verbose=verbose)
-    return result
+    return membership, result

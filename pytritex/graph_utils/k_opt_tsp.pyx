@@ -2,6 +2,8 @@ import numpy as np
 cimport numpy as np
 
 ctypedef np.int_t DTYPE_int
+cdef extern from "math.h":
+    float INFINITY
 
 
 cdef double c_route_cost(np.ndarray[double, ndim=2, mode="c"] graph, np.ndarray[long, ndim=1, mode="c"] path):
@@ -10,10 +12,15 @@ cdef double c_route_cost(np.ndarray[double, ndim=2, mode="c"] graph, np.ndarray[
     cdef double[:, :] graph_array = graph
     cdef long[:] path_array = path
     cdef long shape = path_array.shape[0]
+    cdef double temp_cost
     cost = graph_array[path_array[shape - 1], path_array[0]]
 
     for index in range(shape - 1):
-        cost += graph_array[path_array[index]][path_array[index + 1]]
+        temp_cost = graph_array[path_array[index]][path_array[index + 1]]
+        if temp_cost == 0:
+            return INFINITY
+        else:
+            cost += graph_array[path_array[index]][path_array[index + 1]]
 
     return cost
 

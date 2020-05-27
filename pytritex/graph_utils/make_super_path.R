@@ -1,13 +1,24 @@
 insert_node<-function(df, el) {
+ # Inputs: DataFrame DF with "cluster", "bin" -> the path.
+ # Inputs: Edge list of the form "cluster1", "cluster2", "weight"
 
  y_calculator <- function(df, el){
+  # This function will find out whether there are nodes to insert in the backbone
+
+  # First check: the *left* link must *not* be in the path
+  # The right bit *must* be in the path. Select the left
   internal_bait <- unique(el[!cluster1 %in% df$cluster & cluster2 %in% df$cluster]$cluster1);
+  # Now select edges where the *right* bit is the path and the left *is not*.
   left <- el[cluster2 %in% df$cluster & cluster1 %in% internal_bait]
   setkey(left, "cluster2")
+  # Now merge with the dataframe. Use the *right* bit as a bait.
   right <- setnames(df[, .(cluster, bin)], c("cluster2", "bin"))
   setkey(right, "cluster2")
+  # Do a cartesian product.
   merged <- left[right, allow.cartesian=T][!is.na(cluster1)]
+  # Group by cluster, sort by bin.
   merged[order(cluster1, bin)]
+  #
   y <- merged[, dist:={if(.N == 1) {as.integer(NA)} else { as.integer(c(bin[2:.N],NA)-bin)}}, by=cluster1]
   y[order(cluster1, bin)]
   return(y)
@@ -25,11 +36,14 @@ insert_node<-function(df, el) {
    setnames(left, c("path_node1", "path_node2", "old_path"))
    setkeyv(left, c("path_node1", "path_node2"))
    right <- data.table(cluster=y[idx, cluster1],
-                       path_node1=y[idx, cluster2], path_node2=y[idx+1, cluster2],
-	      weight1=y[idx, weight], weight2=y[idx+1, weight], bin=y[idx, bin])
+                       path_node1=y[idx, cluster2],
+                       path_node2=y[idx+1, cluster2],
+	                   weight1=y[idx, weight],
+                       weight2=y[idx+1, weight],
+                       bin=y[idx, bin])
    setkeyv(right, c("path_node1", "path_node2"))
    z <- left[right]
-   z <- head(z[ ,diff:= weight1 + weight2 - old_path][order(diff)],1)
+   z <- head(z[ ,diff:= weight1 + weight2 - old_path][order(diff)], 1)
    m <- z$bin
    df <- data.table(rbind(
    df[1:m],
@@ -68,12 +82,14 @@ make_super_path<-function(super, idx=NULL, start=NULL, end=NULL, maxiter=100, ve
  # 1, 2, 3, ... N
  data.table(cluster=dia, bin=1:length(dia))->df
 
- # ???
+ # Insert the nodes absent from the derived path.
  df<-insert_node(df, el)
  # Traveling salesman heuristics
  df<-kopt2(df, el)
+ # Perform the node relocation heuristic
  df<-node_relocation(df, el, maxiter=maxiter, verbose=verbose)
 
+ # Block optimise heuristic
  data.frame(df)->df
  data.frame(el)->el
  data.frame(cluster=df$cluster, rank = 0)->ranks

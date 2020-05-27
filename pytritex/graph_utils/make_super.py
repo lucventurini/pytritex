@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 # import graph_tool
 # import graph_tool as gt
 # import graph_tool.clustering
@@ -50,13 +51,13 @@ from pytritex.graph_utils.make_super_path import make_super_path
 # }
 
 
-def _concatenator(super_object, ssuper, known_ends=False, maxiter=100, verbose=False, prev_chrom=None):
+def _concatenator(edges, membership, known_ends=False, maxiter=100, verbose=False):
     start = end = None
     if known_ends:
-        x = super_object["membership"].query("(super == @ssuper) & (cM == cM)").sort_values("cM")["cluster"]
+        x = membership.query("cM == cM").sort_values("cM").index
         start, end = x.head(1), x.tail(1)
-    final = make_super_path(super_object,
-                            idx=ssuper, start=start, end=end,
+    final = make_super_path(edges, membership,
+                            start=start, end=end,
                             maxiter=maxiter, verbose=verbose)
     return final
 
@@ -71,13 +72,20 @@ def make_super(hl, cluster_info,
                 & (hl["cluster1"].isin(cluster_info.loc[~cluster_info["excluded"], "cluster"]))]
     edge_list = hl.loc[hl.eval("cluster1 < cluster2"), ["cluster1", "cluster2", "weight"]]
     # Unique cluster IDs
-    cidx = pd.Series(
-        pd.concat([edge_list.cluster1, edge_list.cluster2]).unique()
-        ).rename("cluster").reset_index(drop=False)[["cluster", "index"]].rename(columns={"index": "cidx"})
+    cidx = np.unique(edge_list[["cluster1", "cluster2"]].values.flatten())
+    cidx = np.vstack([cidx, np.arange(cidx.shape[0])])
+    cidx = pd.DataFrame().assign(cluster=cidx[0, :], cidx=cidx[1, :]).set_index("cluster")
+
     # Now merge into the edge table
-    edge_list = edge_list.merge(
-        cidx.rename(columns={"cluster": "cluster1", "cidx": "cidx1"}), how="inner", on="cluster1").merge(
-        cidx.rename(columns={"cluster": "cluster2", "cidx": "cidx2"}), how="inner", on="cluster2")
+    cidx1 = cidx[:]
+    cidx1.index.names = ["cluster1"]
+    cidx1.columns = ["cidx1"]
+    cidx2 = cidx[:]
+    cidx2.index.names = ["cluster2"]
+    cidx2.columns = ["cidx2"]
+
+    edge_list = edge_list.merge(cidx1, how="inner", on="cluster1").merge(cidx2, how="inner", on="cluster2")
+    edge_list = edge_list.reset_index(drop=False)
     # Now we are ready to create the graph using the indices.
     #  hl[cluster1 < cluster2]->e
     #  graph.edgelist(as.matrix(e[, .(cluster1, cluster2)]), directed=F)->g
@@ -87,11 +95,13 @@ def make_super(hl, cluster_info,
     components = nk.components.ConnectedComponents(graph)
     # Get the connected components
     components.run()
-    membership = pd.concat([pd.DataFrame().assign(
-        cidx=comp,
-        super="{prefix}_{idx}".format(prefix=prefix, idx=idx))
-        for idx, comp in enumerate(components.getComponents())])
-    membership = membership.merge(cidx, on=["cidx"])
+    cidx_list, ssuper = [], []
+    for idx, comp in enumerate(components.getComponents()):
+        cidx_list.extend(comp)
+        ssuper.extend(["{prefix}_{idx}".format(prefix=prefix, idx=idx)] * len(comp))
+
+    membership = pd.DataFrame().assign(cidx=cidx_list, super=ssuper).set_index("cidx")
+    membership = membership.merge(cidx.reset_index(drop=False), on=["cidx"], how="outer")
     membership = cluster_info.merge(membership, on="cluster", how="right")
     # info <- mem[, .(super_size=.N, length=.N, chr=unique(na.omit(chr))[1], cM=mean(na.omit(cM))),
     # keyby=super]
@@ -104,34 +114,32 @@ def make_super(hl, cluster_info,
     super_object = {"super_info": info, "membership": membership, "graph": graph, "edges": edge_list}
 
     if paths is True:
+        cms = super_object["membership"].loc[
+              :, ["cluster", "super", "cM"]].drop_duplicates().set_index("cluster")
+
         if path_max > 0:
             idx = super_object["super_info"].sort_values("length", ascending=False).head(path_max)["super"].unique()
         else:
             idx = super_object["super_info"]["super"].unique()
-
+        grouped_edges = super_object["edges"].groupby("super").groups
+        grouped_membership = cms.groupby("super").groups
         order = super_object["membership"].query("super in @idx")[[
             "super", "popseq_chr"]].sort_values(["popseq_chr"])
         print(time.ctime(), "Starting super, with", idx.shape[0], "positions to analyse.")
         results = []
-        prev_chrom = None
-        print(order["popseq_chr"].value_counts())
         for row in order.itertuples(name=None):
             index, ssuper, popseq_chr = row
-            popseq_chr = int(popseq_chr)
-            check = (popseq_chr == prev_chrom)
-            assert check in (False, True)
-            # print(type(prev_chrom), prev_chrom, type(popseq_chr), popseq_chr, popseq_chr == prev_chrom)
-            if check is False:
-                if prev_chrom is not None:
-                    print(time.ctime(), "Finished chromosome", prev_chrom)
-                print(time.ctime(), "Starting chromosome", popseq_chr)
-            prev_chrom = int(popseq_chr)
-            results.append(_concatenator(super_object, ssuper, known_ends, maxiter, verbose))
+            my_edges = super_object["edges"].loc[grouped_edges[ssuper]]
+            my_membership = cms.loc[grouped_membership[ssuper]]
+            results.append(_concatenator(my_edges, my_membership, known_ends, maxiter, verbose))
 
-        super_object["membership"] = pd.concat(results).merge(
-            super_object["membership"], on="cluster")
+        results = np.vstack(results)
+        results = pd.DataFrame().assign(
+            cluster=results[:, 0], bin=results[:, 1], rank=results[:, 2], backone=results[:, 3])
+        super_object["membership"] = results.merge(super_object["membership"], on="cluster")
+        assert "cluster" in super_object["membership"].columns
 
     print(time.ctime(), "Finished make_super run")
-    import sys
-    sys.exit(1)
+    # import sys
+    # sys.exit(1)
     return super_object

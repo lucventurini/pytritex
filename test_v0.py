@@ -3,6 +3,7 @@ import pandas as pd
 import itertools
 from pytritex.scaffold_10x.__init__ import scaffold_10x
 from pytritex.utils import n50
+import numexpr as ne
 
 
 def dispatcher(assembly, row):
@@ -26,6 +27,7 @@ def grid_evaluation(assembly):
     print("Starting grid evaluation")
     # pool = mp.Pool(processes=args.procs)
     # results = pool.starmap(dispatcher, [(assembly, row) for index, row in grid.iterrows()])
+    ne.set_num_threads(12)
     _index, row = next(grid.iterrows())
     result = dispatcher(assembly, row)
     return result
