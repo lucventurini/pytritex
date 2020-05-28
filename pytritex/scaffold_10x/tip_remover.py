@@ -1,7 +1,6 @@
 import pandas as pd
 from pytritex.graph_utils.make_super_scaffolds import make_super_scaffolds
 from functools import partial
-from .scaffold_unanchored import _scaffold_unanchored
 import numpy as np
 from time import ctime
 
@@ -73,26 +72,6 @@ def _remove_short_tips(links, excluded, membership, info, min_dist=minimum_dista
 
 def _remove_bifurcations(links, excluded, membership, info, min_dist=minimum_distance, ncores=1, prefix=None):
     # resolve length-one-bifurcations at the ends of paths
-    # m[rank > 0][bin == 2 | super_nbin - 1 == bin][,.(super, super_nbin, type = bin == 2, scaffold, length, bin0=bin)]->x
-    # upper <- m[x[type == T,.(super, bin0, bin=1)], on=c("super", "bin")]
-    # lower <- m[x[type == F,.(super, bin0, bin=super_nbin)], on = c("super", "bin")]
-    # a <- unique(rbind(upper, lower))
-    # a[,.(super, bin0, scaffold2=scaffold, length2=length)][x, on = c("super", "bin0")][,
-    #     ex := ifelse(length >= length2, scaffold2, scaffold)]$ex -> add
-    #
-    # if (length(add) > 0){
-    # ex < - c(ex, add)
-    # make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=ex, ncores=ncores) -> out
-    # out$membership -> m
-    # }
-    #
-    # # remove short tips/bulges of rank 1
-    # m[rank == 1 & length <= 1e4]$scaffold -> add
-    # if (length(add) > 0){
-    # ex < - c(ex, add)
-    # make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=ex, ncores=ncores) -> out
-    # out$m -> m
-    # }
     keys = ["super", "super_nbin", "scaffold_index", "length", "bin"]
     x = membership.query("(rank > 0) & ( (bin == 2) | (super_nbin - 1 == bin) )")[keys]
     x = x.eval("type = (bin == 2)").rename(columns={"bin": "bin0"})
@@ -108,9 +87,11 @@ def _remove_bifurcations(links, excluded, membership, info, min_dist=minimum_dis
         x.loc[~x.type, ["super", "bin0", "super_nbin"]].rename(columns={"super_nbin": "bin"}).set_index(key),
         on=key)
     a = pd.concat([upper, lower]).reset_index(drop=False).drop_duplicates().rename(
-        columns={"scaffold_index": "scaffold_index2", "length": "length2"}).set_index(["super", "bin0"])
+        columns={"scaffold_index": "scaffold_index2", "length": "length2"},
+        errors="raise").set_index(["super", "bin0"])
     # Now merge with "x" to find places to exclude
-    a = a.merge(x.set_index(["super", "bin0"]), on=["super", "bin0"], how="right")
+    a = a.merge(x.set_index(["super", "bin0"]),
+                on=["super", "bin0"], how="right")
     add = np.where((a.length >= a.length2), a.scaffold_index2, a.scaffold_index)
     out = {"membership": membership, "info": None}
     if add.shape[0] > 0:
@@ -142,14 +123,6 @@ def remove_tips(links, excluded, out, info, ncores=1, prefix=None,
     if res is not None:
         out["info"] = res
 
-    # remove tips of rank 1
-    # links[!scaffold2 % in % ex][,.(degree=.N), key =.(scaffold=scaffold1)]->b
-    # b[m[rank == 1], on = "scaffold"][degree == 1]$scaffold -> add
-    # if (length(add) > 0){
-    # ex < - c(ex, add)
-    # make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=ex, ncores=ncores) -> out
-    # out$m -> m
-    # }
     degree = _calculate_degree(links, excluded)
     add = degree.merge(membership.query("rank == 1"), on="scaffold_index").query("degree == 1")["scaffold_index"]
     if add.shape[0] > 0:

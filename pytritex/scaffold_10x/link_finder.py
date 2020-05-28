@@ -3,7 +3,7 @@ import pandas as pd
 
 def _initial_link_finder(info: pd.DataFrame, molecules: pd.DataFrame,
                          verbose=False, popseq_dist=5,
-                         min_npairs=2, max_dist=1e3, min_nmol=2, min_nsample=2):
+                         min_npairs=2, max_dist=1e5, min_nmol=2, min_nsample=2):
 
     if verbose:
         print("Finding links")
@@ -18,6 +18,7 @@ def _initial_link_finder(info: pd.DataFrame, molecules: pd.DataFrame,
     # is linking two different scaffolds.
     barcode_counts = movf[["barcode_index", "sample"]].groupby(
         ["barcode_index", "sample"], observed=True).size().to_frame("nsc")
+    # Only keep those cases where a given barcode has been confirmed in at least two samples.
     movf = barcode_counts.merge(movf, left_index=True,
                                 right_on=barcode_counts.index.names).query("nsc >= 2").reset_index(drop=False)
     side_columns = ["scaffold_index", "npairs", "start", "end", "sample", "barcode_index"]
@@ -51,12 +52,17 @@ def _initial_link_finder(info: pd.DataFrame, molecules: pd.DataFrame,
     left = basic[:].add_suffix("2")
     left.index.names = ["scaffold_index2"]
     sample_count = left.merge(sample_count, on="scaffold_index2", how="right")
-    sample_count.eval("same_chr = (popseq_chr2 == popseq_chr1)", inplace=True)
+    # Check that chromosomes are not NAs
+    print("Positions without an assigned chromosome:", sample_count.loc[sample_count["popseq_chr1"].isna()].shape[0])
+    bait = ~((sample_count["popseq_chr1"].isna()) | ((sample_count["popseq_chr2"].isna())))
+    sample_count.loc[bait, "same_chr"] = sample_count.loc[bait].eval("popseq_chr1 == popseq_chr2")
     sample_count.eval("weight = -1 * log10((length1 + length2) / 1e9)", inplace=True)
     sample_count = sample_count.reset_index(drop=False)
 
     if popseq_dist > 0:
-        links = sample_count.query("(popseq_chr1 == popseq_chr2) & (abs(popseq_cM2 - popseq_cM1) <= @popseq_dist)")
+        links = sample_count.copy().loc[(sample_count["same_chr"] == True) & (
+            (sample_count["popseq_cM2"] - sample_count["popseq_cM1"]).abs() <= popseq_dist), :]
     else:
         links = sample_count[:]
+
     return sample_count, links, link_pos

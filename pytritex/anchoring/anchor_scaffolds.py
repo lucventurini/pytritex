@@ -11,7 +11,8 @@ def anchor_scaffolds(assembly: dict,
                      species=None,
                      sorted_percentile=95,
                      popseq_percentile=90,
-                     hic_percentile=98):
+                     hic_percentile=98,
+                     verbose=False):
     if species is None:
         raise KeyError(
             "Parameter 'species' is NULL. Please set 'species' to one of "
@@ -52,5 +53,6 @@ def anchor_scaffolds(assembly: dict,
     assembly["popseq"] = popseq
     if hic is True:
         assembly["fpairs"] = anchored_hic_links
-    print(anchored_css.columns)
+    if verbose:
+        print(anchored_css.columns)
     return assembly

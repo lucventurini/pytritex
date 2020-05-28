@@ -190,7 +190,10 @@ def make_super_path(origin_edge_list, cms, start=None, end=None, maxiter=100, ve
             _cms = cms[index]
             _bins = ranks[index, 1].reshape(index.shape[0])
             assert _cms.shape[0] == _bins.shape[0], (_cms, _bins)
-            flip = scipy.stats.pearsonr(_bins, _cms)[0]
+            if np.unique(_cms).shape[0] < 2:
+                flip = np.nan
+            else:
+                flip = scipy.stats.pearsonr(_bins, _cms)[0]
         else:
             flip = np.nan
     except KeyError as exc:

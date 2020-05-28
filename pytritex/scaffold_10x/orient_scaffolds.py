@@ -44,11 +44,9 @@ def orient_scaffolds(info: pd.DataFrame, res: pd.DataFrame,
     # #  m[super_nbin > 1, .(scaffold1=scaffold, bin1=bin, super1=super)][link_pos, on="scaffold1", nomatch=0]->a
     m_greater_one = membership.query("super_nbin > 1")
     assert m_greater_one.shape[0] > 0, membership.head()
-    left = m_greater_one.rename(
-        columns={"scaffold_index": "scaffold_index1", "bin": "bin1", "super": "super1"}, errors="raise")
+    left = m_greater_one.loc[:, ["scaffold_index", "bin", "super"]].add_suffix("1")
     a = left.merge(link_pos, on="scaffold_index1", how="inner")
-    left = m_greater_one.rename(
-        columns={"scaffold_index": "scaffold_index2", "bin": "bin2", "super": "super2"}, errors="raise")
+    left = m_greater_one.loc[:, ["scaffold_index", "bin", "super"]].add_suffix("2")
     a = left.merge(a, on="scaffold_index2", how="inner")
     a.query("(super1 == super2) & (bin1 != bin2)", inplace=True)
     a.eval("d = abs(bin2 - bin1)", inplace=True)
@@ -91,6 +89,7 @@ def orient_scaffolds(info: pd.DataFrame, res: pd.DataFrame,
     # assign super scaffolds to genetic positions
     y = membership.query("chr == chr").groupby(["chr", "super"]).agg("size").to_frame("nchr")
     y.loc[:, "pchr"] = (y.groupby(level=1)["nchr"].shift(0) / y.groupby(level=1)["nchr"].transform("sum"))
+    y = y.reset_index(drop=False)
     y = y.sort_values("nchr", ascending=False).drop_duplicates(subset="super")
     yy = membership.query("cM == cM").merge(y, on=["chr", "super"])
     res = y.merge(res, on="super", how="right")

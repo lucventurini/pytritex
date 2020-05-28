@@ -15,7 +15,7 @@ def scaffold_10x(assembly: dict, prefix="super", min_npairs=5, max_dist=1e5, min
     info, molecules = assembly["info"], assembly["molecules"]
     # print(assembly.keys())
     print(time.ctime(), "Finding initial links")
-    ww2, links, link_pos = _initial_link_finder(info=info, molecules=molecules,
+    sample_count, links, link_pos = _initial_link_finder(info=info, molecules=molecules,
                                       verbose=verbose, popseq_dist=popseq_dist,
                                       min_npairs=min_npairs, max_dist=max_dist, min_nmol=min_nmol,
                                       min_nsample=min_nsample)
@@ -37,9 +37,8 @@ def scaffold_10x(assembly: dict, prefix="super", min_npairs=5, max_dist=1e5, min
                                                 prefix=prefix, ncores=ncores, verbose=verbose,
                                                 min_dist=1e4)
         if popseq_dist > 0 and unanchored is True:
-            membership, res = _scaffold_unanchored(links, excluded, membership, info, link_pos, ncores=1,
-                                                   prefix=None, verbose=False)
-
+            membership, res = _scaffold_unanchored(links, excluded, membership, info, sample_count, ncores=1,
+                                                   prefix=prefix, verbose=False)
     membership, result = orient_scaffolds(
         info=info, res=res, membership=membership,
         link_pos=link_pos, max_dist_orientation=max_dist_orientation, verbose=verbose)

@@ -106,7 +106,10 @@ def make_super(hl, cluster_info,
     # info <- mem[, .(super_size=.N, length=.N, chr=unique(na.omit(chr))[1], cM=mean(na.omit(cM))),
     # keyby=super]
     info = membership.groupby("super").agg(
-        super_size=("super", "size"), length=("super", "size"), cM=("cM", "mean")).reset_index(drop=False)
+        super_size=("super", "size"), length=("super", "size"),
+        cM=("cM", lambda s: s.dropna().mean()),
+        chr=("chr", lambda s: np.nan if s.dropna().shape[0] == 0 else s.dropna().unique()[0])
+    ).reset_index(drop=False)
     assert "cluster" in membership, membership.columns
     edge_list = membership.rename(columns={"cluster": "cluster1"})[["cluster1", "super"]].merge(
         hl, on="cluster1", how="right")
@@ -124,7 +127,7 @@ def make_super(hl, cluster_info,
         grouped_edges = super_object["edges"].groupby("super").groups
         grouped_membership = cms.groupby("super").groups
         order = super_object["membership"].query("super in @idx")[[
-            "super", "popseq_chr"]].sort_values(["popseq_chr"])
+            "super", "chr"]].sort_values(["chr"])
         print(time.ctime(), "Starting super, with", idx.shape[0], "positions to analyse.")
         results = []
         for row in order.itertuples(name=None):

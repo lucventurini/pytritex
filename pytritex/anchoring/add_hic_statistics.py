@@ -3,7 +3,7 @@ import numpy as np
 from ..utils import first, second
 
 
-def add_hic_statistics(anchored_css: pd.DataFrame, fpairs: pd.DataFrame):
+def add_hic_statistics(anchored_css: pd.DataFrame, fpairs: pd.DataFrame, verbose=False):
     """This function will add the HiC statistics to the anchored dataframe."""
 
     # info[!(popseq_chr != sorted_chr)][, .(scaffold, chr=popseq_chr)]->info0
@@ -31,7 +31,8 @@ def add_hic_statistics(anchored_css: pd.DataFrame, fpairs: pd.DataFrame):
                                                              on="scaffold_index2", how="right")
     anchored_hic_links.loc[:, "scaffold_index2"] = pd.to_numeric(anchored_hic_links["scaffold_index2"],
                                                                  downcast="unsigned")
-    print("Anchored HiC links columns", anchored_hic_links.columns)
+    if verbose:
+        print("Anchored HiC links columns", anchored_hic_links.columns)
     hic_stats = anchored_hic_links[~(anchored_hic_links["chr1"].isna() |
                                      anchored_hic_links["chr1"].isna())].rename(
         columns={"scaffold_index2": "scaffold_index", "chr1": "hic_chr"}

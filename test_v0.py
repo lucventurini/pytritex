@@ -4,21 +4,26 @@ import itertools
 from pytritex.scaffold_10x.__init__ import scaffold_10x
 from pytritex.utils import n50
 import numexpr as ne
+import itertools
+import multiprocessing as mp
 
 
-def dispatcher(assembly, row):
-    result = scaffold_10x(assembly,
-                          prefix="scaffold_10x", min_npairs=row.npairs,
-                          max_dist=row.dist, popseq_dist=5, max_dist_orientation=5,
-                          min_nsample=row.nsample,
-                          min_nmol=row.nmol, unanchored=False, ncores=1)
-    joblib.dump(result, "1A_{}.pkl".format(row.index), compress=("zlib", 6))
-#     print("""Parameters: {row}\n
-# Result: {res}\n""".format(row=row, res=n50(result["info"]["length"])))
-    return result
+def dispatcher(_index, row):
+    assembly = joblib.load("1A.pkl")
+    try:
+        result = scaffold_10x(assembly,
+                              prefix="scaffold_10x", min_npairs=row.npairs,
+                              max_dist=row.dist, popseq_dist=5, max_dist_orientation=5,
+                              min_nsample=row.nsample,
+                              min_nmol=row.nmol, unanchored=True, ncores=10, verbose=False)
+        print("Test {_index}: N50".format(_index=_index), n50(result[1]["length"].values))
+        joblib.dump(result, "1A_test_{}.pkl".format(_index), compress=("zlib", 6))
+        return (row, result)
+    except Exception:
+        print("Row that failed:", row.values.tolist())
 
 
-def grid_evaluation(assembly):
+def grid_evaluation():
 
     grid = pd.DataFrame(dict(zip(("npairs", "nmol", "nsample", "dist"),
                                  list(zip(*itertools.product((2, 3),
@@ -26,18 +31,21 @@ def grid_evaluation(assembly):
                                                              (1, 2),
                                                              range(6 * 10**4, 10**5, 10**4)))))))
     print("Starting grid evaluation")
-    # pool = mp.Pool(processes=args.procs)
-    # results = pool.starmap(dispatcher, [(assembly, row) for index, row in grid.iterrows()])
-    ne.set_num_threads(12)
-    _index, row = next(grid.iterrows())
-    result = dispatcher(assembly, row)
-    return result
+
+    pool = mp.Pool(4)
+    results = pool.starmap(dispatcher,
+                           [(index, row) for index, row in grid.iterrows()])
+    pool.close()
+    pool.join()
+    # _index, row = next(grid.iterrows())
+    # result = dispatcher(assembly, _index, row)
+    return results
 
 
 def main():
-
-    assembly = joblib.load("1A.pkl")
-    grid_evaluation(assembly)
+    ne.set_num_threads(12)
+    results = grid_evaluation()
+    joblib.dump(results, "scaffolded.pkl", compress=("zlib", 6))
 
 
 if __name__ == "__main__":
