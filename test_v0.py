@@ -6,9 +6,12 @@ from pytritex.utils import n50
 import numexpr as ne
 import itertools
 import multiprocessing as mp
+from collections import namedtuple
 
 
 def dispatcher(_index, row):
+    Row = namedtuple("row", ("npairs", "nmol", "nsample", "dist"))
+    row = Row(*row)
     assembly = joblib.load("1A.pkl")
     try:
         result = scaffold_10x(assembly,
@@ -20,7 +23,8 @@ def dispatcher(_index, row):
         joblib.dump(result, "1A_test_{}.pkl".format(_index), compress=("zlib", 6))
         return (row, result)
     except Exception:
-        print("Row that failed:", row.values.tolist())
+        print("Row that failed:", row)
+        raise
 
 
 def grid_evaluation():
@@ -33,8 +37,12 @@ def grid_evaluation():
     print("Starting grid evaluation")
 
     pool = mp.Pool(4)
-    results = pool.starmap(dispatcher,
-                           [(index, row) for index, row in grid.iterrows()])
+    # Row = namedtuple(, ("npairs", "nmol", "nsample", "dist"))
+    # [3, 2, 2, 70000]
+    row = (3, 2, 2, 70000)
+
+    results = pool.starmap(dispatcher, [(0, row)])
+                           # [(index, row) for index, row in grid.iterrows()])
     pool.close()
     pool.join()
     # _index, row = next(grid.iterrows())

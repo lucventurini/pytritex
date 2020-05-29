@@ -43,14 +43,19 @@ def assign_carma(cssaln: pd.DataFrame, fai: pd.DataFrame, wheatchr: pd.DataFrame
     #  z[sorted_alphachr %in% c("1H", "3B"), sorted_arm := NA]
     #  z[sorted_arm == "S", sorted_parm := NS/sorted_Ncss1]
     #  z[sorted_arm == "L", sorted_parm := NL/sorted_Ncss1]
+
     short_arm_counts = cssaln.loc[cssaln.sorted_arm == "S"].groupby(
-        ["scaffold_index", "sorted_alphachr"])["sorted_arm"].transform("size").to_frame("NS")
+        ["scaffold_index", "sorted_alphachr"])["sorted_arm"].size().to_frame("NS")
+
     long_arm_counts = cssaln.loc[cssaln.sorted_arm == "L"].groupby(
-        ["scaffold_index", "sorted_alphachr"])["sorted_arm"].transform("size").to_frame("NL")
+        ["scaffold_index", "sorted_alphachr"])["sorted_arm"].size().to_frame("NL")
 
     combined_stats = short_arm_counts.merge(
-        long_arm_counts.merge(combined_stats, left_index=True, right_index=True, how="right"),
-        left_index=True, right_index=True, how="right")
+        long_arm_counts.merge(
+            combined_stats.reset_index(drop=False), left_index=True,
+            right_on=long_arm_counts.index.names, how="right"),
+        left_index=True, right_on=short_arm_counts.index.names, how="right")
+    print(combined_stats.head())
     combined_stats.loc[:, "NL"] = pd.to_numeric(combined_stats["NL"].fillna(0), downcast="signed")
     combined_stats.loc[:, "NS"] = pd.to_numeric(combined_stats["NS"].fillna(0), downcast="signed")
 
@@ -61,7 +66,6 @@ def assign_carma(cssaln: pd.DataFrame, fai: pd.DataFrame, wheatchr: pd.DataFrame
         combined_stats["sorted_Ncss1"], fill_value=0)
     combined_stats.loc[combined_stats["sorted_arm"] == "L", "sorted_parm"] = combined_stats["NL"].div(
         combined_stats["sorted_Ncss1"], fill_value=0)
-    combined_stats = combined_stats.reset_index(drop=False)
 
     #  setnames(copy(wheatchr), c("sorted_alphachr", "sorted_chr"))[z, on="sorted_alphachr"]->z
     #  setnames(copy(wheatchr), c("sorted_alphachr2", "sorted_chr2"))[z, on="sorted_alphachr2"]->z
@@ -78,6 +82,7 @@ def assign_carma(cssaln: pd.DataFrame, fai: pd.DataFrame, wheatchr: pd.DataFrame
     wheatchr2 = wheatchr.copy().rename(columns={"chr": "sorted_chr2", "alphachr": "sorted_alphachr2"})
     # combined_stats.loc[:, "sorted_alphachr2"] = pd.Categorical(combined_stats["sorted_alphachr2"])
     combined_stats = wheatchr2.merge(combined_stats, how="right", on="sorted_alphachr2")
+    assert "scaffold_index" in combined_stats.columns, combined_stats.head()
     info = pd.merge(combined_stats, fai, on="scaffold_index", how="right").drop("scaffold", axis=1)
     for col in ["Ncss", "NS", "NL", "sorted_Ncss1", "sorted_Ncss2"]:
         info.loc[:, col] = pd.to_numeric(info[col].fillna(0), downcast="signed")  # .convert_dtypes()

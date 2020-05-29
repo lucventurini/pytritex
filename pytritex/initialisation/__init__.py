@@ -5,6 +5,7 @@ import os
 import subprocess as sp
 from .read_10x import read_10x_molecules
 import numpy as np
+import dask.dataframe as dd
 
 
 def initial(args, popseq):
@@ -12,31 +13,36 @@ def initial(args, popseq):
     if not os.path.exists(args.fasta + ".fai"):
         pysam.Fastafile(args.fasta)
     fai = pd.read_csv(args.fasta + ".fai", sep="\t",
-                      usecols=[0, 1], names=["scaffold", "length"]).reset_index(drop=False).rename(
-        columns={"index": "scaffold_index"}
-    )
+                      usecols=[0, 1], names=["scaffold", "length"],
+                      dtype={"scaffold": "str",
+                             "length": np.int32}).reset_index(drop=False).rename(
+        columns={"index": "scaffold_index"}).astype({"scaffold_index": np.int32})
 
-    fai.loc[:, "scaffold_index"] = pd.to_numeric(fai["scaffold_index"] + int(1), downcast="signed")
-    fai.loc[:, "length"] = pd.to_numeric(fai["length"], downcast="signed")
-    fai.loc[:, "orig_scaffold_index"] = fai["scaffold_index"]
-    fai.loc[:, "start"] = fai.loc[:, "orig_start"] = np.array([1], dtype=fai["length"].dtype)
-    fai.loc[:, "end"] = fai.loc[:, "orig_end"] = fai["length"]
+    # fai.loc[:, "scaffold_index"] = pd.to_numeric(fai["scaffold_index"] + int(1), downcast="signed")
+    # fai.loc[:, "length"] = pd.to_numeric(fai["length"], downcast="signed")
+    fai["scaffold_index"] += 1
+    fai["orig_scaffold_index"] = fai["scaffold_index"]
+    fai["start"] = fai["orig_start"] = 1
+    fai["end"] = fai["length"]
+    fai["orig_end"] = fai["length"]
+    fai = dd.from_pandas(fai, npartitions=(fai.shape[0] // 1e5) + 1)
+    assert "scaffold_index" in fai.columns
 
-    # fai = fai.convert_dtypes()
     # Alignment of genetic markers used for the genetic map. In this example, the Morex WGS assembly by IBSC (2012).
     cssaln = read_morexaln_minimap(paf=args.css, popseq=popseq, fai=fai, minqual=30, minlen=500, ref=True)
     # cssaln = cssaln.convert_dtypes()
 
     # Read the list of Hi-C links.
     fpairs_command = 'find {} -type f | grep "_fragment_pairs.tsv.gz$"'.format(args.hic)
-    fpairs = pd.concat(
-        [
-            pd.read_csv(
-                fname.decode().rstrip(), sep="\t", header=None, names=["scaffold1", "pos1", "scaffold2", "pos2"]
-            )
+
+    fpairs = [
+            dd.read_csv(
+                fname.decode().rstrip(), sep="\t", header=None, names=["scaffold1", "pos1", "scaffold2", "pos2"],
+                compression="gzip", blocksize=None)
             for fname in sp.Popen(fpairs_command, shell=True, stdout=sp.PIPE).stdout
         ]
-    )
+
+    fpairs = dd.concat(fpairs).reset_index().set_index("index")
     # Now let us change the scaffold1 and scaffold2
     fpairs = fai[["scaffold", "scaffold_index"]].rename(columns={"scaffold": "scaffold1",
                                                                      "scaffold_index": "scaffold_index1"}).merge(
@@ -44,12 +50,13 @@ def initial(args, popseq):
     fpairs = fai[["scaffold", "scaffold_index"]].rename(columns={"scaffold": "scaffold2",
                                                                      "scaffold_index": "scaffold_index2"}).merge(
         fpairs, on="scaffold2").drop("scaffold2", axis=1)
-    fpairs.loc[:, "orig_scaffold_index1"] = fpairs["scaffold_index1"]
-    fpairs.loc[:, "orig_scaffold_index2"] = fpairs["scaffold_index2"]
-    fpairs.loc[:, "pos1"] = pd.to_numeric(fpairs["pos1"], downcast="signed")
-    fpairs.loc[:, "pos2"] = pd.to_numeric(fpairs["pos2"], downcast="signed")
-    fpairs.loc[:, "orig_pos1"] = fpairs["pos1"]
-    fpairs.loc[:, "orig_pos2"] = fpairs["pos2"]
+    fpairs["orig_scaffold_index1"] = fpairs["scaffold_index1"]
+    fpairs["orig_scaffold_index2"] = fpairs["scaffold_index2"]
+    fpairs = fpairs.reset_index().set_index("index")
+    fpairs = fpairs.assign(pos1=pd.to_numeric(fpairs["pos1"].compute(), downcast="signed"))
+    fpairs = fpairs.assign(pos2=pd.to_numeric(fpairs["pos2"].compute(), downcast="signed"))
+    fpairs["orig_pos1"] = fpairs["pos1"]
+    fpairs["orig_pos2"] = fpairs["pos2"]
 
     # fpairs = fpairs.convert_dtypes()
     tenx_command = 'find {} -type f | grep "molecules.tsv.gz$"'.format(args.tenx)
@@ -70,6 +77,12 @@ def initial(args, popseq):
         sys.exit(1)
 
     # molecules = molecules.convert_dtypes()
+    cssaln = cssaln.compute()
+    fpairs = fpairs.compute()
+    molecules = molecules.compute()
+    fai = fai.compute()
+    assert "scaffold_index" in fai.columns
+    assert "scaffold" in fai.columns
     assembly = {"popseq": popseq,
                 "fai": fai,
                 "cssaln": cssaln,

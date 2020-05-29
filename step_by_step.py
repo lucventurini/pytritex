@@ -60,6 +60,7 @@ def main():
     popseq.columns = popseq.columns.str.replace("morex", "css")
     memory = Memory(os.path.join(".", args.save_prefix))
     assembly = memory.cache(initial)(args, popseq)
+    # assembly = initial(args, popseq)
     res = os.path.join(args.save_prefix, "joblib", "pytritex", "anchoring", "anchor_scaffolds", "result.pkl")
     if os.path.exists(res):
         assembly = load(res)

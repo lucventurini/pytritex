@@ -72,8 +72,13 @@ def _remove_short_tips(links, excluded, membership, info, min_dist=minimum_dista
 
 def _remove_bifurcations(links, excluded, membership, info, min_dist=minimum_distance, ncores=1, prefix=None):
     # resolve length-one-bifurcations at the ends of paths
+    if membership.shape[0] == 0:
+        return membership, info, excluded
     keys = ["super", "super_nbin", "scaffold_index", "length", "bin"]
-    x = membership.query("(rank > 0) & ( (bin == 2) | (super_nbin - 1 == bin) )")[keys]
+    x = membership.query("(rank > 0) & ( (bin == 2) | (super_nbin - 1 == bin) )")
+    if x.shape[0] == 0:
+        return x, info, excluded
+    x = x[keys]
     x = x.eval("type = (bin == 2)").rename(columns={"bin": "bin0"})
     x = x[["super", "super_nbin", "type", "scaffold_index", "length", "bin0"]]
     key = ["super", "bin"]
@@ -90,8 +95,15 @@ def _remove_bifurcations(links, excluded, membership, info, min_dist=minimum_dis
         columns={"scaffold_index": "scaffold_index2", "length": "length2"},
         errors="raise").set_index(["super", "bin0"])
     # Now merge with "x" to find places to exclude
-    a = a.merge(x.set_index(["super", "bin0"]),
-                on=["super", "bin0"], how="right")
+    try:
+        a = a.merge(x.set_index(["super", "bin0"]), on=["super", "bin0"], how="right")
+    except ValueError:
+        print(a.head())
+        print(a.shape[0])
+        print(a.index.get_level_values(0).dtype, a.index.get_level_values(1).dtype)
+        print(x.head())
+        print(x.shape[0])
+        print(x[["super", "bin0"]].dtypes)
     add = np.where((a.length >= a.length2), a.scaffold_index2, a.scaffold_index)
     out = {"membership": membership, "info": None}
     if add.shape[0] > 0:
@@ -113,13 +125,22 @@ def remove_tips(links, excluded, out, info, ncores=1, prefix=None,
         print(ctime(), "Starting tip removal")
     # out = {"membership": membership, "info": info}
     membership = out["membership"]
+    if membership.shape[0] == 0:
+        return out
+
     membership, res, excluded = _remove_short_tips(links, excluded, membership, info,
                                                    min_dist=min_dist, ncores=ncores, prefix=prefix)
+    if membership.shape[0] == 0:
+        print("This set of parameters leads to lose everything.")
+        return membership, info, excluded
     if res is not None:
         out["info"] = res
 
     membership, res, excluded = _remove_bifurcations(links, excluded, membership, info,
                                                      min_dist=min_dist, ncores=ncores, prefix=prefix)
+    if membership.shape[0] == 0:
+        print("This set of parameters leads to lose everything.")
+        return membership, info, excluded
     if res is not None:
         out["info"] = res
 

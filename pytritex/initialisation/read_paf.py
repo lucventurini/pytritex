@@ -1,20 +1,22 @@
 import pandas as pd
 import re
+import dask.dataframe as dd
+import joblib
 
 
 def read_paf(fname, primary_only=True, save=False):
     names = dict(_ for _ in enumerate(["query", "query_length", "query_start", "query_end",
              "orientation", "reference", "reference_length",
              "reference_start", "reference_end", "matches", "alnlen", "mapq", "type"]))
-    z = pd.read_csv(fname, header=None, delimiter="\t").loc[:, :len(names)].rename(columns=names)
-    z["orientation"] = z["orientation"].map({"+": 1, "-": -1})
-    z[["query_start", "query_end", "reference_start", "reference_end"]] += 1  # ???
-    z["type"] = z["type"].str.replace("tp:A:", "")
+    paf = dd.read_csv(fname, header=None, delimiter="\t").loc[:, :len(names)].rename(columns=names)
+    paf["orientation"] = paf["orientation"].map({"+": 1, "-": -1})
+    paf[["query_start", "query_end", "reference_start", "reference_end"]] += 1  # ???
+    paf["type"] = paf["type"].str.replace("tp:A:", "")
     if primary_only is True:
-        z = z[z["type"] == "P"]
+        paf = paf[paf["type"] == "P"]
     if save:
-        z.to_pickle(re.sub("paf.gz$", "pickle", fname))
-    return z
+        joblib.dump(paf, re.sub(r"\.paf(.{0, 0}|\.gz)$", "pkl", fname))
+    return paf
 
 
 # def summarize_paf(paf: pd.DataFrame):
