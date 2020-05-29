@@ -29,7 +29,7 @@ def initial(args, popseq):
     assert "scaffold_index" in fai.columns
 
     # Alignment of genetic markers used for the genetic map. In this example, the Morex WGS assembly by IBSC (2012).
-    cssaln = read_morexaln_minimap(paf=args.css, popseq=popseq, fai=fai, minqual=30, minlen=500, ref=True)
+    cssaln, tempfile = read_morexaln_minimap(paf=args.css, popseq=popseq, fai=fai, minqual=30, minlen=500, ref=True)
     # cssaln = cssaln.convert_dtypes()
 
     # Read the list of Hi-C links.
@@ -42,19 +42,16 @@ def initial(args, popseq):
             for fname in sp.Popen(fpairs_command, shell=True, stdout=sp.PIPE).stdout
         ]
 
-    fpairs = dd.concat(fpairs).reset_index().set_index("index")
+    fpairs = dd.concat(fpairs).reset_index(drop=True)
     # Now let us change the scaffold1 and scaffold2
-    fpairs = fai[["scaffold", "scaffold_index"]].rename(columns={"scaffold": "scaffold1",
-                                                                     "scaffold_index": "scaffold_index1"}).merge(
-        fpairs, on="scaffold1").drop("scaffold1", axis=1)
-    fpairs = fai[["scaffold", "scaffold_index"]].rename(columns={"scaffold": "scaffold2",
-                                                                     "scaffold_index": "scaffold_index2"}).merge(
-        fpairs, on="scaffold2").drop("scaffold2", axis=1)
+    left = fai[["scaffold", "scaffold_index"]].rename(columns={"scaffold": "scaffold1",
+                                                               "scaffold_index": "scaffold_index1"})
+    fpairs = left.merge(fpairs, on="scaffold1").drop("scaffold1", axis=1)
+    left = fai[["scaffold", "scaffold_index"]].rename(columns={"scaffold": "scaffold2",
+                                                                 "scaffold_index": "scaffold_index2"})
+    fpairs = left.merge(fpairs, on="scaffold2").drop("scaffold2", axis=1)
     fpairs["orig_scaffold_index1"] = fpairs["scaffold_index1"]
     fpairs["orig_scaffold_index2"] = fpairs["scaffold_index2"]
-    fpairs = fpairs.reset_index().set_index("index")
-    fpairs = fpairs.assign(pos1=pd.to_numeric(fpairs["pos1"].compute(), downcast="signed"))
-    fpairs = fpairs.assign(pos2=pd.to_numeric(fpairs["pos2"].compute(), downcast="signed"))
     fpairs["orig_pos1"] = fpairs["pos1"]
     fpairs["orig_pos2"] = fpairs["pos2"]
 
@@ -78,6 +75,7 @@ def initial(args, popseq):
 
     # molecules = molecules.convert_dtypes()
     cssaln = cssaln.compute()
+    tempfile.close()
     fpairs = fpairs.compute()
     molecules = molecules.compute()
     fai = fai.compute()

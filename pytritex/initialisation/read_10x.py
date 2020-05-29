@@ -23,8 +23,8 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1):
     """Read the files as produced by run_10x_mapping.zsh"""
     # pool = mp.Pool(ncores)
     cluster = LocalCluster(n_workers=ncores, threads_per_worker=1, processes=True,
-                           memory_limit='25GB', scheduler_port=0, verbose=False,
-                           silence_logs=logging.WARN, diagnostics_port=0)
+                           memory_limit='25GB', scheduler_port=0,
+                           silence_logs=logging.ERROR)
 
     client = Client(cluster)
     molecules = [client.submit(
