@@ -1,9 +1,10 @@
 import pandas as pd
 from ..utils import first, second
 import numpy as np
+import dask.dataframe as dd
 
 
-def assign_carma(cssaln: pd.DataFrame, fai: pd.DataFrame, wheatchr: pd.DataFrame):
+def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame):
     """
     This function will create a master table with the anchored information from the CSS alignment.
     :param cssaln: the original CSS alignment.
@@ -18,9 +19,8 @@ def assign_carma(cssaln: pd.DataFrame, fai: pd.DataFrame, wheatchr: pd.DataFrame
     # 			 sorted_alphachr2=sorted_alphachr[2], sorted_Ncss2=N[2]), keyby=scaffold]->z
     #  z[, sorted_pchr := sorted_Ncss1/Ncss]
     #  z[, sorted_p12 := sorted_Ncss2/sorted_Ncss1]
-    anchored_css = cssaln[~cssaln["sorted_alphachr"].isna()].copy()
-    anchored_css_grouped = anchored_css.groupby(["scaffold_index", "sorted_alphachr"], observed=True)
-
+    anchored_css = cssaln[~cssaln["sorted_alphachr"].isna()].compute().copy()
+    anchored_css_grouped = anchored_css.groupby(["scaffold_index", "sorted_alphachr"])
     combined_stats = anchored_css_grouped.size().to_frame("N").reset_index(drop=False)
     combined_stats = combined_stats.sort_values(
         ["scaffold_index", "N"], ascending=[True, False]).groupby("scaffold_index").agg(
@@ -44,10 +44,10 @@ def assign_carma(cssaln: pd.DataFrame, fai: pd.DataFrame, wheatchr: pd.DataFrame
     #  z[sorted_arm == "S", sorted_parm := NS/sorted_Ncss1]
     #  z[sorted_arm == "L", sorted_parm := NL/sorted_Ncss1]
 
-    short_arm_counts = cssaln.loc[cssaln.sorted_arm == "S"].groupby(
-        ["scaffold_index", "sorted_alphachr"])["sorted_arm"].size().to_frame("NS")
+    short_arm_counts = anchored_css.query("(sorted_arm == 'S')").groupby(
+            ["scaffold_index", "sorted_alphachr"])["sorted_arm"].size().to_frame("NS")
 
-    long_arm_counts = cssaln.loc[cssaln.sorted_arm == "L"].groupby(
+    long_arm_counts = anchored_css.query("(sorted_arm == 'L')").groupby(
         ["scaffold_index", "sorted_alphachr"])["sorted_arm"].size().to_frame("NL")
 
     combined_stats = short_arm_counts.merge(
@@ -55,7 +55,6 @@ def assign_carma(cssaln: pd.DataFrame, fai: pd.DataFrame, wheatchr: pd.DataFrame
             combined_stats.reset_index(drop=False), left_index=True,
             right_on=long_arm_counts.index.names, how="right"),
         left_index=True, right_on=short_arm_counts.index.names, how="right")
-    print(combined_stats.head())
     combined_stats.loc[:, "NL"] = pd.to_numeric(combined_stats["NL"].fillna(0), downcast="signed")
     combined_stats.loc[:, "NS"] = pd.to_numeric(combined_stats["NS"].fillna(0), downcast="signed")
 
@@ -83,8 +82,10 @@ def assign_carma(cssaln: pd.DataFrame, fai: pd.DataFrame, wheatchr: pd.DataFrame
     # combined_stats.loc[:, "sorted_alphachr2"] = pd.Categorical(combined_stats["sorted_alphachr2"])
     combined_stats = wheatchr2.merge(combined_stats, how="right", on="sorted_alphachr2")
     assert "scaffold_index" in combined_stats.columns, combined_stats.head()
-    info = pd.merge(combined_stats, fai, on="scaffold_index", how="right").drop("scaffold", axis=1)
+    info = pd.merge(combined_stats, fai.compute(), on="scaffold_index", how="right").drop("scaffold", axis=1)
     for col in ["Ncss", "NS", "NL", "sorted_Ncss1", "sorted_Ncss2"]:
         info.loc[:, col] = pd.to_numeric(info[col].fillna(0), downcast="signed")  # .convert_dtypes()
     info.loc[:, "scaffold_index"] = info["scaffold_index"].astype(fai["scaffold_index"].dtype)
+    info = info.set_index("scaffold_index")
+    info = dd.from_pandas(info, npartitions=100)
     return info

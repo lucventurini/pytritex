@@ -8,23 +8,18 @@ from time import ctime
 import multiprocessing as mp
 import numexpr as ne
 import re
-from time import sleep
 from collections import deque
+from .collapse_bins import collapse_bins as cbn
 
 
 def _group_analyser(group, binsize):
     """Count how many pairs cover a given bin; return into a column called "n"."""
-    (scaffold_index, bin_group), group = group
-    # assert group["scaffold_index"].unique().shape[0] == 1, group["scaffold_index"]
-    # scaffold = group["scaffold_index"].head(1).values[0]
-    bin1 = group["bin1"].values
-    bin_series = pd.Series(itertools.starmap(range, pd.DataFrame().assign(
-        bin1=group["bin1"] + binsize, bin2=group["bin2"], binsize=binsize).astype(np.int).values),
-                    index=group.index)
-    assigned = group.assign(bin=bin_series).explode("bin").reset_index(drop=True).groupby(
-        "bin").size().to_frame("n").reset_index().assign(scaffold_index=scaffold_index)
-    assigned.loc[:, "bin"] = pd.to_numeric(assigned["bin"].fillna(0), downcast="signed")
-    assigned.loc[:, "n"] = pd.to_numeric(assigned["n"].fillna(0), downcast="signed")
+    bins = np.hstack([(group["bin1"] + binsize).values.reshape(group.shape[0], 1),
+                      group["bin2"].values.reshape(group.shape[0], 1)]).astype(np.int)
+    counter = cbn(bins, binsize)
+    assigned = pd.DataFrame().assign(
+        bin=counter.keys(), n=counter.values(),
+        scaffold_index=np.unique(group.index.values)[0]).set_index("scaffold_index")
     return assigned
 
 

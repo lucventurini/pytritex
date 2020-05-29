@@ -74,11 +74,12 @@ def initial(args, popseq):
         sys.exit(1)
 
     # molecules = molecules.convert_dtypes()
-    cssaln = cssaln.compute()
+    cssaln = cssaln.persist()
     tempfile.close()
-    fpairs = fpairs.compute()
-    molecules = molecules.compute()
-    fai = fai.compute()
+    fpairs = fpairs.persist()
+    molecules = molecules.persist()
+    print(molecules.shape[0])
+    fai = fai.persist()
     assert "scaffold_index" in fai.columns
     assert "scaffold" in fai.columns
     assembly = {"popseq": popseq,

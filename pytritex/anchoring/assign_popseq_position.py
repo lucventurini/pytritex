@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import median_absolute_deviation
 from ..utils import first, second
+import dask.dataframe as dd
 
 
 def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame, anchored_css: pd.DataFrame, wheatchr: pd.DataFrame):
@@ -26,7 +27,7 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame, anchored_
     #  info[is.na(popseq_Ncss2), popseq_Ncss2 := 0]
 
     popseq_positions = popseq.loc[~popseq["popseq_alphachr"].isna(), ["popseq_index", "popseq_alphachr", "popseq_cM"]]
-    popseq_positions = popseq_positions.merge(cssaln[["popseq_index", "scaffold_index"]],
+    popseq_positions = popseq_positions.merge(cssaln[["popseq_index", "scaffold_index"]].compute(),
                                               on="popseq_index", how="left")
     popseq_stats = popseq_positions.groupby(["scaffold_index", "popseq_alphachr"], observed=True)
     popseq_count = popseq_stats.size().to_frame("N").astype(np.uint32)
@@ -52,8 +53,13 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame, anchored_
     popseq_stats = wheatchr1.merge(popseq_stats, on="popseq_alphachr", how="right")
     wheatchr2 = wheatchr.copy().rename(columns={"chr": "popseq_chr2", "alphachr": "popseq_alphachr2"})
     popseq_stats = wheatchr2.merge(popseq_stats, on="popseq_alphachr2", how="right")
-    anchored_css = popseq_stats.merge(anchored_css, on="scaffold_index", how="right")
-    for column in ["popseq_Ncss", "popseq_Ncss1", "popseq_Ncss2"]:
-        anchored_css.loc[:, column] = pd.to_numeric(anchored_css[column].fillna(0),
-                                                    downcast="signed")
+    anchored_css = dd.merge(popseq_stats, anchored_css, on="scaffold_index", how="right")
+    anchored_css = anchored_css.set_index("scaffold_index")
+    anchored_css.persist()
+    if anchored_css.index.name != "scaffold_index":
+        print(anchored_css.columns)
+        assert False
+    # for column in ["popseq_Ncss", "popseq_Ncss1", "popseq_Ncss2"]:
+    #     anchored_css.loc[:, column] = pd.to_numeric(anchored_css[column].fillna(0),
+    #                                                 downcast="signed")
     return anchored_css

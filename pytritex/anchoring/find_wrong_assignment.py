@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import dask.dataframe as dd
 
 
 def find_wrong_assignments(anchored_css: pd.DataFrame, measure: list, sorted_percentile, popseq_percentile,
@@ -34,7 +35,9 @@ def find_wrong_assignments(anchored_css: pd.DataFrame, measure: list, sorted_per
     #  w[info, on="scaffold"]->info
     #  info[is.na(Nbad), Nbad := 0]
 
-    melted = pd.melt(anchored_css, id_vars="scaffold_index",
+    # scaffold_index is the index
+    to_melt = anchored_css[measure].compute().reset_index(drop=False)
+    melted = pd.melt(to_melt, id_vars="scaffold_index",
                      value_vars=measure, var_name="map", value_name="chr").dropna()
     #  w[, .N, key=.(scaffold, chr)]->w
     melted = melted.groupby(["scaffold_index", "chr"]).size().to_frame("N").reset_index(drop=False)
@@ -42,40 +45,46 @@ def find_wrong_assignments(anchored_css: pd.DataFrame, measure: list, sorted_per
     # Nchr_ass_uniq: number of unique assignments for the scaffold.
     melted = melted.sort_values("N", ascending=False).groupby("scaffold_index").agg(
         Nchr_ass=("N", "sum"), Nchr_ass_uniq=("N", "size"))
-    anchored_css = melted.merge(anchored_css, right_on="scaffold_index", left_index=True, how="right")
-    anchored_css.loc[:, "scaffold_index"] = pd.to_numeric(anchored_css["scaffold_index"].fillna(0),
-                                                          downcast="signed")
-    anchored_css.loc[:, "Nchr_ass"] = pd.to_numeric(anchored_css["Nchr_ass"].fillna(0),
-                                                    downcast="signed")
-    anchored_css.loc[:, "Nchr_ass_uniq"] = pd.to_numeric(anchored_css["Nchr_ass_uniq"].fillna(0),
-                                                         downcast="signed")
-    sorted_threshold = anchored_css.loc[
-        anchored_css["Ncss"] >= 30, "sorted_p12"].quantile((sorted_percentile + 1) / 100)
-    anchored_css.loc[:, "bad_sorted"] = (anchored_css["sorted_p12"] >= sorted_threshold) & (
-            anchored_css["sorted_Ncss2"] >= 2)
-    pop_threshold = anchored_css.loc[anchored_css["popseq_Ncss"] >= 30, "popseq_p12"].quantile(
+    anchored_css = dd.merge(melted, anchored_css, on="scaffold_index", how="right")
+    print(anchored_css.index.name)
+    # anchored_css = anchored_css.set_index("scaffold_index")
+    anchored_css.persist()
+    # anchored_css.loc[:, "scaffold_index"] = pd.to_numeric(anchored_css["scaffold_index"].fillna(0),
+    #                                                       downcast="signed")
+    # anchored_css.loc[:, "Nchr_ass"] = pd.to_numeric(anchored_css["Nchr_ass"].fillna(0),
+    #                                                 downcast="signed")
+    # anchored_css.loc[:, "Nchr_ass_uniq"] = pd.to_numeric(anchored_css["Nchr_ass_uniq"].fillna(0),
+    #                                                      downcast="signed")
+    sorted_threshold = anchored_css.query("Ncss >= 30")["sorted_p12"].compute().quantile(
+        (sorted_percentile + 1) / 100)
+    keys = ["Ncss", "sorted_p12", "sorted_Ncss2"]
+    anchored_css = anchored_css.assign(bad_sorted=anchored_css[
+        ["Ncss", "sorted_p12", "sorted_Ncss2"]].compute().eval(
+        "Ncss >= 30 & sorted_p12 >= @sorted_threshold & sorted_Ncss2 >= 2"))
+
+    pop_threshold = anchored_css.query("popseq_Ncss >= 30")["popseq_p12"].compute().quantile(
         (popseq_percentile + 1) / 100)
-    anchored_css.loc[:, "bad_popseq"] = (anchored_css["popseq_p12"] >= pop_threshold) & (
-            anchored_css["popseq_Ncss2"] >= 2)
-    anchored_css.loc[anchored_css["bad_sorted"].isna(), "bad_sorted"] = False
-    anchored_css.loc[anchored_css["bad_popseq"].isna(), "bad_popseq"] = False
+    keys = ["popseq_Ncss", "popseq_p12", "popseq_Ncss2"]
+    anchored_css = anchored_css.assign(bad_popseq=anchored_css[keys].compute().eval(
+        "popseq_Ncss >= 30 & popseq_p12 >= @pop_threshold & popseq_Ncss2 >= 2"))
     measure = ["bad_sorted", "bad_popseq"]
     if hic is True:
-        hic_threshold = anchored_css.loc[anchored_css["Nhic"] >= 30,
-                                         "hic_p12"].quantile((hic_percentile + 1) / 100)
-        anchored_css.loc[anchored_css["Nhic"] >= 30, "bad_hic"] = ((anchored_css["hic_p12"] >= hic_threshold) & (
-                anchored_css["hic_N2"] >= 2)).astype(bool)
-        anchored_css.loc[:, "bad_hic"] = anchored_css["bad_hic"].fillna(False).astype(bool)
+        keys = ["Nhic", "hic_p12", "hic_N2"]
+        hic_threshold = anchored_css.query("Nhic >= 30")["hic_p12"].compute().quantile((hic_percentile + 1) / 100)
+        anchored_css = anchored_css.assign(
+            bad_hic=anchored_css[keys].compute().eval("Nhic >= 30 & hic_p12 >= @hic_threshold & hic_N2 >= 2"))
         measure.append("bad_hic")
 
     # Finally, let's count how many bad assignments we found for each scaffold. This can be between 0 and 3.
-    melted = pd.melt(anchored_css,
+    # Melt only the columns we are interested in
+    anchored_css.persist()
+    to_melt = anchored_css[measure].compute().reset_index(drop=False)
+    melted = pd.melt(to_melt,
                 id_vars=["scaffold_index"],
                 value_vars=measure,
                 value_name="bad",
-                var_name="map").dropna().loc[lambda df: df["bad"] == True, :]
-    melted = melted.groupby("scaffold_index").size().to_frame("Nbad").reset_index(drop=False)
-    anchored_css = melted.merge(anchored_css, on="scaffold_index", how="right")
-    anchored_css.loc[:, "Nbad"] = pd.to_numeric(anchored_css["Nbad"].fillna(0),
-                                                downcast="signed")
+                var_name="map").dropna().query("bad == True")
+    melted = melted.groupby("scaffold_index").size().to_frame("Nbad")
+    anchored_css = dd.merge(melted, anchored_css, on="scaffold_index", how="right")
+    anchored_css.persist()
     return anchored_css

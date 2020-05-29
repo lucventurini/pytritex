@@ -32,18 +32,15 @@ def anchor_scaffolds(assembly: dict,
         hic = (assembly["fpairs"].shape[0] > 0)
 
     anchored_css = assign_carma(cssaln, fai, wheatchr)
-    anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].astype(fai["scaffold_index"].dtype)
+    assert anchored_css.index.name == "scaffold_index", anchored_css.index
     anchored_css = assign_popseq_position(cssaln, popseq, anchored_css, wheatchr)
-    anchored_css.loc[:, "scaffold_index"] = pd.to_numeric(anchored_css["scaffold_index"].fillna(0),
-                                                          downcast="signed")
-
-    # # Assignment of POPSEQ genetic positions
     if hic is True:
         anchored_css, anchored_hic_links = add_hic_statistics(anchored_css, fpairs)
         measure = ["popseq_chr", "hic_chr", "sorted_chr"]
     else:
         measure = ["popseq_chr", "sorted_chr"]
         anchored_hic_links = None
+    anchored_css.persist()
     anchored_css = find_wrong_assignments(anchored_css, measure,
                                           sorted_percentile=sorted_percentile, hic_percentile=hic_percentile,
                                           popseq_percentile=popseq_percentile, hic=hic)
