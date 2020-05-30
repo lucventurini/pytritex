@@ -14,9 +14,7 @@ from .collapse_bins import collapse_bins as cbn
 def _group_analyser(group: pd.DataFrame, binsize):
     # assert group["scaffold_index"].unique().shape[0] == 1, group["scaffold_index"]
     # scaffold = group["scaffold_index"].head(1).values[0]
-    bins = group.values.astype(np.int)
-    bins[:, 0] += binsize
-    assert bins.shape == (group.shape[0], 2), bins
+    bins = group.to_numpy().astype(np.int) + np.array([binsize, 0])
     counter = cbn(bins, binsize)
     counter = np.vstack([np.fromiter(counter.keys(), dtype=np.int), np.fromiter(counter.values(),
                                                                                 dtype=np.int)]).T
@@ -25,8 +23,7 @@ def _group_analyser(group: pd.DataFrame, binsize):
     return assigned
 
 
-def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1,
-                     memory_limit="3gb"):
+def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
     info = assembly["info"]
     binsize = np.int(np.floor(binsize))
     if "molecules" not in assembly:
@@ -84,7 +81,7 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1,
         except ValueError:
             print(coverage_df.head())
             raise ValueError((coverage_df["scaffold_index"].dtype, info["scaffold_index"].dtype))
-        lencol, bincol = coverage_df["length"].values.view(), coverage_df["bin"].values.view()
+        lencol, bincol = coverage_df["length"].to_numpy().view(), coverage_df["bin"].to_numpy().view()
         lencol = lencol.astype(copy=False, casting="unsafe",
                                dtype=re.sub(r"^u", "", lencol.dtype.name))
         bincol = bincol.astype(copy=False, casting="unsafe",
@@ -102,13 +99,13 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1,
         __left = coverage_df[["scaffold_index", "r"]].groupby("scaffold_index").agg(mr_10x=("r", "min"))
         __left.loc[:, "mr_10x"] = pd.to_numeric(__left["mr_10x"], downcast="float")
         info_mr = dd.merge(__left, info, how="right", on="scaffold_index").drop(
-            "index", axis=1, errors="ignore").drop("scaffold", axis=1, errors="ignore").compute()
+            "index", axis=1, errors="ignore").drop("scaffold", axis=1, errors="ignore")
+
         print(ctime(), "Merged on coverage DF (10X)")
     else:
-        info_mr = info.copy()
+        info_mr = info.drop("mr_10x", axis=1, errors="ignore")
         # info_mr.drop("mr_10x", inplace=True, errors="ignore", axis=1)
-    info_mr = dd.from_pandas(info_mr, npartitions=info_mr.index.values.shape[0])
-
+    info_mr.persist()
     print("Molecule cov (add_mol):", coverage_df.shape[0], coverage_df.columns)
     if null is True:
         assembly["info"] = info_mr
