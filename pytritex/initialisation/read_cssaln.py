@@ -50,7 +50,6 @@ def read_morexaln_minimap(paf: str,
     buf = tempfile.NamedTemporaryFile(mode="wb", suffix=".paf", dir=".")
     reader = sp.Popen(command.format(paf=paf, minqual=minqual, minlen=minlen), shell=True, stdout=buf)
     reader.communicate()
-    print(buf.name)
     buf.flush()
     morex = dd.read_csv(buf.name, sep="\t", names=names, usecols=cols, dtype=dtypes).set_index("css_contig")
     morex["pos"] += 1

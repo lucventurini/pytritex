@@ -70,7 +70,7 @@ def initial(args, popseq):
     tenx_files = [line.rstrip().decode() for line in
                   sp.Popen(tenx_command, shell=True, stdout=sp.PIPE).stdout]
     if tenx_files:
-        print(time.ctime(), "Reading the HiC links")
+        print(time.ctime(), "Reading the 10X links")
         tenx_dict = []
         for index, fname in enumerate(tenx_files):
             sample = os.path.basename(os.path.dirname(fname))
@@ -78,7 +78,7 @@ def initial(args, popseq):
         samples = list(zip(*tenx_dict))
         samples = pd.DataFrame({"index": samples[0], "sample": samples[1], "fname": samples[2]})
         molecules, barcodes = read_10x_molecules(samples, fai, ncores=args.procs)
-        print(time.ctime(), "Read the HiC links")
+        print(time.ctime(), "Read the 10X links")
     else:
         print("No 10X molecules! Error")
         print("Command:", tenx_command)

@@ -26,9 +26,10 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame, anchored_
     #  info[is.na(popseq_Ncss1), popseq_Ncss1 := 0]
     #  info[is.na(popseq_Ncss2), popseq_Ncss2 := 0]
 
-    popseq_positions = popseq.loc[~popseq["popseq_alphachr"].isna(), ["popseq_index", "popseq_alphachr", "popseq_cM"]]
-    popseq_positions = popseq_positions.merge(cssaln[["popseq_index", "scaffold_index"]].compute(),
-                                              on="popseq_index", how="left")
+    popseq_positions = popseq.loc[~popseq["popseq_alphachr"].isna(),
+                                  ["popseq_index", "popseq_alphachr", "popseq_cM"]].set_index("popseq_index")
+    popseq_positions = popseq_positions.merge(cssaln[["popseq_index"]].compute().reset_index(
+        drop=False).set_index("popseq_index"), on="popseq_index", how="left").reset_index(drop=False)
     popseq_stats = popseq_positions.groupby(["scaffold_index", "popseq_alphachr"], observed=True)
     popseq_count = popseq_stats.size().to_frame("N").astype(np.uint32)
     popseq_stats = popseq_stats.agg({"popseq_cM": [np.mean, np.std, median_absolute_deviation]})

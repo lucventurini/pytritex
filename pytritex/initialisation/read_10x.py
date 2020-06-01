@@ -54,6 +54,6 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1):
     # barcodes["barcode_index"] = pd.to_numeric(barcodes["barcode_index"].compute(), downcast="signed")
     # barcodes = dd.from_pandas(barcodes, npartitions=10)
     mol = dd.merge(barcodes, mol, how="right", on="barcode").drop("barcode", axis=1)
-    mol = mol.persist()
+    mol = client.persist(mol)
     # mol["sample"] = pd.Categorical(mol["sample"])
     return mol, barcodes
