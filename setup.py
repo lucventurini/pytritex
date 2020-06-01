@@ -44,7 +44,12 @@ extensions = [Extension("pytritex.graph_utils.k_opt_tsp",
                         sources=[path.join("pytritex", "sequencing_coverage", "collapse_bins.pyx")],
                         include_dirs=[np.get_include()],
                         language="c++",
-                        **numpy_nodepr_api)
+                        **numpy_nodepr_api),
+              Extension("pytritex.graph_utils.insert_nodes",
+                        sources=[path.join("pytritex", "graph_utils", "insert_nodes.pyx")],
+                        include_dirs=[np.get_include()],
+                        language="c++",
+                        **numpy_nodepr_api),
               ]
 
 setup(
