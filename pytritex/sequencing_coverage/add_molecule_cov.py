@@ -100,7 +100,7 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
     else:
         info_mr = info.drop("mr_10x", axis=1, errors="ignore")
         # info_mr.drop("mr_10x", inplace=True, errors="ignore", axis=1)
-    info_mr.persist()
+    info_mr = info_mr.persist()
     coverage_df = dd.from_pandas(coverage_df, npartitions=np.unique(coverage_df.index.values).shape[0])
     print("Molecule cov (add_mol):", coverage_df.shape[0], coverage_df.columns)
     if null is True:

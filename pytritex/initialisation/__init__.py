@@ -54,7 +54,7 @@ def initial(args, popseq):
     fpairs["orig_scaffold_index2"] = fpairs["scaffold_index2"]
     fpairs["orig_pos1"] = fpairs["pos1"]
     fpairs["orig_pos2"] = fpairs["pos2"]
-    fpairs.persist()
+    fpairs = fpairs.persist()
 
     # fpairs = fpairs.convert_dtypes()
     tenx_command = 'find {} -type f | grep "molecules.tsv.gz$"'.format(args.tenx)
@@ -80,7 +80,6 @@ def initial(args, popseq):
     molecules = molecules.persist()
     print(molecules.shape[0])
     fai = fai.persist()
-    assert "scaffold_index" in fai.columns
     assert "scaffold" in fai.columns
     assembly = {"popseq": popseq,
                 "fai": fai,

@@ -40,7 +40,7 @@ def anchor_scaffolds(assembly: dict,
     else:
         measure = ["popseq_chr", "sorted_chr"]
         anchored_hic_links = None
-    anchored_css.persist()
+    anchored_css = anchored_css.persist()
     anchored_css = find_wrong_assignments(anchored_css, measure,
                                           sorted_percentile=sorted_percentile, hic_percentile=hic_percentile,
                                           popseq_percentile=popseq_percentile, hic=hic)

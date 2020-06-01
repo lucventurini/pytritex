@@ -22,7 +22,7 @@ def find_10x_breaks(cov: dd.DataFrame, scaffolds=None, interval=5e4, minNbin=20,
         # Cov is indexed by scaffold index.
         cov = cov.loc[scaffolds]
     cov["b"] = cov["bin"] // interval
-    cov.persist()
+    cov = cov.persist()
     print(cov.compute().head(10))
     broken = cov.query("nbin >= @minNbin & r <= @ratio", local_dict=locals())
     bait = np.minimum(broken["length"] - broken["bin"], broken["bin"]) >= dist

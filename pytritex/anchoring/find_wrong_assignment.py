@@ -48,7 +48,7 @@ def find_wrong_assignments(anchored_css: pd.DataFrame, measure: list, sorted_per
     anchored_css = dd.merge(melted, anchored_css, on="scaffold_index", how="right")
     print(anchored_css.index.name)
     # anchored_css = anchored_css.set_index("scaffold_index")
-    anchored_css.persist()
+    anchored_css = anchored_css.persist()
     # anchored_css.loc[:, "scaffold_index"] = pd.to_numeric(anchored_css["scaffold_index"].fillna(0),
     #                                                       downcast="signed")
     # anchored_css.loc[:, "Nchr_ass"] = pd.to_numeric(anchored_css["Nchr_ass"].fillna(0),
@@ -77,7 +77,7 @@ def find_wrong_assignments(anchored_css: pd.DataFrame, measure: list, sorted_per
 
     # Finally, let's count how many bad assignments we found for each scaffold. This can be between 0 and 3.
     # Melt only the columns we are interested in
-    anchored_css.persist()
+    anchored_css = anchored_css.persist()
     to_melt = anchored_css[measure].compute().reset_index(drop=False)
     melted = pd.melt(to_melt,
                 id_vars=["scaffold_index"],
@@ -86,5 +86,5 @@ def find_wrong_assignments(anchored_css: pd.DataFrame, measure: list, sorted_per
                 var_name="map").dropna().query("bad == True")
     melted = melted.groupby("scaffold_index").size().to_frame("Nbad")
     anchored_css = dd.merge(melted, anchored_css, on="scaffold_index", how="right")
-    anchored_css.persist()
+    anchored_css = anchored_css.persist()
     return anchored_css

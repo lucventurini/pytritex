@@ -55,7 +55,7 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame, anchored_
     popseq_stats = wheatchr2.merge(popseq_stats, on="popseq_alphachr2", how="right")
     anchored_css = dd.merge(popseq_stats, anchored_css, on="scaffold_index", how="right")
     anchored_css = anchored_css.set_index("scaffold_index")
-    anchored_css.persist()
+    anchored_css = anchored_css.persist()
     if anchored_css.index.name != "scaffold_index":
         print(anchored_css.columns)
         assert False

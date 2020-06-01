@@ -59,6 +59,6 @@ def read_morexaln_minimap(paf: str,
                      morex, on=["scaffold"], how="right").reset_index(drop=True).set_index("scaffold_index")
     morex["orig_scaffold_index"] = morex.index.values
     morex["orig_pos"] = morex["pos"]
-    morex.persist()
+    morex = morex.persist()
     buf.close()
     return morex

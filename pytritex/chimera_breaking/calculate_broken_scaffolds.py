@@ -64,7 +64,7 @@ def _create_children_dataframes(broken):
 def calculate_broken_scaffolds(breaks: pd.DataFrame, assembly: dict, slop):
     fai = assembly["fai"]
     fai["derived_from_split"] = False
-    fai.persist()
+    fai = fai.persist()
 
     broken = breaks.copy()
     broken = dd.merge(fai[["length"]], broken.drop("length", axis=1, errors="ignore"),

@@ -158,7 +158,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
     else:
         info_mr = info.assign(mri=np.nan, mr=np.nan)
 
-    info_mr.persist()
+    info_mr = info_mr.persist()
     coverage_df = dd.from_pandas(coverage_df, npartitions=np.unique(coverage_df.index.to_numpy()).shape[0])
 
     if null is True:
