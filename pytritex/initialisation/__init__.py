@@ -25,11 +25,11 @@ def initial(args, popseq):
     fai["start"] = fai["orig_start"] = 1
     fai["end"] = fai["length"]
     fai["orig_end"] = fai["length"]
+    fai = fai.set_index("scaffold_index")
     fai = dd.from_pandas(fai, npartitions=(fai.shape[0] // 1e5) + 1)
-    assert "scaffold_index" in fai.columns
 
     # Alignment of genetic markers used for the genetic map. In this example, the Morex WGS assembly by IBSC (2012).
-    cssaln, tempfile = read_morexaln_minimap(paf=args.css, popseq=popseq, fai=fai, minqual=30, minlen=500, ref=True)
+    cssaln = read_morexaln_minimap(paf=args.css, popseq=popseq, fai=fai, minqual=30, minlen=500, ref=True)
     # cssaln = cssaln.convert_dtypes()
 
     # Read the list of Hi-C links.
@@ -44,16 +44,17 @@ def initial(args, popseq):
 
     fpairs = dd.concat(fpairs).reset_index(drop=True)
     # Now let us change the scaffold1 and scaffold2
-    left = fai[["scaffold", "scaffold_index"]].rename(columns={"scaffold": "scaffold1",
-                                                               "scaffold_index": "scaffold_index1"})
-    fpairs = left.merge(fpairs, on="scaffold1").drop("scaffold1", axis=1)
-    left = fai[["scaffold", "scaffold_index"]].rename(columns={"scaffold": "scaffold2",
-                                                                 "scaffold_index": "scaffold_index2"})
-    fpairs = left.merge(fpairs, on="scaffold2").drop("scaffold2", axis=1)
+    left = fai[["scaffold"]].reset_index(drop=False)
+    left1 = left.rename(columns={"scaffold": "scaffold1", "scaffold_index": "scaffold_index1"})
+    fpairs = dd.merge(left1, fpairs, how="right", on="scaffold1").drop("scaffold1", axis=1)
+    left2 = left.copy()
+    left2 = left.rename(columns={"scaffold": "scaffold2", "scaffold_index": "scaffold_index2"})
+    fpairs = dd.merge(left2, fpairs, how="right", on="scaffold2").drop("scaffold2", axis=1)
     fpairs["orig_scaffold_index1"] = fpairs["scaffold_index1"]
     fpairs["orig_scaffold_index2"] = fpairs["scaffold_index2"]
     fpairs["orig_pos1"] = fpairs["pos1"]
     fpairs["orig_pos2"] = fpairs["pos2"]
+    fpairs.persist()
 
     # fpairs = fpairs.convert_dtypes()
     tenx_command = 'find {} -type f | grep "molecules.tsv.gz$"'.format(args.tenx)
@@ -75,7 +76,6 @@ def initial(args, popseq):
 
     # molecules = molecules.convert_dtypes()
     cssaln = cssaln.persist()
-    tempfile.close()
     fpairs = fpairs.persist()
     molecules = molecules.persist()
     print(molecules.shape[0])

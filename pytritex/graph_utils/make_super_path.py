@@ -71,6 +71,7 @@ def _get_path(matrix, cidx, start=None, end=None, ncores=1):
     - return: the path, the minimum spanning tree, and the total edge cost of the MST.
     """
     mst = scipy.sparse.csgraph.minimum_spanning_tree(matrix)
+
     # This is our minimum cost after calculating the MST
     # the sparse matrix from nk will already contain the weights
     # As the matrix is symmetrical, it's the sum of the weights divided by 2.
@@ -153,7 +154,10 @@ def make_super_path(origin_edge_list, cms, start=None, end=None, maxiter=100, ve
     # Is the matrix symmetrical? If it is not, we have a problem.
     assert (edges - edges.T == 0).all(), (edges.tolist())
     edges[edges == 0] = np.nan
-    path, mst, mst_lower_bound = _get_path(matrix, cidx, start=start, end=end, ncores=ncores)
+    try:
+        path, mst, mst_lower_bound = _get_path(matrix, cidx, start=start, end=end, ncores=ncores)
+    except AssertionError:
+        raise AssertionError(orig_coords)
     for pos in range(len(path) - 1):
         assert not np.isnan(edges[path[pos], path[pos + 1]])
         assert not np.isnan(edges[path[pos + 1], path[pos]])
@@ -161,9 +165,14 @@ def make_super_path(origin_edge_list, cms, start=None, end=None, maxiter=100, ve
     # These are the nodes that constitute the backbone. Keep them aside for now.
     backbone = path[:]
     assert np.in1d(path, cidx).all()
-    if path.shape[0] != cidx.shape[0]:  # We are missing nodes
-        _prev = path[:]
-        path = insert_nodes(edges, path)
+    _prev = path[:]
+    path = insert_nodes(edges, path)
+    if _prev.shape[0] != path.shape[0] or any(_prev != path):
+        print(edges)
+        print(_prev)
+        print(path)
+        import sys
+        sys.exit(1)
 
     # Now get the current upper bound. This is the sum of the current path.
     current_upper_bound = sum(edges[path[index], path[index + 1]]

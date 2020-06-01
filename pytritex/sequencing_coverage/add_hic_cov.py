@@ -62,6 +62,7 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
 Supplied values: {}, {}".format(binsize, binsize2))
 
     info = assembly["info"]
+    assert isinstance(info, dd.DataFrame), type(info)
     if "mr" in info.columns or "mri" in info.columns:
         raise KeyError("Assembly[info] already has mr and/or mri columns; aborting.")
     fpairs = assembly["fpairs"]
@@ -119,7 +120,8 @@ Supplied values: {}, {}".format(binsize, binsize2))
         # Group by bin, count how covered is each bin
         coverage_df = coverage_df.groupby(["scaffold_index", "bin"]).agg(n=("n", "sum"))
         coverage_df = coverage_df.reset_index(level=1)
-        coverage_df = info.loc[:, ["length"]].merge(coverage_df, on="scaffold_index", how="right").compute()
+        coverage_df = dd.merge(info[["length"]],
+                               coverage_df, on="scaffold_index", how="right").compute()
         # D is again the bin, but cutting it at the rightmost side
         lencol = coverage_df["length"].to_numpy().view()
         lencol = lencol.astype(copy=False, casting="unsafe",
@@ -132,11 +134,10 @@ Supplied values: {}, {}".format(binsize, binsize2))
             coverage_df["bin"], ne.evaluate("bincol * binsize")), downcast="integer")
 
         # Number of bins found in each scaffold. Take "n" as the column to count.
-        coverage_df.loc[:, "nbin"] = pd.to_numeric(
-            coverage_df.groupby(level=0)["n"].transform("size"), downcast="signed")
+        nbins = coverage_df.groupby(level=0).size()
+        coverage_df.loc[:, "nbin"] = np.repeat(nbins, nbins)
         # Mean number of pairs covering each bin (cut at the rightmost side)
-        coverage_df.loc[:, "mn"] = pd.to_numeric(coverage_df.loc[:, ["d", "n"]].groupby("d")["n"].transform("mean"),
-                                                 downcast="float")
+        coverage_df.loc[:, "mn"] = coverage_df[["d", "n"]].groupby("d")["n"].transform("mean")
         # Logarithm of number of pairs in bin divided by mean of number of pairs in bin?
         coverage_df = coverage_df.eval("r = log(n/mn) / log(2)")
         # For each scaffold where the number of found bins is greater than minNbin,
@@ -158,6 +159,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         info_mr = info.assign(mri=np.nan, mr=np.nan)
 
     info_mr.persist()
+    coverage_df = dd.from_pandas(coverage_df, npartitions=np.unique(coverage_df.index.to_numpy()).shape[0])
 
     if null is True:
         assembly["info"] = info_mr

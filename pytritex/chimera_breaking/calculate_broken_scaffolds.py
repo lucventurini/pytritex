@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import dask.dataframe as dd
 
 
 def _calculate_coordinates(broken, slop, maxid):
@@ -62,10 +63,12 @@ def _create_children_dataframes(broken):
 
 def calculate_broken_scaffolds(breaks: pd.DataFrame, assembly: dict, slop):
     fai = assembly["fai"]
-    fai.loc[:, "derived_from_split"] = False
-    broken = breaks.copy()
-    broken = fai.merge(broken.drop("length", axis=1, errors="ignore"), on="scaffold_index", how="right")
+    fai["derived_from_split"] = False
+    fai.persist()
 
+    broken = breaks.copy()
+    broken = dd.merge(fai[["length"]], broken.drop("length", axis=1, errors="ignore"),
+                      on="scaffold_index", how="right").compute()
     print("Split scaffods")
     cycle = 0
     while broken.shape[0] > 0:

@@ -54,9 +54,11 @@ def read_morexaln_minimap(paf: str,
     morex = dd.read_csv(buf.name, sep="\t", names=names, usecols=cols, dtype=dtypes).set_index("css_contig")
     morex["pos"] += 1
     morex = dd.merge(popseq.set_index("css_contig"), morex, on="css_contig", how="right")
-    morex.reset_index(drop=True)
-    morex = dd.merge(fai[["scaffold", "scaffold_index", "length"]],
-                     morex, left_on=["scaffold"], right_on=["scaffold"], how="right").drop("scaffold", axis=1)
-    morex["orig_scaffold_index"] = morex["scaffold_index"]
+    morex = morex.reset_index(drop=True).set_index("scaffold")
+    morex = dd.merge(fai[["scaffold", "length"]].reset_index(drop=False).set_index("scaffold"),
+                     morex, on=["scaffold"], how="right").reset_index(drop=True).set_index("scaffold_index")
+    morex["orig_scaffold_index"] = morex.index.values
     morex["orig_pos"] = morex["pos"]
-    return morex, buf
+    morex.persist()
+    buf.close()
+    return morex

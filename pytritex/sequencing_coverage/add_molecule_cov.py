@@ -77,26 +77,21 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
         print(ctime(), "Merging on coverage DF (10X)")
         try:
             coverage_df = dd.merge(info.loc[:, ["length"]], coverage_df,
-                                   on="scaffold_index", how="right").compute().reset_index(drop=False)
+                                   on="scaffold_index", how="right").compute()
         except ValueError:
             print(coverage_df.head())
             raise ValueError((coverage_df["scaffold_index"].dtype, info["scaffold_index"].dtype))
         lencol, bincol = coverage_df["length"].to_numpy().view(), coverage_df["bin"].to_numpy().view()
-        lencol = lencol.astype(copy=False, casting="unsafe",
-                               dtype=re.sub(r"^u", "", lencol.dtype.name))
-        bincol = bincol.astype(copy=False, casting="unsafe",
-                               dtype=re.sub(r"^u", "", bincol.dtype.name))
         bincol = np.floor(ne.evaluate("(lencol - bincol) / binsize")).astype(lencol.dtype)
-
         coverage_df.loc[:, "d"] = pd.to_numeric(np.minimum(
             coverage_df["bin"],  ne.evaluate("bincol * binsize")), downcast="integer")
-        coverage_df.loc[:, "nbin"] = pd.to_numeric(coverage_df.groupby(
-            "scaffold_index")["scaffold_index"].transform("size"), downcast="signed")
+        nbins = coverage_df.groupby(level=0).size()
+        # Trick to get the size in the correct shape
+        coverage_df.loc[:, "nbin"] = np.repeat(nbins, nbins)
         coverage_df.loc[:, "mn"] = pd.to_numeric(coverage_df.groupby("d")["n"].transform("mean"),
                                                  downcast="float")
-        coverage_df.loc[:, "r"] = pd.to_numeric(np.log2(coverage_df["n"] / coverage_df["mn"]),
-                                                downcast="float")
-        __left = coverage_df[["scaffold_index", "r"]].groupby("scaffold_index").agg(mr_10x=("r", "min"))
+        coverage_df = coverage_df.eval("r = log(n / mn) / log(2)")
+        __left = coverage_df["r"].groupby(level=0).agg(mr_10x=("r", "min"))
         __left.loc[:, "mr_10x"] = pd.to_numeric(__left["mr_10x"], downcast="float")
         info_mr = dd.merge(__left, info, how="right", on="scaffold_index").drop(
             "index", axis=1, errors="ignore").drop("scaffold", axis=1, errors="ignore")
@@ -106,6 +101,7 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
         info_mr = info.drop("mr_10x", axis=1, errors="ignore")
         # info_mr.drop("mr_10x", inplace=True, errors="ignore", axis=1)
     info_mr.persist()
+    coverage_df = dd.from_pandas(coverage_df, npartitions=np.unique(coverage_df.index.values).shape[0])
     print("Molecule cov (add_mol):", coverage_df.shape[0], coverage_df.columns)
     if null is True:
         assembly["info"] = info_mr

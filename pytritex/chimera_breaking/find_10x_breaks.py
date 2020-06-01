@@ -1,9 +1,9 @@
 import pandas as pd
+import dask.dataframe as dd
 import numpy as np
-import numexpr as ne
 
 
-def find_10x_breaks(cov: pd.DataFrame, scaffolds=None, interval=5e4, minNbin=20, dist=5e3, ratio=-3):
+def find_10x_breaks(cov: dd.DataFrame, scaffolds=None, interval=5e4, minNbin=20, dist=5e3, ratio=-3):
     """
     This function will take as input a coverage dataframe derived from 10X data.
     It will find those areas in scaffolds that are further away from the end point of the scaffold than the
@@ -19,18 +19,15 @@ def find_10x_breaks(cov: pd.DataFrame, scaffolds=None, interval=5e4, minNbin=20,
 
     # cov = assembly["molecule_cov"].copy()
     if scaffolds is not None:
-        cov = cov.merge(scaffolds, on="scaffold_index", how="right").drop("scaffold", axis=1, errors="ignore")
-    try:
-        bincol = cov["bin"].values
-        bincol = np.floor(ne.evaluate("bincol / interval")).astype(dtype=bincol.dtype)
-        cov.loc[:, "b"] = ne.evaluate("bincol * interval")
-    except KeyError:
-        raise KeyError(cov.head())
-    lencol, bincol = cov["length"].values, cov["bin"].values
-    bait = (cov["nbin"] >= minNbin) & (np.minimum(cov["bin"], ne.evaluate("lencol - bincol")) >= dist)
-    bait &= (cov["r"] <= ratio)
-    broken = cov.loc[bait, :]
+        # Cov is indexed by scaffold index.
+        cov = cov.loc[scaffolds]
+    cov["b"] = cov["bin"] // interval
+    cov.persist()
+    print(cov.compute().head(10))
+    broken = cov.query("nbin >= @minNbin & r <= @ratio", local_dict=locals())
+    bait = np.minimum(broken["length"] - broken["bin"], broken["bin"]) >= dist
+    broken = broken.loc[bait, :].compute()
     if broken.shape[0] == 0:
         return pd.DataFrame()
     broken = broken.sort_values("r").groupby(["scaffold_index", "b"]).head(1).rename(columns={"bin": "breakpoint"})
-    return broken.copy()
+    return broken

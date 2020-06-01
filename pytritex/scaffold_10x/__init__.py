@@ -3,6 +3,7 @@ from .link_finder import _initial_link_finder
 from .orient_scaffolds import orient_scaffolds
 from .tip_remover import remove_tips
 from .scaffold_unanchored import _scaffold_unanchored
+import dask.dataframe as dd
 import time
 
 
@@ -42,4 +43,10 @@ def scaffold_10x(assembly: dict, prefix="super", min_npairs=5, max_dist=1e5, min
     membership, result = orient_scaffolds(
         info=info, res=res, membership=membership,
         link_pos=link_pos, max_dist_orientation=max_dist_orientation, verbose=verbose)
+    if isinstance(membership, dd.DataFrame):
+        membership = membership.compute()
+
+    if isinstance(result, dd.DataFrame):
+        membership = membership.compute()
+
     return membership, result
