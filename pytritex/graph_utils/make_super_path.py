@@ -113,10 +113,13 @@ def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound):
             while changed:
                 prev = path[:]
                 path = tsp_2_opt(mst.toarray(), path)
-                if (path == prev).all():
+                print(prev, type(prev), path, type(path))
+                if all(path == prev):
                     changed = False
+                    print("No change after TSP")
                 else:
                     changed = True
+                    print(path, prev)
                 # The current upper bound is now the new weight cost
                 current_upper_bound = sum(
                     edges[path[index], path[index + 1]] for index in np.arange(path.shape[0] - 1,
@@ -167,13 +170,6 @@ def make_super_path(origin_edge_list, cms, start=None, end=None, maxiter=100, ve
     assert np.in1d(path, cidx).all()
     _prev = path[:]
     path = insert_nodes(edges, path)
-    if _prev.shape[0] != path.shape[0] or any(_prev != path):
-        print(edges)
-        print(_prev)
-        print(path)
-        import sys
-        sys.exit(1)
-
     # Now get the current upper bound. This is the sum of the current path.
     current_upper_bound = sum(edges[path[index], path[index + 1]]
                               for index in np.arange(path.shape[0] - 1, dtype=np.int))

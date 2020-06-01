@@ -1,26 +1,29 @@
 import numpy as np
 cimport numpy as np
+cimport cython
 
 ctypedef np.int_t DTYPE_int
 cdef extern from "math.h":
     float INFINITY
 
 
-cdef double c_route_cost(np.ndarray[double, ndim=2, mode="c"] graph, np.ndarray[long, ndim=1, mode="c"] path):
+@cython.wraparound(False)
+@cython.boundscheck(False)
+cdef double c_route_cost(double[:, :] graph, long[:] path):
     cdef double cost = 0
-    cdef long index = 0
-    cdef double[:, :] graph_array = graph
-    cdef long[:] path_array = path
-    cdef long shape = path_array.shape[0]
+    cdef long shape = path.shape[0]
     cdef double temp_cost
-    cost = graph_array[path_array[shape - 1], path_array[0]]
+    cdef long index = shape - 1
+    cdef long second = 0
+    cost = graph[path[index], path[0]]
 
     for index in range(shape - 1):
-        temp_cost = graph_array[path_array[index]][path_array[index + 1]]
+        second = index + 1
+        temp_cost = graph[path[index]][path[second]]
         if temp_cost == 0:
             return INFINITY
         else:
-            cost += graph_array[path_array[index]][path_array[index + 1]]
+            cost += temp_cost
 
     return cost
 
@@ -32,15 +35,8 @@ cpdef float route_cost(np.ndarray graph, np.ndarray path):
     return c_route_cost(graph_array, path_array)
 
 
-cdef np.ndarray[long, ndim=1, mode="c"] _swap_2opt(np.ndarray[long, ndim=1, mode="c"] route, long i, long k):
-    """ Swapping the route."""
-
-    cdef long[:] route_view = route
-    cdef np.ndarray[DTYPE_int, ndim=1, mode="c"] new_route = np.empty(route_view.shape[0], dtype=np.int)
-    new_route = np.concatenate([route[:i], route[i:k + 1][::-1], route[k + 1:]])
-    return new_route
-
-
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cpdef np.ndarray tsp_2_opt(np.ndarray graph, np.ndarray route):
     """
     Approximate the optimal path of travelling salesman according to 2-opt algorithm
@@ -67,21 +63,25 @@ cpdef np.ndarray tsp_2_opt(np.ndarray graph, np.ndarray route):
     cdef long kindex
     cdef long max_index
     cdef long route_shape
-    cdef np.ndarray[double, ndim=2, mode="c"] graph_array = graph.astype(float)
-    cdef np.ndarray[long, ndim=1, mode="c"] route_array = route
-    cdef np.ndarray[long, ndim=1, mode="c"] best_found_route
-    cdef np.ndarray[long, ndim=1, mode="c"] new_route
-    cpdef long[:] best_found_route_view
+    cdef double[:, :] graph_array = graph.astype(float)
+    cdef long[:] route_array = route
+    cdef long[:] best_found_route = route_array[:]
+    cdef long[:] new_route
+    cdef long[:] to_swap
+    cdef long internal_index
+    cdef np.ndarray[DTYPE_int, ndim=1] final_route
 
-    best_found_route = route_array[:]
-    best_found_route_view = best_found_route
-    max_index = best_found_route_view.shape[0] - 1
+    max_index = best_found_route.shape[0] - 1
     best_cost = c_route_cost(graph_array, best_found_route)
     while improved == 1:
         improved = 0
         for index in range(1, max_index):
             for kindex in range(index + 1, max_index):
-                new_route = _swap_2opt(best_found_route, index, kindex)
+                new_route = route_array[:]
+                # Swap internally between index and kindex
+                to_swap = route_array[index:kindex + 1]
+                for internal_index in range(index, kindex + 1, 1):
+                    new_route[internal_index] = to_swap[kindex - internal_index]
                 cost = c_route_cost(graph_array, new_route)
                 if cost < best_cost:
                     best_cost = cost
@@ -89,4 +89,6 @@ cpdef np.ndarray tsp_2_opt(np.ndarray graph, np.ndarray route):
                     improved = 1
             if improved:
                 break
-    return best_found_route
+
+    final_route = np.array(best_found_route[:])
+    return final_route

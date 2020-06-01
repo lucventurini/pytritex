@@ -68,7 +68,7 @@ setup(
         "Programming Language :: Python :: 3.6",
         'Programming Language :: Python :: 3.7'
     ],
-    ext_modules=cythonize(extensions, compiler_directives = {"language_level": "3"}),
+    ext_modules=cythonize(extensions, compiler_directives={"language_level": "3"}),
     # zip_safe=False,
     keywords="wheat genomics",
     packages=find_packages(),
@@ -84,7 +84,7 @@ setup(
     # },
     # test_suite="nose2.collector.collector",
     package_data={
-        "pytritex.share": glob.glob(path.join("pytritex", "share", "*pickle*"))
+        "pytritex.share": glob.glob(path.join("pytritex", "share", "*pkl*"))
         },
     include_package_data=True
 )

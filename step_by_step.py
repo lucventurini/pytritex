@@ -13,6 +13,7 @@ from pytritex.scaffold_10x.__init__ import scaffold_10x
 from pytritex.utils import n50
 from joblib import Memory, dump, load
 import numexpr as ne
+import dask
 
 
 def dispatcher(assembly, row):
@@ -46,6 +47,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--processes", dest="procs", default=mp.cpu_count(), type=int)
     parser.add_argument("-s", "--save-prefix", default="assembly")
+    parser.add_argument("-dc", "--dask-cache", default="dask_data", type=str)
     # parser.add_argument("-umfs", "--use-memory_fs", default=False, action="store_true")
     parser.add_argument("--save", default=False, action="store_true")
     parser.add_argument("--10x", dest="tenx")
@@ -55,12 +57,15 @@ def main():
     parser.add_argument("fasta")
     mp.set_start_method("spawn", force=True)
     args = parser.parse_args()
+
+    # Initial set-up
     ne.set_num_threads(args.procs)
     popseq = load(args.popseq)
     popseq.columns = popseq.columns.str.replace("morex", "css")
     memory = Memory(os.path.join(".", args.save_prefix))
     assembly = memory.cache(initial)(args, popseq)
-    # assembly = initial(args, popseq)
+    dask.config.set({"temporary-directory": args.dask_cache})
+    os.makedirs(args.dask_cache, exist_ok=True)
     res = os.path.join(args.save_prefix, "joblib", "pytritex", "anchoring", "anchor_scaffolds", "result.pkl")
     if os.path.exists(res):
         assembly = load(res)
