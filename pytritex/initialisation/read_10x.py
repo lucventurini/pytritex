@@ -20,19 +20,17 @@ def _10xreader(item):
     return df
 
 
-def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1):
+def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1, memory_limit="25GB"):
     """Read the files as produced by run_10x_mapping.zsh"""
     # pool = mp.Pool(ncores)
     cluster = LocalCluster(n_workers=ncores, threads_per_worker=1, processes=True,
-                           memory_limit='25GB', scheduler_port=0,
+                           memory_limit=memory_limit, scheduler_port=0,
                            silence_logs=logging.ERROR)
 
     client = Client(cluster)
     molecules = [client.submit(
         _10xreader, row) for row in samples[["index", "fname"]].itertuples(index=False, name=None)]
     molecules = [client.gather(mol) for mol in molecules]
-    client.close()
-    cluster.close()
     mol = dd.concat(molecules)
     f = fai[["scaffold"]].reset_index(drop=False).set_index("scaffold")
     try:
@@ -43,6 +41,8 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1):
         print(f.head(10))
         print()
         raise
+    client.close()
+    cluster.close()
     mol["length"] = mol.eval("end - start")
     mol["start"] += 1
     mol["orig_start"] = mol["start"]
@@ -51,9 +51,7 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1):
     barcode = mol["barcode"].compute()
     barcodes = pd.DataFrame({"barcode_index": np.arange(barcode.shape[0], dtype=np.int32),
                              "barcode": barcode})
-    # barcodes["barcode_index"] = pd.to_numeric(barcodes["barcode_index"].compute(), downcast="signed")
-    # barcodes = dd.from_pandas(barcodes, npartitions=10)
     mol = dd.merge(barcodes, mol, how="right", on="barcode").drop("barcode", axis=1)
-    mol = client.persist(mol)
-    # mol["sample"] = pd.Categorical(mol["sample"])
+    mol = mol.persist(resources={"process": 1, "MEMORY": memory_limit})
+    assert mol is not None
     return mol, barcodes

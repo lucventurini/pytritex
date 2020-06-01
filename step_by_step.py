@@ -59,13 +59,22 @@ def main():
     args = parser.parse_args()
 
     # Initial set-up
+    os.makedirs(args.dask_cache, exist_ok=True)
+    dask.config.set({"temporary-directory": args.dask_cache})
     ne.set_num_threads(args.procs)
     popseq = load(args.popseq)
     popseq.columns = popseq.columns.str.replace("morex", "css")
+
+    # Initial assembly
     memory = Memory(os.path.join(".", args.save_prefix))
-    assembly = memory.cache(initial)(args, popseq)
-    dask.config.set({"temporary-directory": args.dask_cache})
-    os.makedirs(args.dask_cache, exist_ok=True)
+    res = os.path.join(args.save_prefix, "joblib", "pytritex", "initialisation", "result.pkl")
+    if os.path.exists(res):
+        assembly = load(res)
+    else:
+        assembly = initial(args, popseq, memory)
+        os.makedirs(os.path.dirname(res), exist_ok=True)
+        dump(assembly, res, compress=("zlib", 6))
+    return
     res = os.path.join(args.save_prefix, "joblib", "pytritex", "anchoring", "anchor_scaffolds", "result.pkl")
     if os.path.exists(res):
         assembly = load(res)
