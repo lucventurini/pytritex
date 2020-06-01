@@ -15,11 +15,12 @@ cpdef collapse_bins(np.ndarray bins, long binsize):
     cdef long pos, second_pos
     cdef int size
     cdef int value
-    cdef np.ndarray[np.int_t, ndim=2, mode="c"] bin_view = bins
+    cdef int[:, :] bin_view = bins
     cdef int row_pos
     cdef long binsize_c = binsize
+    cdef long nrows = bin_view.shape[0]
 
-    for row_pos in range(0, bin_view.shape[0], 1):
+    for row_pos in range(0, nrows, 1):
         pos1 = bin_view[row_pos, 0] + binsize_c
         pos2 = bin_view[row_pos, 1]
         while pos < pos2:
