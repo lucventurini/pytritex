@@ -34,6 +34,19 @@ cpdef float route_cost(np.ndarray graph, np.ndarray path):
     cdef np.ndarray[long, ndim=1, mode="c"] path_array = path
     return c_route_cost(graph_array, path_array)
 
+@cython.wraparound(False)
+@cython.boundscheck(False)
+cdef long[:] _swap(long[:] route_array, long index, long kindex):
+    cdef long[:] new_route = route_array.copy()
+    cdef long internal_index
+    cdef long mirror
+    cdef long[:] to_swap = route_array[index:kindex + 1]
+    cdef long swap_length = kindex - index + 1
+    for internal_index in range(0, swap_length, 1):
+        mirror = swap_length - internal_index - 1
+        new_route[index + internal_index] = to_swap[mirror]
+    return new_route
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -67,8 +80,7 @@ cpdef np.ndarray tsp_2_opt(np.ndarray graph, np.ndarray route):
     cdef long[:] route_array = route
     cdef long[:] best_found_route = route_array[:]
     cdef long[:] new_route
-    cdef long[:] to_swap
-    cdef long internal_index
+    cdef long swap_length
     cdef np.ndarray[DTYPE_int, ndim=1] final_route
 
     max_index = best_found_route.shape[0] - 1
@@ -77,11 +89,8 @@ cpdef np.ndarray tsp_2_opt(np.ndarray graph, np.ndarray route):
         improved = 0
         for index in range(1, max_index):
             for kindex in range(index + 1, max_index):
-                new_route = route_array[:]
                 # Swap internally between index and kindex
-                to_swap = route_array[index:kindex + 1]
-                for internal_index in range(index, kindex + 1, 1):
-                    new_route[internal_index] = to_swap[kindex - internal_index]
+                new_route = _swap(route_array, index, kindex)
                 cost = c_route_cost(graph_array, new_route)
                 if cost < best_cost:
                     best_cost = cost

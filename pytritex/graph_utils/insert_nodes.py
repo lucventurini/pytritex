@@ -49,9 +49,10 @@ def insert_nodes(edges: np.ndarray, path: np.ndarray):
         if pos < path.shape[0] - 1:
             link[1] = path[pos + 1]
         dpath[el] = link
+        visited[el] = True
 
     for vertex, value in visited.items():
-        if value:
+        if value is True:
             continue
         visited[vertex] = True
         current_position = header
@@ -101,4 +102,5 @@ def insert_nodes(edges: np.ndarray, path: np.ndarray):
         current_position = following
     assert len(path) == len(dpath)
     path = np.array(path)
+    assert np.unique(path).shape[0] == path.shape[0]
     return path

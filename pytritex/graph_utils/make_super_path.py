@@ -108,18 +108,14 @@ def _get_path(matrix, cidx, start=None, end=None, ncores=1):
 def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound):
     if current_upper_bound > mst_lower_bound:
         changed = True
-        previous = path[:]
         while changed:
             while changed:
                 prev = path[:]
                 path = tsp_2_opt(mst.toarray(), path)
-                print(prev, type(prev), path, type(path))
                 if all(path == prev):
                     changed = False
-                    print("No change after TSP")
                 else:
                     changed = True
-                    print(path, prev)
                 # The current upper bound is now the new weight cost
                 current_upper_bound = sum(
                     edges[path[index], path[index + 1]] for index in np.arange(path.shape[0] - 1,
