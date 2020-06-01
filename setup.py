@@ -50,6 +50,11 @@ extensions = [Extension("pytritex.graph_utils.k_opt_tsp",
                         include_dirs=[np.get_include()],
                         language="c++",
                         **numpy_nodepr_api),
+              Extension("pytritex.graph_utils.node_relocation",
+                        sources=[path.join("pytritex", "graph_utils", "node_relocation.pyx")],
+                        include_dirs=[np.get_include()],
+                        language="c++",
+                        **numpy_nodepr_api),
               ]
 
 setup(

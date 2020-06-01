@@ -6,18 +6,21 @@ np.import_array()
 ctypedef np.int_t DTYPE_int
 cdef extern from "math.h":
     float INFINITY
+from cpython cimport array
+import array
 
 
 @cython.wraparound(False)
 @cython.boundscheck(False)
-cdef double c_route_cost(double[:, :] graph, long[:] path):
-    cdef double cost = 0
-    cdef long shape = path.shape[0]
-    cdef double temp_cost
-    cdef long index = shape - 1
-    cdef long second = 0
-    cost = graph[path[index], path[0]]
+cdef double c_route_cost(double[:, :] graph, long[:] path) nogil:
+    cdef:
+        double cost
+        long shape = path.shape[0]
+        double temp_cost
+        long index = shape - 1
+        long second = 0
 
+    cost = graph[path[index], path[0]]
     for index in range(shape - 1):
         second = index + 1
         temp_cost = graph[path[index]][path[second]]
@@ -38,10 +41,14 @@ cpdef float route_cost(np.ndarray graph, np.ndarray path):
 @cython.wraparound(False)
 @cython.boundscheck(False)
 cdef long[:] _swap(long[:] route_array, long index, long kindex):
-    cdef long[:] new_route = route_array.copy()
-    cdef long internal_index
-    cdef long mirror
-    cdef long[:] to_swap = route_array[index:kindex + 1]
+    cdef:
+        long[:] new_route
+        long internal_index
+        long mirror
+        long[:] to_swap
+
+    new_route = route_array.copy()
+    to_swap = route_array[index:kindex + 1]
     cdef long swap_length = kindex - index + 1
     for internal_index in range(0, swap_length, 1):
         mirror = swap_length - internal_index - 1
