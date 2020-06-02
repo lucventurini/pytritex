@@ -11,11 +11,11 @@ from collections import deque
 from .collapse_bins import collapse_bins as cbn
 
 
-def _group_analyser(group: pd.DataFrame, binsize):
+def _group_analyser(group: pd.DataFrame, binsize, cores=1):
     # assert group["scaffold_index"].unique().shape[0] == 1, group["scaffold_index"]
     # scaffold = group["scaffold_index"].head(1).values[0]
     bins = group.to_numpy().astype(np.int) + np.array([binsize, 0])
-    counter = cbn(bins, binsize)
+    counter = cbn(bins, binsize, cores)
     counter = np.vstack([np.fromiter(counter.keys(), dtype=np.int), np.fromiter(counter.values(),
                                                                                 dtype=np.int)]).T
     assigned = np.hstack([np.repeat([group.index[0]], counter.shape[0]).reshape(counter.shape[0], 1),
@@ -23,7 +23,7 @@ def _group_analyser(group: pd.DataFrame, binsize):
     return assigned
 
 
-def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
+def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1, memory_limit="20GB"):
     info = assembly["info"]
     binsize = np.int(np.floor(binsize))
     if "molecules" not in assembly:
@@ -44,28 +44,32 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
             "scaffold",axis=1, errors="ignore")
         null = False
 
+    if molecules.index.name == "scaffold_index":
+        index = molecules.index.compute().values
+    elif "scaffold_index" in molecules.columns:
+        index = molecules["scaffold_index"].compute().to_numpy()
+    else:
+        raise KeyError("I cannot find the scaffold_index column in molecules!")
+
     temp_dataframe = pd.DataFrame().assign(
-        bin1=molecules["start"].compute() // binsize * binsize,
-        bin2=molecules["end"].compute() // binsize * binsize,
-    ).set_index(molecules["scaffold_index"].compute())
-    temp_dataframe.index.name = "scaffold_index"
+        scaffold_index=index,
+        bin1=molecules["start"].compute().to_numpy() // binsize * binsize,
+        bin2=molecules["end"].compute().to_numpy() // binsize * binsize,
+    ).set_index("scaffold_index")
+    # temp_dataframe.index.name = "scaffold_index"
     temp_dataframe = temp_dataframe.query("bin2 - bin1 > 2 * @binsize")[:]
 
     # Now let's persist the dataframe, and submit it to the Dask cluster
 
-    _gr = functools.partial(_group_analyser, binsize=binsize)
-    pool = mp.Pool(processes=cores)
+    _gr = functools.partial(_group_analyser, binsize=binsize, cores=cores)
+    # pool = mp.Pool(processes=cores)
     # pool.close()
-    results = deque()
+    # results = deque()
     finalised = []
     grouped = temp_dataframe.groupby(level=0)
     for group in iter(grouped):
         # finalised.append(_gr(group[1]))
-        while len(results) >= cores:
-            finalised.append(results.popleft().get())
-        results.append(pool.apply_async(_gr, (group[1],)))
-    finalised.extend([res.get() for res in results])
-    pool.close()
+        finalised.append(_gr(group[1]))
     finalised = np.vstack(finalised)
     coverage_df = pd.DataFrame().assign(
         scaffold_index=finalised[:, 0],
@@ -76,20 +80,22 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
         print(ctime(), "Merging on coverage DF (10X)")
         try:
-            coverage_df = dd.merge(info.loc[:, ["length"]], coverage_df,
+            coverage_df = dd.merge(info[["length"]], coverage_df,
                                    on="scaffold_index", how="right").compute()
         except ValueError:
             print(coverage_df.head())
             raise ValueError((coverage_df["scaffold_index"].dtype, info["scaffold_index"].dtype))
-        lencol, bincol = coverage_df["length"].to_numpy().view(), coverage_df["bin"].to_numpy().view()
-        bincol = np.floor(ne.evaluate("(lencol - bincol) / binsize")).astype(lencol.dtype)
-        coverage_df.loc[:, "d"] = pd.to_numeric(np.minimum(
-            coverage_df["bin"],  ne.evaluate("bincol * binsize")), downcast="integer")
-        nbins = coverage_df.groupby(level=0).size()
-        # Trick to get the size in the correct shape
-        coverage_df.loc[:, "nbin"] = np.repeat(nbins, nbins)
-        coverage_df.loc[:, "mn"] = pd.to_numeric(coverage_df.groupby("d")["n"].transform("mean"),
-                                                 downcast="float")
+        coverage_df["d"] = pd.to_numeric(
+            np.minimum(
+                coverage_df["bin"],
+                ((coverage_df["length"] - coverage_df["bin"]) // binsize) * binsize
+            ), downcast="integer")
+
+        nbins = coverage_df.groupby(level=0).size().to_frame("nbin")
+        coverage_df = coverage_df.merge(nbins, how="left", on="scaffold_index")
+        # Get the average coverage ACROSS ALL SCAFFOLDS by distance to the end of the bin.
+        coverage_df["mn"] = pd.to_numeric(
+            coverage_df.reset_index(drop=False).groupby("d")["n"].transform("mean"), downcast="float")
         coverage_df = coverage_df.eval("r = log(n / mn) / log(2)")
         __left = coverage_df["r"].groupby(level=0).agg(mr_10x=("r", "min"))
         __left.loc[:, "mr_10x"] = pd.to_numeric(__left["mr_10x"], downcast="float")
@@ -100,8 +106,9 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1):
     else:
         info_mr = info.drop("mr_10x", axis=1, errors="ignore")
         # info_mr.drop("mr_10x", inplace=True, errors="ignore", axis=1)
-    info_mr = info_mr.persist()
+    info_mr = info_mr.persist(resources={"process": cores, "MEMORY": memory_limit})
     coverage_df = dd.from_pandas(coverage_df, npartitions=np.unique(coverage_df.index.values).shape[0])
+    coverage_df = coverage_df.persist(resources={"process": cores, "MEMORY": memory_limit})
     print("Molecule cov (add_mol):", coverage_df.shape[0], coverage_df.columns)
     if null is True:
         assembly["info"] = info_mr

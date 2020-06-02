@@ -20,7 +20,7 @@ def _10xreader(item):
     return df
 
 
-def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1, memory_limit="25GB"):
+def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1, memory_limit="20GB"):
     """Read the files as produced by run_10x_mapping.zsh"""
     # pool = mp.Pool(ncores)
     cluster = LocalCluster(n_workers=ncores, threads_per_worker=1, processes=True,
@@ -34,7 +34,7 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1, memor
     mol = dd.concat(molecules)
     f = fai[["scaffold"]].reset_index(drop=False).set_index("scaffold")
     try:
-        mol = dd.merge(f, mol, on="scaffold", how="right").reset_index(drop=True).set_index("scaffold_index")
+        mol = dd.merge(f, mol, on="scaffold", how="right").reset_index(drop=True)
     except KeyError:
         print(mol.head(10))
         print()
@@ -51,7 +51,7 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, ncores=1, memor
     barcode = mol["barcode"].compute()
     barcodes = pd.DataFrame({"barcode_index": np.arange(barcode.shape[0], dtype=np.int32),
                              "barcode": barcode})
-    mol = dd.merge(barcodes, mol, how="right", on="barcode").drop("barcode", axis=1)
+    mol = dd.merge(barcodes, mol, how="right", on="barcode").drop("barcode", axis=1).set_index("scaffold_index")
     mol = mol.persist(resources={"process": 1, "MEMORY": memory_limit})
     assert mol is not None
     return mol, barcodes

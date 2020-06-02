@@ -74,7 +74,6 @@ def main():
         assembly = initial(args, popseq, memory)
         os.makedirs(os.path.dirname(res), exist_ok=True)
         dump(assembly, res, compress=("zlib", 6))
-    return
     res = os.path.join(args.save_prefix, "joblib", "pytritex", "anchoring", "anchor_scaffolds", "result.pkl")
     if os.path.exists(res):
         assembly = load(res)

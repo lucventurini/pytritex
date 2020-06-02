@@ -8,11 +8,10 @@ from time import ctime
 import multiprocessing as mp
 import numexpr as ne
 import re
-from collections import deque
 from .collapse_bins import collapse_bins as cbn
 
 
-def _group_analyser(group, binsize):
+def _group_analyser(group, binsize, cores=1):
     """Count how many pairs cover a given bin; return into a column called "n"."""
     ##     """Count how many pairs cover a given bin; return into a column called "n"."""
     # (scaffold_index, bin_group), group = group
@@ -29,7 +28,7 @@ def _group_analyser(group, binsize):
     # return assigned
 
     bins = group[["bin1", "bin2"]].to_numpy() + [binsize, 0]
-    counter = cbn(bins, binsize)
+    counter = cbn(bins, binsize, cores)
     counter = np.vstack([np.fromiter(counter.keys(), dtype=np.int), np.fromiter(counter.values(),
                                                                                 dtype=np.int)]).T
     assigned = np.hstack([np.repeat(group.index.to_numpy()[0],
@@ -38,7 +37,8 @@ def _group_analyser(group, binsize):
     return assigned
 
 
-def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1):
+def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1,
+                memory_limit="20GB"):
     """
     Calculate physical coverage with Hi-C links in sliding windows along the scaffolds.
     :param assembly:
@@ -97,47 +97,34 @@ Supplied values: {}, {}".format(binsize, binsize2))
     # Create a greater bin group for each bin1, based on bin1 (default: 100x bin2).
     temp_frame.loc[:, "bin_group"] = temp_frame["bin1"] // binsize2
     # pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
-    pool = mp.Pool(processes=cores)
-    _gr = functools.partial(_group_analyser, binsize=binsize)
+    _gr = functools.partial(_group_analyser, binsize=binsize, cores=cores)
     # Count how many pairs cover each smaller bin within the greater bin.
-    results = deque()
     finalised = []
     for group in iter(temp_frame.groupby(["scaffold_index", "bin_group"])):
-        while len(results) >= cores:
-            finalised.append(results.popleft().get())
-        results.append(pool.apply_async(_gr, (group[1],)))
-    finalised.extend([res.get() for res in results])
+        finalised.append(_gr(group[1]))
     finalised = np.vstack(finalised)
     coverage_df = pd.DataFrame().assign(
         scaffold_index=finalised[:, 0],
         bin=finalised[:, 1],
         n=finalised[:, 2]).set_index("scaffold_index")
-    pool.close()
-    pool.join()
 
     if coverage_df.shape[0] > 0:
         print(ctime(), "Merging on coverage DF (HiC)")
-        # Group by bin, count how covered is each bin
-        coverage_df = coverage_df.groupby(["scaffold_index", "bin"]).agg(n=("n", "sum"))
-        coverage_df = coverage_df.reset_index(level=1)
+        # Group by bin, count how covered is each bin, reset the index so it is only by scaffold_index
+        coverage_df = coverage_df.groupby(["scaffold_index", "bin"]).agg(n=("n", "sum")).reset_index(level=1)
         coverage_df = dd.merge(info[["length"]],
                                coverage_df, on="scaffold_index", how="right").compute()
         # D is again the bin, but cutting it at the rightmost side
-        lencol = coverage_df["length"].to_numpy().view()
-        lencol = lencol.astype(copy=False, casting="unsafe",
-                               dtype=re.sub(r"^u", "", lencol.dtype.name))
-        bincol = coverage_df["bin"].to_numpy().view()
-        bincol = bincol.astype(copy=False, casting="unsafe",
-                               dtype=re.sub(r"^u", "", bincol.dtype.name))
-        bincol = np.floor(ne.evaluate("(lencol - bincol) / binsize")).astype(lencol.dtype)
-        coverage_df.loc[:, "d"] = pd.to_numeric(np.minimum(
-            coverage_df["bin"], ne.evaluate("bincol * binsize")), downcast="integer")
+        coverage_df["d"] = pd.to_numeric(np.minimum(
+            coverage_df["bin"],
+            coverage_df.eval("length - bin") // binsize * binsize),
+            downcast="integer")
 
         # Number of bins found in each scaffold. Take "n" as the column to count.
-        nbins = coverage_df.groupby(level=0).size()
-        coverage_df.loc[:, "nbin"] = np.repeat(nbins, nbins)
+        nbins = coverage_df.groupby(level=0).size().to_frame("nbin")
+        coverage_df = coverage_df.merge(nbins, on="scaffold_index", how="left")
         # Mean number of pairs covering each bin (cut at the rightmost side)
-        coverage_df.loc[:, "mn"] = coverage_df[["d", "n"]].groupby("d")["n"].transform("mean")
+        coverage_df["mn"] = coverage_df[["d", "n"]].groupby(["scaffold_index", "d"])["n"].transform("mean")
         # Logarithm of number of pairs in bin divided by mean of number of pairs in bin?
         coverage_df = coverage_df.eval("r = log(n/mn) / log(2)")
         # For each scaffold where the number of found bins is greater than minNbin,
@@ -158,8 +145,9 @@ Supplied values: {}, {}".format(binsize, binsize2))
     else:
         info_mr = info.assign(mri=np.nan, mr=np.nan)
 
-    info_mr = info_mr.persist()
+    info_mr = info_mr.persist(resources={"process": cores, "MEMORY": memory_limit})
     coverage_df = dd.from_pandas(coverage_df, npartitions=np.unique(coverage_df.index.to_numpy()).shape[0])
+    coverage_df = coverage_df.persist(resources={"process": cores, "MEMORY": memory_limit})
 
     if null is True:
         assembly["info"] = info_mr
