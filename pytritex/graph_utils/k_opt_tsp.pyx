@@ -2,7 +2,8 @@ import numpy as np
 cimport numpy as np
 cimport cython
 np.import_array()
-
+from cython.parallel import parallel, prange
+from libcpp.vector cimport vector
 ctypedef np.int_t DTYPE_int
 cdef extern from "math.h":
     float INFINITY
@@ -12,16 +13,16 @@ import array
 
 @cython.wraparound(False)
 @cython.boundscheck(False)
-cdef double c_route_cost(double[:, :] graph, long[:] path) nogil:
+cdef double c_route_cost(double[:, :] graph, vector[long] path) nogil:
     cdef:
         double cost
-        long shape = path.shape[0]
+        long shape = path.size()
         double temp_cost
         long index = shape - 1
         long second = 0
 
     cost = graph[path[index], path[0]]
-    for index in range(shape - 1):
+    for index in prange(shape - 1):
         second = index + 1
         temp_cost = graph[path[index]][path[second]]
         if temp_cost == 0:
@@ -40,14 +41,17 @@ cpdef float route_cost(np.ndarray graph, np.ndarray path):
 
 @cython.wraparound(False)
 @cython.boundscheck(False)
-cdef long[:] _swap(long[:] route_array, long index, long kindex):
+cdef vector[long] _swap(long[:] route_array, long index, long kindex) nogil:
     cdef:
-        long[:] new_route
+        vector[long] new_route
+        long route_it
         long internal_index
         long mirror
         long[:] to_swap
 
-    new_route = route_array.copy()
+    for route_it in prange(route_array.shape[0]):
+        new_route.push_back(route_array[route_it])
+
     to_swap = route_array[index:kindex + 1]
     cdef long swap_length = kindex - index + 1
     for internal_index in range(0, swap_length, 1):
@@ -58,7 +62,7 @@ cdef long[:] _swap(long[:] route_array, long index, long kindex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef np.ndarray tsp_2_opt(np.ndarray graph, np.ndarray route):
+cpdef np.ndarray tsp_2_opt(np.ndarray graph, np.ndarray route, long num_threads):
     """
     Approximate the optimal path of travelling salesman according to 2-opt algorithm
     Args:
@@ -86,19 +90,24 @@ cpdef np.ndarray tsp_2_opt(np.ndarray graph, np.ndarray route):
     cdef long route_shape
     cdef double[:, :] graph_array = graph.astype(float)
     cdef long[:] route_array = route
-    cdef long[:] best_found_route = route_array[:]
-    cdef long[:] new_route
+    cdef long route_it
+    cdef vector[long] best_found_route
+    cdef vector[long] new_route
     cdef long swap_length
     cdef np.ndarray[DTYPE_int, ndim=1] final_route
 
-    max_index = best_found_route.shape[0] - 1
+    max_index = route_array.shape[0] - 1
+    for route_it in range(route_array.shape[0]):
+        best_found_route.push_back(route_array[route_it])
+
     best_cost = c_route_cost(graph_array, best_found_route)
     while improved == 1:
         improved = 0
         for index in range(1, max_index):
             for kindex in range(index + 1, max_index):
                 # Swap internally between index and kindex
-                new_route = _swap(route_array, index, kindex)
+                with nogil, parallel():
+                    new_route = _swap(route_array, index, kindex)
                 cost = c_route_cost(graph_array, new_route)
                 if cost < best_cost:
                     best_cost = cost

@@ -10,12 +10,13 @@ cdef extern from "math.h":
     float INFINITY
 ctypedef pair[long, long] pll
 cimport cython
+from libcpp.vector cimport vector
 from cython.operator cimport dereference, postincrement
 
 
 @cython.boundscheck(False)
 cdef (cpp_map[long, pll], long) c_insert_nodes(cpp_map[long, bint] visited, cpp_map[long, pll] dpath,
-                                     double[:, :] edges, long header):
+                                     double[:, :] edges, long header) nogil:
 
     cdef long current_position, opt_pos, new_following
     cdef long vertex
@@ -99,7 +100,9 @@ cpdef np.ndarray[DTYPE_i, ndim=1] insert_nodes(np.ndarray[DTYPE_f, ndim=2, mode=
     # path is an ordered list of nodes,
 
     cdef double[:, :] edges_view = edges
-    cdef long[:] path_view = path.copy()
+    cdef long[:] path_view = path
+    cdef vector[long] path_copy
+    cdef long path_it
     cdef cpp_map[long, bint] visited
     cdef cpp_map[long, pll] dpath
     cdef pll link
@@ -107,10 +110,13 @@ cpdef np.ndarray[DTYPE_i, ndim=1] insert_nodes(np.ndarray[DTYPE_f, ndim=2, mode=
     cdef long header, el
     cdef long current_iter, following, current_position
 
+    for path_it in path_view:
+        path_copy.push_back(path_it)
+
     for visitor in range(edges_view.shape[0]):
         visited[visitor] = 0
 
-    header = path_view[0]
+    header = path_copy[0]
     for visitor in range(path_view.shape[0]):
         el = path_view[visitor]
         link.first, link.second = -1, -1
@@ -120,6 +126,7 @@ cpdef np.ndarray[DTYPE_i, ndim=1] insert_nodes(np.ndarray[DTYPE_f, ndim=2, mode=
             link.second = path_view[visitor + 1]
         dpath[el] = link
         visited[el] = 1
+
     dpath, header = c_insert_nodes(visited, dpath, edges, header)
 
     path = np.empty(dpath.size(), dtype=np.int)

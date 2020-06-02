@@ -105,13 +105,13 @@ def _get_path(matrix, cidx, start=None, end=None, ncores=1):
     return path, mst, mst_lower_bound
 
 
-def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound):
+def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound, ncores):
     if current_upper_bound > mst_lower_bound:
         changed = True
         while changed:
             while changed:
                 prev = path[:]
-                path = tsp_2_opt(mst.toarray(), path)
+                path = tsp_2_opt(mst.toarray(), path, ncores)
                 if all(path == prev):
                     changed = False
                 else:
@@ -171,7 +171,7 @@ def make_super_path(origin_edge_list, cms, start=None, end=None, maxiter=100, ve
                               for index in np.arange(path.shape[0] - 1, dtype=np.int))
     cost_after_initialization = current_upper_bound
     # Run the improvement procedure ONLY IF the CUB is greater than the MST cost.
-    path, current_upper_bound = _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound)
+    path, current_upper_bound = _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound, ncores)
     # We will presume that we have to SKIP the block_optimise procedure
     if False:
         changed = True
