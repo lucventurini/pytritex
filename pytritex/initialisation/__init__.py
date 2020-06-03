@@ -60,7 +60,7 @@ def read_fpairs(hic, fai, save_dir):
     return fname
 
 
-def initial(popseq, fasta, css, tenx, hic, save, cores=1):
+def initial(popseq, fasta, css, tenx, hic, save, client, cores=1):
 
     save_dir = os.path.join(save, "joblib", "pytritex", "initialisation")
     os.makedirs(save_dir, exist_ok=True)
@@ -98,7 +98,7 @@ def initial(popseq, fasta, css, tenx, hic, save, cores=1):
             tenx_dict.append((index, sample, fname))
         samples = list(zip(*tenx_dict))
         samples = pd.DataFrame({"index": samples[0], "sample": samples[1], "fname": samples[2]})
-        molecules, barcodes = read_10x_molecules(samples, fai, save_dir, ncores=cores)
+        molecules, barcodes = read_10x_molecules(samples, fai, save_dir, client=client)
         print(time.ctime(), "Read the 10X links")
     else:
         print("No 10X molecules! Error")

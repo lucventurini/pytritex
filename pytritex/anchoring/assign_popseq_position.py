@@ -3,6 +3,7 @@ import numpy as np
 from scipy.stats import median_absolute_deviation
 from ..utils import first, second
 import dask.dataframe as dd
+import functools
 
 
 def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame, anchored_css: pd.DataFrame, wheatchr: pd.DataFrame):
@@ -26,16 +27,22 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame, anchored_
     #  info[is.na(popseq_Ncss1), popseq_Ncss1 := 0]
     #  info[is.na(popseq_Ncss2), popseq_Ncss2 := 0]
 
+    agg_median = dd.Aggregation("mad", lambda s: s, lambda s: median_absolute_deviation(s))
+
     popseq_positions = popseq.loc[~popseq["popseq_alphachr"].isna(),
                                   ["popseq_index", "popseq_alphachr", "popseq_cM"]].set_index("popseq_index")
-    popseq_positions = popseq_positions.merge(cssaln[["popseq_index"]].compute().reset_index(
-        drop=False).set_index("popseq_index"), on="popseq_index", how="left").reset_index(drop=False)
-    popseq_stats = popseq_positions.groupby(["scaffold_index", "popseq_alphachr"], observed=True)
+
+    right = cssaln[["popseq_index"]].compute().reset_index(drop=False)
+    right["popseq_index"] = pd.to_numeric(right["popseq_index"], downcast="integer")
+    popseq_positions = dd.merge(popseq_positions, right, on="popseq_index", how="left").reset_index(
+        drop=False).compute()
+    popseq_stats = popseq_positions.groupby(["scaffold_index", "popseq_alphachr"])
     popseq_count = popseq_stats.size().to_frame("N").astype(np.uint32)
     popseq_stats = popseq_stats.agg({"popseq_cM": [np.mean, np.std, median_absolute_deviation]})
     popseq_stats.columns = popseq_stats.columns.to_flat_index()
     popseq_stats.columns = ["popseq_cM", "popseq_cM_sd", "popseq_cM_mad"]
-    popseq_stats = pd.merge(popseq_count, popseq_stats, left_index=True, right_index=True).reset_index(drop=False)
+    popseq_stats = pd.merge(popseq_count, popseq_stats, left_index=True, right_index=True)
+    popseq_stats = popseq_stats.reset_index(drop=False)
     popseq_stats.loc[:, "popseq_Ncss"] = popseq_stats.groupby("scaffold_index")["N"].transform("sum").astype(np.uint32)
     popseq_stats = popseq_stats.reset_index(drop=False)
     # So far we have congregated the different statistics about the centimorgans.

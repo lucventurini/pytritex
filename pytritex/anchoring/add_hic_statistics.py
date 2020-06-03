@@ -19,44 +19,33 @@ def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, verbose
     #   info[is.na(Nhic), Nhic := 0]
     #   info[is.na(hic_N1), hic_N1 := 0]
     #   info[is.na(hic_N2), hic_N2 := 0]
-    anchored0 = anchored_css.query("popseq_chr == sorted_chr")[["scaffold_index", "popseq_chr"]].compute()
+    anchored0 = anchored_css.query("popseq_chr == sorted_chr")[["popseq_chr"]].compute().reset_index(drop=False)
     anchored0 = anchored0.rename(columns={"popseq_chr": "chr"}, errors="raise")
-    anchored_hic_links = anchored0.copy().rename(
+    anchored_hic_links = dd.merge(anchored0.copy().rename(
         columns={"chr": "chr1",
                  "scaffold_index": "scaffold_index1"},
-    errors="raise").merge(fpairs, on="scaffold_index1", how="right")
-    anchored_hic_links.loc[:, "scaffold_index1"] = pd.to_numeric(anchored_hic_links["scaffold_index1"],
-                                                                 downcast="unsigned")
-    anchored_hic_links = anchored0.rename(
+    errors="raise"), fpairs, on="scaffold_index1", how="right")
+    anchored_hic_links = dd.merge(anchored0.rename(
         columns={"chr": "chr2",
-                 "scaffold_index": "scaffold_index2"}).merge(anchored_hic_links,
-                                                             on="scaffold_index2", how="right")
-    anchored_hic_links.loc[:, "scaffold_index2"] = pd.to_numeric(anchored_hic_links["scaffold_index2"],
-                                                                 downcast="unsigned")
+                 "scaffold_index": "scaffold_index2"}),
+        anchored_hic_links, on="scaffold_index2", how="right")
     if verbose:
         print("Anchored HiC links columns", anchored_hic_links.columns)
     hic_stats = anchored_hic_links.query("chr1 == chr1").rename(
         columns={"scaffold_index2": "scaffold_index", "chr1": "hic_chr"})
-    hic_stats = hic_stats.groupby(["scaffold_index", "hic_chr"]
-                                  ).size().to_frame("N").reset_index(drop=False).apply(pd.to_numeric,
-                                                                                       downcast="signed")
-    N_dtype, chr_dtype = hic_stats["N"].dtype, hic_stats["hic_chr"].dtype
+    hic_stats = hic_stats.groupby(
+        ["scaffold_index", "hic_chr"]).size().to_frame("N").reset_index(drop=False).compute()
+    hic_stats["scaffold_index"] = pd.to_numeric(hic_stats["scaffold_index"],
+                                                downcast="integer")
     grouped_hic_stats = hic_stats.sort_values(["scaffold_index", "N"], ascending=[True, False])
-    hic_stats = grouped_hic_stats.groupby("scaffold_index", sort=False).agg(
+    hic_stats = grouped_hic_stats.groupby(
+        "scaffold_index", sort=False).agg(
         hic_chr=("hic_chr", first), hic_chr2=("hic_chr", second), hic_N1=("N", first), hic_N2=("N", second),
         Nhic=("N", "sum"))
-    type_mapper = {"Nhic": N_dtype, "hic_N1": N_dtype, "hic_N2": N_dtype,
-                   "hic_chr": chr_dtype, "hic_chr2": chr_dtype}
-    for key in ["Nhic", "hic_N1", "hic_N2", "hic_chr", "hic_chr2"]:
-        if hic_stats[key].isna().any() is True and hic_stats[key].isin([0]).any() is True:
-            continue
-        try:
-            hic_stats.loc[:, key] = hic_stats[key].fillna(0).astype(type_mapper[key])
-        except ValueError:
-            raise ValueError((key, hic_stats[key].value_counts(dropna=False).sort_values().head(20)))
     hic_stats.loc[:, "hic_pchr"] = pd.to_numeric(hic_stats["hic_N1"].div(hic_stats["Nhic"], fill_value=0),
                                                  downcast="float")
     hic_stats.loc[:, "hic_p12"] = pd.to_numeric(hic_stats["hic_N2"].div(hic_stats["hic_N1"], fill_value=0),
-                                                downcast="float")
+                                             downcast="float")
+    hic_stats = dd.from_pandas(hic_stats, npartitions=100)
     anchored_css = dd.merge(hic_stats, anchored_css, on="scaffold_index", how="right")
     return anchored_css, anchored_hic_links

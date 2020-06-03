@@ -1,8 +1,6 @@
 import pandas as pd
 import dask.dataframe as dd
 import numpy as np
-import logging
-from dask.distributed import Client, LocalCluster
 import os
 
 
@@ -21,14 +19,9 @@ def _10xreader(item):
     return df
 
 
-def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, ncores=1, memory_limit="20GB"):
+def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, client):
     """Read the files as produced by run_10x_mapping.zsh"""
     # pool = mp.Pool(ncores)
-    cluster = LocalCluster(n_workers=ncores, threads_per_worker=1, processes=True,
-                           memory_limit=memory_limit, scheduler_port=0,
-                           silence_logs=logging.ERROR)
-
-    client = Client(cluster)
     molecules = [client.submit(
         _10xreader, row) for row in samples[["index", "fname"]].itertuples(index=False, name=None)]
     molecules = [client.gather(mol) for mol in molecules]
@@ -42,8 +35,6 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, ncore
         print(f.head(10))
         print()
         raise
-    client.close()
-    cluster.close()
     mol["length"] = mol.eval("end - start")
     mol["start"] += 1
     mol["orig_start"] = mol["start"]
@@ -53,7 +44,6 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, ncore
     barcodes = pd.DataFrame({"barcode_index": np.arange(barcode.shape[0], dtype=np.int32),
                              "barcode": barcode})
     mol = dd.merge(barcodes, mol, how="right", on="barcode").drop("barcode", axis=1).set_index("scaffold_index")
-    mol = mol.persist(resources={"process": 1, "MEMORY": memory_limit})
     fname = os.path.join(save_dir, "molecules")
     dd.to_parquet(mol, fname, compression="gzip", engine="pyarrow", compute=True)
-    return mol, barcodes
+    return fname, barcodes

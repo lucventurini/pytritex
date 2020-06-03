@@ -15,6 +15,9 @@ from joblib import Memory, dump, load
 import numexpr as ne
 import dask
 import dask.dataframe as dd
+import logging
+from dask.distributed import Client, LocalCluster
+
 
 
 def dispatcher(assembly, row):
@@ -63,16 +66,20 @@ def main():
     os.makedirs(args.dask_cache, exist_ok=True)
     dask.config.set({"temporary-directory": args.dask_cache})
     ne.set_num_threads(args.procs)
+    cluster = LocalCluster(n_workers=args.procs, threads_per_worker=1, processes=True,
+                           scheduler_port=0,
+                           silence_logs=logging.ERROR)
+    client = Client(cluster, set_as_default=True)
 
     # Initial assembly
     memory = Memory(os.path.join(".", args.save_prefix), compress=("zlib", 6))
-    assembly = memory.cache(initial, ignore=["cores"])(
-        args.popseq, args.fasta, args.css, args.tenx, args.hic, args.save_prefix, cores=args.procs)
+    assembly = memory.cache(initial, ignore=["cores", "client"])(
+        args.popseq, args.fasta, args.css, args.tenx, args.hic, args.save_prefix, client=client)
     assembly = memory.cache(anchor_scaffolds)(assembly, args.save_prefix, species="wheat")
     return
-    assembly = memory.cache(add_molecule_cov)(assembly, cores=args.procs, binsize=200)
+    assembly = memory.cache(add_molecule_cov)(assembly, client=client, binsize=200)
     assembly = memory.cache(add_hic_cov)(assembly,
-                                         cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
+                                         client=client, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
     assembly_v1 = memory.cache(break_10x, ignore=["cores"])(
         assembly,
         ratio=-3, interval=5e4, minNbin=20, dist=2e3,
