@@ -7,6 +7,7 @@ from .read_10x import read_10x_molecules
 import numpy as np
 import dask.dataframe as dd
 import time
+from joblib import load
 
 
 def fai_reader(fasta):
@@ -55,28 +56,30 @@ def read_fpairs(hic, fai):
     return fpairs
 
 
-def initial(args, popseq, memory):
+def initial(popseq, fasta, css, tenx, hic, save, cores=1):
 
-    if not os.path.exists(args.fasta + ".fai"):
-        pysam.Fastafile(args.fasta)
+    popseq = dd.from_pandas(load(popseq), npartitions=10)
+    popseq.columns = popseq.columns.str.replace("morex", "css")
+
+    if not os.path.exists(fasta + ".fai"):
+        pysam.Fastafile(fasta)
 
     print(time.ctime(), "Reading the FAIDX index")
-    fai = memory.cache(fai_reader)(args.fasta)
+    fai = fai_reader(fasta)
     print(time.ctime(), "Read the FAIDX index")
     # Alignment of genetic markers used for the genetic map. In this example, the Morex WGS assembly by IBSC (2012).
     print(time.ctime(), "Reading the CSS alignment")
-    cssaln = memory.cache(read_morexaln_minimap)(
-        paf=args.css, popseq=popseq, fai=fai, minqual=30, minlen=500, ref=True)
+    cssaln = read_morexaln_minimap(
+        paf=css, popseq=popseq, fai=fai, minqual=30, minlen=500, ref=True)
     print(time.ctime(), "Read the CSS alignment")
     # cssaln = cssaln.convert_dtypes()
 
     # Read the list of Hi-C links.
     print(time.ctime(), "Reading the HiC links")
-    fpairs = memory.cache(read_fpairs)(args.hic, fai)
+    fpairs = read_fpairs(hic, fai)
     print(time.ctime(), "Read the HiC links")
 
-
-    tenx_command = 'find {} -type f | grep "molecules.tsv.gz$"'.format(args.tenx)
+    tenx_command = 'find {} -type f | grep "molecules.tsv.gz$"'.format(tenx)
     tenx_files = [line.rstrip().decode() for line in
                   sp.Popen(tenx_command, shell=True, stdout=sp.PIPE).stdout]
     if tenx_files:
@@ -87,8 +90,7 @@ def initial(args, popseq, memory):
             tenx_dict.append((index, sample, fname))
         samples = list(zip(*tenx_dict))
         samples = pd.DataFrame({"index": samples[0], "sample": samples[1], "fname": samples[2]})
-        molecules, barcodes = memory.cache(read_10x_molecules,
-                                           ignore=["ncores"])(samples, fai, ncores=args.procs)
+        molecules, barcodes = read_10x_molecules(samples, fai, ncores=cores)
         print(time.ctime(), "Read the 10X links")
     else:
         print("No 10X molecules! Error")
@@ -96,12 +98,21 @@ def initial(args, popseq, memory):
         import sys
         sys.exit(1)
 
-    # molecules = molecules.convert_dtypes()
-    cssaln = cssaln.persist()
-    fpairs = fpairs.persist()
-    molecules = molecules.persist()
-    fai = fai.persist()
-    assert "scaffold" in fai.columns
+    save_dir = os.path.join(save, "joblib", "pytritex", "initialisation")
+    os.makedirs(save_dir, exist_ok=True)
+
+    dd.to_parquet(cssaln, os.path.join(save_dir, "cssaln"), compression="gzip")
+    cssaln = os.path.join(save_dir, "cssaln")
+    dd.to_parquet(fpairs, os.path.join(save_dir, "fpairs"), compression="gzip")
+    fpairs = os.path.join(save_dir, "fpairs")
+    dd.to_parquet(molecules, os.path.join(save_dir, "molecules"), compression="gzip")
+    molecules = os.path.join(save_dir, "molecules")
+    dd.to_parquet(fai, os.path.join(save_dir, "fai"), compression="gzip")
+    barcodes = dd.to_parquet(dd.from_pandas(barcodes, npartitions=100),
+                             os.path.join(save_dir, "barcodes"), compression="gzip")
+    popseq = dd.to_parquet(popseq, os.path.join(save_dir, "popseq"), compression="gzip")
+
+    fai = os.path.join(save_dir, "fai")
     assembly = {"popseq": popseq,
                 "fai": fai,
                 "cssaln": cssaln,

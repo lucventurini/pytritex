@@ -61,4 +61,5 @@ def read_morexaln_minimap(paf: str,
     morex["orig_pos"] = morex["pos"]
     morex = morex.persist()
     buf.close()
+    print(morex.head())
     return morex

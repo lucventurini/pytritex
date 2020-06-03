@@ -14,6 +14,7 @@ from pytritex.utils import n50
 from joblib import Memory, dump, load
 import numexpr as ne
 import dask
+import dask.dataframe as dd
 
 
 def dispatcher(assembly, row):
@@ -62,53 +63,27 @@ def main():
     os.makedirs(args.dask_cache, exist_ok=True)
     dask.config.set({"temporary-directory": args.dask_cache})
     ne.set_num_threads(args.procs)
-    popseq = load(args.popseq)
-    popseq.columns = popseq.columns.str.replace("morex", "css")
 
     # Initial assembly
-    memory = Memory(os.path.join(".", args.save_prefix))
-    res = os.path.join(args.save_prefix, "joblib", "pytritex", "initialisation", "result.pkl")
-    if os.path.exists(res):
-        assembly = load(res)
-    else:
-        assembly = initial(args, popseq, memory)
-        os.makedirs(os.path.dirname(res), exist_ok=True)
-        dump(assembly, res, compress=("zlib", 6))
-    res = os.path.join(args.save_prefix, "joblib", "pytritex", "anchoring", "anchor_scaffolds", "result.pkl")
-    if os.path.exists(res):
-        assembly = load(res)
-    else:
-        assembly = anchor_scaffolds(assembly, popseq=popseq, species="wheat")
-        os.makedirs(os.path.dirname(res), exist_ok=True)
-        dump(assembly, res, compress=("zlib", 6))
-    res = os.path.join(args.save_prefix, "joblib", "pytritex", "sequencing_coverage", "add_molecule_cov",
-                       "initial.pkl")
-    if os.path.exists(res):
-        assembly = load(res)
-    else:
-        assembly = add_molecule_cov(assembly, cores=args.procs, binsize=200)
-        os.makedirs(os.path.dirname(res), exist_ok=True)
-        dump(assembly, res, compress=("zlib", 6))
-    res = os.path.join(args.save_prefix, "joblib", "pytritex", "sequencing_coverage", "add_hic_cov",
-                       "initial.pkl")
-    if os.path.exists(res):
-        assembly = load(res)
-    else:
-        assembly = add_hic_cov(assembly, cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
-        os.makedirs(os.path.dirname(res), exist_ok=True)
-        dump(assembly, res, compress=("zlib", 6))
+    memory = Memory(os.path.join(".", args.save_prefix), compress=("zlib", 6))
+    assembly = memory.cache(initial, ignore=["cores"])(
+        args.popseq, args.fasta, args.css, args.tenx, args.hic, args.save_prefix, cores=args.procs)
+    return
+    assembly = memory.cache(anchor_scaffolds)(assembly, popseq=assembly["popseq"], species="wheat")
+    assembly = memory.cache(add_molecule_cov)(assembly, cores=args.procs, binsize=200)
+    assembly = memory.cache(add_hic_cov)(assembly,
+                                         cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
+    assembly_v1 = memory.cache(break_10x, ignore=["cores"])(
+        assembly,
+        ratio=-3, interval=5e4, minNbin=20, dist=2e3,
+        slop=2e2, species="wheat", intermediate=False, cores=args.procs)["assembly"]
     breaks = memory.cache(find_10x_breaks)(assembly["molecule_cov"])
-    try:
-        b = breaks[breaks["d"] >= 1e4].sort_values("d", ascending=False).head(100)
-    except KeyError:
-        raise KeyError(breaks.head())
     res = os.path.join(args.save_prefix, "joblib", "pytritex", "chimera_breaking", "break_10x",
                        "v0.pkl")
     if os.path.exists(res):
         assembly_v1 = load(res)
     else:
-        assembly_v1 = break_10x(assembly, ratio=-3, interval=5e4, minNbin=20, dist=2e3,
-                                slop=2e2, species="wheat", intermediate=False, cores=args.procs)["assembly"]
+
         os.makedirs(os.path.dirname(res), exist_ok=True)
         dump(assembly_v1, res, compress=("zlib", 6))
     print("Broken chimeras")
