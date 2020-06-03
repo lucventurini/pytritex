@@ -1,13 +1,14 @@
-import pandas as pd
 from pytritex.utils.chrnames import chrNames
 from .assign_carma import assign_carma
 from .assign_popseq_position import assign_popseq_position
 from .add_hic_statistics import add_hic_statistics
 from .find_wrong_assignment import find_wrong_assignments
+import dask.dataframe as dd
+import os
 
 
 def anchor_scaffolds(assembly: dict,
-                     popseq: pd.DataFrame,
+                     save: str,
                      species=None,
                      sorted_percentile=95,
                      popseq_percentile=90,
@@ -22,14 +23,15 @@ def anchor_scaffolds(assembly: dict,
             "Parameter 'species' is not valid. Please set 'species' to one of "
             "\"wheat\", \"barley\", \"oats\", \"lolium\", \"sharonensis\" or \"rye\".")
     wheatchr = chrNames(species=species)
-    fai = assembly["fai"]
-    cssaln = assembly["cssaln"]
+    fai = dd.read_parquet(assembly["fai"])
+    cssaln = dd.read_parquet(assembly["cssaln"])
+    popseq = dd.read_parquet(assembly["popseq"])
     if "fpairs" not in assembly:
         fpairs = None
         hic = False
     else:
-        fpairs = assembly["fpairs"]
-        hic = (assembly["fpairs"].shape[0] > 0)
+        fpairs = dd.read_parquet(assembly["fpairs"])
+        hic = (fpairs.head(5).shape[0] > 0)
 
     anchored_css = assign_carma(cssaln, fai, wheatchr)
     assert anchored_css.index.name == "scaffold_index", anchored_css.index
@@ -46,10 +48,11 @@ def anchor_scaffolds(assembly: dict,
                                           popseq_percentile=popseq_percentile, hic=hic)
 
     # anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].fillna(0).astype(np.int)
-    assembly["info"] = anchored_css
-    assembly["popseq"] = popseq
+    # Store in parquet
+    save_dir = os.path.join(save, "joblib", "pytritex", "anchoring")
+    dd.to_parquet(anchored_css, os.path.join(save_dir, "anchored_css"))
+    assembly["info"] = os.path.join(save_dir, "anchored_css")
     if hic is True:
-        assembly["fpairs"] = anchored_hic_links
-    if verbose:
-        print(anchored_css.columns)
+        dd.to_parquet(anchored_hic_links, os.path.join(save_dir, "anchored_hic_links"))
+        assembly["fpairs"] = os.path.join(save_dir, "anchored_hic_links")
     return assembly

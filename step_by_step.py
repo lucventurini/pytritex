@@ -68,8 +68,8 @@ def main():
     memory = Memory(os.path.join(".", args.save_prefix), compress=("zlib", 6))
     assembly = memory.cache(initial, ignore=["cores"])(
         args.popseq, args.fasta, args.css, args.tenx, args.hic, args.save_prefix, cores=args.procs)
+    assembly = memory.cache(anchor_scaffolds)(assembly, args.save_prefix, species="wheat")
     return
-    assembly = memory.cache(anchor_scaffolds)(assembly, popseq=assembly["popseq"], species="wheat")
     assembly = memory.cache(add_molecule_cov)(assembly, cores=args.procs, binsize=200)
     assembly = memory.cache(add_hic_cov)(assembly,
                                          cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)

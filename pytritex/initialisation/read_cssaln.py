@@ -4,6 +4,7 @@ import subprocess as sp
 import dask.dataframe as dd
 import numpy as np
 import tempfile
+import os
 
 
 def read_cssaln(bam: str, popseq: pd.DataFrame,
@@ -37,6 +38,7 @@ def read_cssaln(bam: str, popseq: pd.DataFrame,
 def read_morexaln_minimap(paf: str,
                           popseq: pd.DataFrame,
                           fai: pd.DataFrame,
+                          save_dir: str,
                           minqual=30, minlen=500,
                           ref=True):
     command = "zgrep tp:A:P {paf} | awk -v l={minlen} -v q={minqual} '$2>=l && $12>=q'"
@@ -44,10 +46,10 @@ def read_morexaln_minimap(paf: str,
         names = ["css_contig", "scaffold", "pos"]
         cols = [0, 5, 7]
     else:
-        names= ["scaffold", "pos", "css_contig"]
+        names = ["scaffold", "pos", "css_contig"]
         cols = [0, 2, 5]
     dtypes = {"css_contig": str, "scaffold": str, "pos": np.int32}
-    buf = tempfile.NamedTemporaryFile(mode="wb", suffix=".paf", dir=".")
+    buf = open(os.path.join(save_dir, "cssaln.paf"), "wb")
     reader = sp.Popen(command.format(paf=paf, minqual=minqual, minlen=minlen), shell=True, stdout=buf)
     reader.communicate()
     buf.flush()
@@ -59,7 +61,7 @@ def read_morexaln_minimap(paf: str,
                      morex, on=["scaffold"], how="right").reset_index(drop=True).set_index("scaffold_index")
     morex["orig_scaffold_index"] = morex.index.values
     morex["orig_pos"] = morex["pos"]
-    morex = morex.persist()
+    fname = os.path.join(save_dir, "cssaln")
+    dd.to_parquet(morex, fname, compression="gzip", compute=True, engine="pyarrow")
     buf.close()
-    print(morex.head())
-    return morex
+    return fname
