@@ -5,9 +5,7 @@ import functools
 import dask.dataframe as dd
 pd.options.mode.chained_assignment = 'raise'
 from time import ctime
-import multiprocessing as mp
-import numexpr as ne
-import re
+import os
 from .collapse_bins import collapse_bins as cbn
 
 
@@ -37,8 +35,8 @@ def _group_analyser(group, binsize, cores=1):
     return assigned
 
 
-def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1,
-                memory_limit="20GB"):
+def add_hic_cov(assembly, save_dir,
+                scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1):
     """
     Calculate physical coverage with Hi-C links in sliding windows along the scaffolds.
     :param assembly:
@@ -61,11 +59,11 @@ def add_hic_cov(assembly, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50,
         raise ValueError("This function presumes that binsize is at least three times smaller than binsize2.\
 Supplied values: {}, {}".format(binsize, binsize2))
 
-    info = assembly["info"]
+    info = dd.read_parquet(assembly["info"])
     assert isinstance(info, dd.DataFrame), type(info)
     if "mr" in info.columns or "mri" in info.columns:
         raise KeyError("Assembly[info] already has mr and/or mri columns; aborting.")
-    fpairs = assembly["fpairs"]
+    fpairs = dd.read_parquet(assembly["fpairs"])
     fpairs = fpairs.reset_index(drop=True)
 
     binsize = np.int(np.floor(binsize))
@@ -145,9 +143,9 @@ Supplied values: {}, {}".format(binsize, binsize2))
     else:
         info_mr = info.assign(mri=np.nan, mr=np.nan)
 
-    info_mr = info_mr.persist(resources={"process": cores, "MEMORY": memory_limit})
+    info_mr = info_mr.persist()
     coverage_df = dd.from_pandas(coverage_df, npartitions=np.unique(coverage_df.index.to_numpy()).shape[0])
-    coverage_df = coverage_df.persist(resources={"process": cores, "MEMORY": memory_limit})
+    coverage_df = coverage_df.persist()
 
     if null is True:
         assembly["info"] = info_mr
@@ -155,7 +153,12 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assembly["binsize"] = binsize
         assembly["minNbin"] = minNbin
         assembly["innerDist"] = innerDist
+        for key in ["info", "cov"]:
+            fname = os.path.join(save_dir, "joblib", "pytritex", "sequencing_coverage", key + "_hic")
+            dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+            assembly[key] = fname
         return assembly
     else:
+        # TODO: this might need to be amended
         info_mr.drop("index", inplace=True, errors="ignore", axis=1)
         return {"info": info_mr, "cov": coverage_df}

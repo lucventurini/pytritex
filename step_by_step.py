@@ -76,10 +76,11 @@ def main():
     assembly = memory.cache(initial, ignore=["cores", "client"])(
         args.popseq, args.fasta, args.css, args.tenx, args.hic, args.save_prefix, client=client)
     assembly = memory.cache(anchor_scaffolds)(assembly, args.save_prefix, species="wheat")
+    assembly = memory.cache(add_molecule_cov, ignore=["cores"])(
+        assembly, cores=args.procs, binsize=200, save_dir=args.save_prefix)
+    assembly = memory.cache(add_hic_cov, ignore=["cores"])(
+        assembly, save_dir=args.save_prefix, cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
     return
-    assembly = memory.cache(add_molecule_cov)(assembly, client=client, binsize=200)
-    assembly = memory.cache(add_hic_cov)(assembly,
-                                         client=client, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
     assembly_v1 = memory.cache(break_10x, ignore=["cores"])(
         assembly,
         ratio=-3, interval=5e4, minNbin=20, dist=2e3,

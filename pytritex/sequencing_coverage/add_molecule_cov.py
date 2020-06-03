@@ -1,13 +1,9 @@
 import pandas as pd
 import numpy as np
-import logging
 import functools
 from time import ctime
-import numexpr as ne
-import re
 import dask.dataframe as dd
-import multiprocessing as mp
-from collections import deque
+import os
 from .collapse_bins import collapse_bins as cbn
 
 
@@ -23,8 +19,8 @@ def _group_analyser(group: pd.DataFrame, binsize, cores=1):
     return assigned
 
 
-def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1, memory_limit="20GB"):
-    info = assembly["info"]
+def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200, cores=1):
+    info = dd.read_parquet(assembly["info"])
     binsize = np.int(np.floor(binsize))
     if "molecules" not in assembly:
         raise KeyError("The assembly object does not have a molecule table; aborting")
@@ -35,13 +31,13 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1, memor
         raise KeyError("Assembly['info'] already has a mr_10x column; aborting")
 
     if scaffolds is None:
-        molecules = assembly["molecules"]
+        molecules = dd.read_parquet(assembly["molecules"])
         null = True
     else:
-        info = info.merge(scaffolds, on="scaffold_index", how="left").drop("scaffold", axis=1, errors="ignore")
-        molecules = dd.merge(
-            assembly["molecules"], scaffolds, on="scaffold_index", how="left").drop(
-            "scaffold",axis=1, errors="ignore")
+        info = dd.merge(info, scaffolds, on="scaffold_index", how="left").drop("scaffold", axis=1, errors="ignore")
+        molecules = dd.read_parquet(assembly["molecules"])
+        molecules = dd.merge(molecules, scaffolds, on="scaffold_index",
+                             how="left").drop("scaffold",axis=1, errors="ignore")
         null = False
 
     if molecules.index.name == "scaffold_index":
@@ -106,14 +102,20 @@ def add_molecule_cov(assembly: dict, scaffolds=None, binsize=200, cores=1, memor
     else:
         info_mr = info.drop("mr_10x", axis=1, errors="ignore")
         # info_mr.drop("mr_10x", inplace=True, errors="ignore", axis=1)
-    info_mr = info_mr.persist(resources={"process": cores, "MEMORY": memory_limit})
+    info_mr = info_mr.persist()
     coverage_df = dd.from_pandas(coverage_df, npartitions=np.unique(coverage_df.index.values).shape[0])
-    coverage_df = coverage_df.persist(resources={"process": cores, "MEMORY": memory_limit})
+    coverage_df = coverage_df.persist()
     print("Molecule cov (add_mol):", coverage_df.shape[0], coverage_df.columns)
+
     if null is True:
         assembly["info"] = info_mr
         assembly["molecule_cov"] = coverage_df
         assembly["mol_binsize"] = binsize
+        for key in ["info", "molecule_cov"]:
+            fname = os.path.join(save_dir, "joblib", "pytritex", "sequencing_coverage", key + "_10x")
+            dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+            assembly[key] = fname
         return assembly
     else:
+        # TODO: this might need to be amended if we are going to checkpoint.
         return {"info": info_mr, "molecule_cov": coverage_df}
