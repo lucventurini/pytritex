@@ -80,7 +80,6 @@ def main():
         args.popseq, args.fasta, args.css, args.tenx, args.hic, args.save_prefix, client=client, memory=memory)
     assembly = memory.cache(anchor_scaffolds, ignore=["client"])(
         assembly, args.save_prefix, client=client, species="wheat")
-    return
     assembly = memory.cache(add_molecule_cov, ignore=["cores", "client"])(
         assembly, cores=args.procs, client=client, binsize=200, save_dir=args.save_prefix)
     assembly = memory.cache(add_hic_cov, ignore=["cores", "client"])(

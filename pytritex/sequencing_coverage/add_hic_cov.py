@@ -3,6 +3,7 @@ import numpy as np
 # import pandarallel
 import functools
 import dask.dataframe as dd
+from dask.distributed import Client
 pd.options.mode.chained_assignment = 'raise'
 from time import ctime
 import os
@@ -35,7 +36,7 @@ def _group_analyser(group, binsize, cores=1):
     return assigned
 
 
-def add_hic_cov(assembly, save_dir,
+def add_hic_cov(assembly, save_dir, client: Client,
                 scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1):
     """
     Calculate physical coverage with Hi-C links in sliding windows along the scaffolds.
@@ -64,7 +65,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
     if "mr" in info.columns or "mri" in info.columns:
         raise KeyError("Assembly[info] already has mr and/or mri columns; aborting.")
     fpairs = dd.read_parquet(assembly["fpairs"])
-    fpairs = fpairs.reset_index(drop=True)
+    # fpairs = fpairs.reset_index(drop=True)
 
     binsize = np.int(np.floor(binsize))
     if scaffolds is None:
@@ -75,13 +76,18 @@ Supplied values: {}, {}".format(binsize, binsize2))
         null = False
 
     # Switch columns for those positions
-    query = "scaffold_index1 == scaffold_index2 & pos1 > pos2"
-    values = fpairs[["pos1", "pos2"]].compute().to_numpy()
-    mask = np.repeat(fpairs.eval(query).compute().to_numpy(), 2).reshape(values.shape)
-    values = np.where(mask, values[:, [1, 0]], values)
-    fpairs["pos1"] = dd.from_array(values[:, 0]).reset_index(drop=True)
-    fpairs["pos2"] = dd.from_array(values[:, 1]).reset_index(drop=True)
-    fpairs = fpairs.drop_duplicates()
+    def column_switcher(fpairs):
+        query = "scaffold_index1 == scaffold_index2 & pos1 > pos2"
+        values = fpairs[["pos1", "pos2"]].compute().to_numpy()
+        mask = np.repeat(fpairs.eval(query).compute().to_numpy(), 2).reshape(values.shape)
+        values = np.where(mask, values[:, [1, 0]], values)
+        fpairs["pos1"] = dd.from_array(values[:, 0]).reset_index(drop=True)
+        fpairs["pos2"] = dd.from_array(values[:, 1]).reset_index(drop=True)
+        fpairs = fpairs.drop_duplicates()
+        return fpairs
+
+    fpairs = client.submit(column_switcher, fpairs)
+    fpairs = fpairs.result()
     # Bin positions of the match by BinSize; only select those bins where the distance between the two bins is
     # greater than the double of the binsize.
     query = "scaffold_index1 == scaffold_index2"
@@ -91,7 +97,8 @@ Supplied values: {}, {}".format(binsize, binsize2))
          "bin1": temp_values[:, 1] // binsize * binsize,
          "bin2": temp_values[:, 2] // binsize * binsize
          }).astype(dtype={"scaffold_index": np.int32,
-                   "bin1": np.int32, "bin2": np.int32}).query("bin2 - bin1 > 2 * @binsize").set_index("scaffold_index")
+                   "bin1": np.int32, "bin2": np.int32}).query(
+        "bin2 - bin1 > 2 * @binsize").set_index("scaffold_index")
     # Create a greater bin group for each bin1, based on bin1 (default: 100x bin2).
     temp_frame.loc[:, "bin_group"] = temp_frame["bin1"] // binsize2
     # pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
