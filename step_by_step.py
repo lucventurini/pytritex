@@ -82,6 +82,7 @@ def main():
         assembly, args.save_prefix, client=client, species="wheat")
     assembly = memory.cache(add_molecule_cov, ignore=["cores", "client"])(
         assembly, cores=args.procs, client=client, binsize=200, save_dir=args.save_prefix)
+    return
     assembly = memory.cache(add_hic_cov, ignore=["cores", "client"])(
         assembly, save_dir=args.save_prefix, client=client,
         cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
