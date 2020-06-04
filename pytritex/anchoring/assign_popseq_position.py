@@ -6,7 +6,8 @@ import dask.dataframe as dd
 import functools
 
 
-def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame, anchored_css: pd.DataFrame, wheatchr: pd.DataFrame):
+def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
+                           anchored_css: dd.DataFrame, wheatchr: pd.DataFrame):
 
 
     # # Assignment of POPSEQ genetic positions
@@ -26,8 +27,6 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame, anchored_
     #  info[is.na(popseq_Ncss), popseq_Ncss := 0]
     #  info[is.na(popseq_Ncss1), popseq_Ncss1 := 0]
     #  info[is.na(popseq_Ncss2), popseq_Ncss2 := 0]
-
-    agg_median = dd.Aggregation("mad", lambda s: s, lambda s: median_absolute_deviation(s))
 
     popseq_positions = popseq.loc[~popseq["popseq_alphachr"].isna(),
                                   ["popseq_index", "popseq_alphachr", "popseq_cM"]].set_index("popseq_index")

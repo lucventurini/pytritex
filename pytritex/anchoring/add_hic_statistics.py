@@ -48,4 +48,5 @@ def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, verbose
                                              downcast="float")
     hic_stats = dd.from_pandas(hic_stats, npartitions=100)
     anchored_css = dd.merge(hic_stats, anchored_css, on="scaffold_index", how="right")
+    anchored_css = anchored_css.persist()
     return anchored_css, anchored_hic_links

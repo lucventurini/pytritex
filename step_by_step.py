@@ -6,7 +6,7 @@ from pytritex.initialisation import initial
 from pytritex.anchoring.anchor_scaffolds import anchor_scaffolds
 from pytritex.sequencing_coverage.add_molecule_cov import add_molecule_cov
 from pytritex.sequencing_coverage.add_hic_cov import add_hic_cov
-from pytritex.chimera_breaking.find_10x_breaks import find_10x_breaks
+# from pytritex.chimera_breaking.find_10x_breaks import find_10x_breaks
 from pytritex.chimera_breaking.break_10x import break_10x
 import itertools
 from pytritex.scaffold_10x.__init__ import scaffold_10x
@@ -14,7 +14,7 @@ from pytritex.utils import n50
 from joblib import Memory, dump, load
 import numexpr as ne
 import dask
-import dask.dataframe as dd
+# import dask.dataframe as dd
 import logging
 from dask.distributed import Client, LocalCluster
 
@@ -65,23 +65,26 @@ def main():
 
     # Initial set-up
     os.makedirs(args.dask_cache, exist_ok=True)
-    dask.config.set({"temporary-directory": args.dask_cache})
+    dask.config.global_config.update({"temporary-directory": args.dask_cache})
+    dask.config.global_config.update({"distributed.comm.timeouts.tcp": "300s"})
     ne.set_num_threads(args.procs)
     cluster = LocalCluster(n_workers=args.procs, threads_per_worker=1, processes=True,
-                           scheduler_port=0,
-                           silence_logs=logging.ERROR)
+                           scheduler_port=0, protocol="tcp://",
+                           silence_logs=logging.WARNING)
     cluster.adapt(maximum_memory=args.mem)
     client = Client(cluster, set_as_default=True)
 
     # Initial assembly
-    memory = Memory(os.path.join(".", args.save_prefix), compress=("zlib", 6))
+    memory = Memory(os.path.join(".", args.save_prefix), compress=("zlib", 6), verbose=10)
     assembly = memory.cache(initial, ignore=["cores", "client"])(
         args.popseq, args.fasta, args.css, args.tenx, args.hic, args.save_prefix, client=client)
-    assembly = memory.cache(anchor_scaffolds)(assembly, args.save_prefix, species="wheat")
-    assembly = memory.cache(add_molecule_cov, ignore=["cores"])(
-        assembly, cores=args.procs, binsize=200, save_dir=args.save_prefix)
-    assembly = memory.cache(add_hic_cov, ignore=["cores"])(
-        assembly, save_dir=args.save_prefix, cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
+    assembly = memory.cache(anchor_scaffolds, ignore=["client"])(
+        assembly, args.save_prefix, client=client, species="wheat")
+    assembly = memory.cache(add_molecule_cov, ignore=["cores", "client"])(
+        assembly, cores=args.procs, client=client, binsize=200, save_dir=args.save_prefix)
+    assembly = memory.cache(add_hic_cov, ignore=["cores", "client"])(
+        assembly, save_dir=args.save_prefix, client=client,
+        cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
     return
     assembly_v1 = memory.cache(break_10x, ignore=["cores"])(
         assembly,

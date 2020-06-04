@@ -86,10 +86,5 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
     combined_stats = wheatchr2.merge(combined_stats, how="right", on="sorted_alphachr2")
     combined_stats = combined_stats.set_index("scaffold_index")
     info = dd.merge(combined_stats, fai, on="scaffold_index", how="right").drop("scaffold", axis=1)
-    # for col in ["Ncss", "NS", "NL", "sorted_Ncss1", "sorted_Ncss2"]:
-    #     info.loc[:, col] = pd.to_numeric(info[col].fillna(0), downcast="signed")  # .convert_dtypes()
-    # info.loc[:, "scaffold_index"] = info["scaffold_index"].astype(fai["scaffold_index"].dtype)
-    # info = info.set_index("scaffold_index")
-    # info = dd.from_pandas(info, npartitions=100)
     info = info.persist()
     return info

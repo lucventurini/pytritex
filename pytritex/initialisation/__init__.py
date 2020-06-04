@@ -11,19 +11,20 @@ from joblib import load
 
 
 def fai_reader(fasta, save_dir):
-    fai = dd.read_csv(fasta + ".fai", sep="\t",
+    fai = pd.read_csv(fasta + ".fai", sep="\t",
                       usecols=[0, 1], names=["scaffold", "length"],
                       dtype={"scaffold": "str",
-                             "length": np.int32}).reset_index(drop=False).rename(
-        columns={"index": "scaffold_index"}).astype({"scaffold_index": np.int32})
-    fai["scaffold_index"] += 1
+                             "length": np.int32})
+    fai["scaffold_index"] = pd.Series(range(1, fai["length"].shape[0] + 1))
     fai["orig_scaffold_index"] = fai["scaffold_index"]
     fai["start"] = fai["orig_start"] = 1
     fai["end"] = fai["length"]
     fai["orig_end"] = fai["length"]
     fai = fai.set_index("scaffold_index")
     fname = os.path.join(save_dir, "fai")
-    dd.to_parquet(fai, os.path.join(save_dir, "fai"), compression="gzip", engine="pyarrow")
+    dd.to_parquet(dd.from_pandas(fai,
+                                 chunksize=int(1e5)), os.path.join(save_dir, "fai"),
+                  compression="gzip", engine="pyarrow")
     fai = dd.read_parquet(fname, engine="pyarrow")
     return fai, fname
 
@@ -40,10 +41,12 @@ def read_fpairs(hic, fai, save_dir):
         fpairs = dd.concat(fpairs).reset_index(drop=True)
         # Now let us change the scaffold1 and scaffold2
         left = fai[["scaffold"]].reset_index(drop=False)
+
         left1 = left.rename(columns={"scaffold": "scaffold1", "scaffold_index": "scaffold_index1"})
+        assert "scaffold1" in left1.columns and "scaffold_index1" in left1.columns and left1.columns.shape[0] == 2
         fpairs = dd.merge(left1, fpairs, how="right", on="scaffold1").drop("scaffold1", axis=1)
-        left2 = left.copy()
-        left2 = left2.rename(columns={"scaffold": "scaffold2", "scaffold_index": "scaffold_index2"})
+        left2 = left.rename(columns={"scaffold": "scaffold2", "scaffold_index": "scaffold_index2"})
+        assert "scaffold2" in left2.columns and "scaffold_index2" in left2.columns and left2.columns.shape[0] == 2
         fpairs = dd.merge(left2, fpairs, how="right", on="scaffold2").drop("scaffold2", axis=1)
         fpairs["orig_scaffold_index1"] = fpairs["scaffold_index1"]
         fpairs["orig_scaffold_index2"] = fpairs["scaffold_index2"]
@@ -74,17 +77,21 @@ def initial(popseq, fasta, css, tenx, hic, save, client, cores=1):
         pysam.Fastafile(fasta)
 
     print(time.ctime(), "Reading the FAIDX index")
-    fai, fai_name = fai_reader(fasta, save_dir)
+    fairead = client.submit(fai_reader, fasta, save_dir)
+    fai, fai_name = client.gather(fairead)
     print(time.ctime(), "Read the FAIDX index")
     # Alignment of genetic markers used for the genetic map. In this example, the Morex WGS assembly by IBSC (2012).
     print(time.ctime(), "Reading the CSS alignment")
-    cssaln = read_morexaln_minimap(
-        paf=css, popseq=popseq, save_dir=save_dir, fai=fai, minqual=30, minlen=500, ref=True)
+    cssaln = client.submit(read_morexaln_minimap,
+                           paf=css, popseq=popseq, save_dir=save_dir,
+                           fai=fai, minqual=30, minlen=500, ref=True)
+    cssaln = client.gather(cssaln)
     print(time.ctime(), "Read the CSS alignment")
 
     # Read the list of Hi-C links.
     print(time.ctime(), "Reading the HiC links")
-    fpairs = read_fpairs(hic, fai, save_dir)
+    fpairs = client.submit(read_fpairs, hic, fai, save_dir)
+    fpairs = client.gather(fpairs)
     print(time.ctime(), "Read the HiC links")
 
     tenx_command = 'find {} -type f | grep "molecules.tsv.gz$"'.format(tenx)

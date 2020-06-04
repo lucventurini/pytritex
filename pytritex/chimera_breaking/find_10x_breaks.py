@@ -3,7 +3,8 @@ import dask.dataframe as dd
 import numpy as np
 
 
-def find_10x_breaks(cov: dd.DataFrame, scaffolds=None, interval=5e4, minNbin=20, dist=5e3, ratio=-3):
+def find_10x_breaks(cov: dd.DataFrame, scaffolds=None,
+                    interval=5e4, minNbin=20, dist=5e3, ratio=-3) -> pd.DataFrame:
     """
     This function will take as input a coverage dataframe derived from 10X data.
     It will find those areas in scaffolds that are further away from the end point of the scaffold than the

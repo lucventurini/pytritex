@@ -61,7 +61,16 @@ def _create_children_dataframes(broken):
     return pd.concat(dfs).reset_index(drop=True)
 
 
-def calculate_broken_scaffolds(breaks: pd.DataFrame, assembly: dict, slop):
+def calculate_broken_scaffolds(breaks: pd.DataFrame, assembly: dict,
+                               slop: float, save_dir: str):
+
+    """
+    This function will take the position of the breaks found by `find_10x_breaks` and
+    determine how to split up the scaffolds, *while keeping track of the origin of each single
+    resulting scaffold.*
+    The slop parameter determines how much to keep around the breaking point.
+    """
+
     fai = dd.read_parquet(assembly["fai"])
     fai["derived_from_split"] = False
 

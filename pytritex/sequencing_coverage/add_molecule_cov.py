@@ -3,6 +3,7 @@ import numpy as np
 import functools
 from time import ctime
 import dask.dataframe as dd
+from dask.distributed import Client
 import os
 from .collapse_bins import collapse_bins as cbn
 
@@ -19,7 +20,7 @@ def _group_analyser(group: pd.DataFrame, binsize, cores=1):
     return assigned
 
 
-def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200, cores=1):
+def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, binsize=200, cores=1):
     info = dd.read_parquet(assembly["info"])
     binsize = np.int(np.floor(binsize))
     if "molecules" not in assembly:
@@ -34,10 +35,12 @@ def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200, core
         molecules = dd.read_parquet(assembly["molecules"])
         null = True
     else:
-        info = dd.merge(info, scaffolds, on="scaffold_index", how="left").drop("scaffold", axis=1, errors="ignore")
+        info = client.submit(dd.merge, info, scaffolds, on="scaffold_index", how="left")
+        info = client.gather(info).drop("scaffold", axis=1, errors="ignore")
         molecules = dd.read_parquet(assembly["molecules"])
-        molecules = dd.merge(molecules, scaffolds, on="scaffold_index",
-                             how="left").drop("scaffold",axis=1, errors="ignore")
+        molecules = client.submit(dd.merge, molecules, scaffolds, on="scaffold_index",
+                             how="left")
+        molecules = client.gather(molecules).drop("scaffold",axis=1, errors="ignore")
         null = False
 
     if molecules.index.name == "scaffold_index":
@@ -56,7 +59,6 @@ def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200, core
     temp_dataframe = temp_dataframe.query("bin2 - bin1 > 2 * @binsize")[:]
 
     # Now let's persist the dataframe, and submit it to the Dask cluster
-
     _gr = functools.partial(_group_analyser, binsize=binsize, cores=cores)
     # pool = mp.Pool(processes=cores)
     # pool.close()
@@ -76,8 +78,9 @@ def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200, core
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
         print(ctime(), "Merging on coverage DF (10X)")
         try:
-            coverage_df = dd.merge(info[["length"]], coverage_df,
-                                   on="scaffold_index", how="right").compute()
+            coverage_df = client.submit(dd.merge, info[["length"]], coverage_df,
+                                   on="scaffold_index", how="right")
+            coverage_df = client.gather(coverage_df).compute()
         except ValueError:
             print(coverage_df.head())
             raise ValueError((coverage_df["scaffold_index"].dtype, info["scaffold_index"].dtype))
@@ -95,25 +98,28 @@ def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200, core
         coverage_df = coverage_df.eval("r = log(n / mn) / log(2)")
         __left = coverage_df["r"].groupby(level=0).agg(mr_10x=("r", "min"))
         __left.loc[:, "mr_10x"] = pd.to_numeric(__left["mr_10x"], downcast="float")
-        info_mr = dd.merge(__left, info, how="right", on="scaffold_index").drop(
+        info_mr = client.submit(dd.merge, __left, info, how="right", on="scaffold_index")
+        info_mr = client.gather(info_mr).drop(
             "index", axis=1, errors="ignore").drop("scaffold", axis=1, errors="ignore")
 
         print(ctime(), "Merged on coverage DF (10X)")
     else:
         info_mr = info.drop("mr_10x", axis=1, errors="ignore")
         # info_mr.drop("mr_10x", inplace=True, errors="ignore", axis=1)
-    info_mr = info_mr.persist()
-    coverage_df = dd.from_pandas(coverage_df, npartitions=np.unique(coverage_df.index.values).shape[0])
-    coverage_df = coverage_df.persist()
-    print("Molecule cov (add_mol):", coverage_df.shape[0], coverage_df.columns)
-
+    # info_mr = info_mr.persist()
+    coverage_df = client.submit(dd.from_pandas,
+                                coverage_df, npartitions=np.unique(coverage_df.index.values).shape[0])
+    coverage_df = client.gather(coverage_df)
+    # coverage_df = coverage_df.persist()
     if null is True:
         assembly["info"] = info_mr
         assembly["molecule_cov"] = coverage_df
         assembly["mol_binsize"] = binsize
         for key in ["info", "molecule_cov"]:
             fname = os.path.join(save_dir, "joblib", "pytritex", "sequencing_coverage", key + "_10x")
-            dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+            parqueting = client.submit(dd.to_parquet,
+                                       assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+            client.gather(parqueting)
             assembly[key] = fname
         return assembly
     else:
