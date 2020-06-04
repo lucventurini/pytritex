@@ -53,6 +53,7 @@ def main():
     parser.add_argument("-s", "--save-prefix", default="assembly")
     parser.add_argument("-dc", "--dask-cache", default="dask_data", type=str)
     # parser.add_argument("-umfs", "--use-memory_fs", default=False, action="store_true")
+    parser.add_argument("--mem", default="20GB", type=str)
     parser.add_argument("--save", default=False, action="store_true")
     parser.add_argument("--10x", dest="tenx")
     parser.add_argument("popseq")
@@ -69,6 +70,7 @@ def main():
     cluster = LocalCluster(n_workers=args.procs, threads_per_worker=1, processes=True,
                            scheduler_port=0,
                            silence_logs=logging.ERROR)
+    cluster.adapt(maximum_memory=args.mem)
     client = Client(cluster, set_as_default=True)
 
     # Initial assembly
@@ -85,15 +87,7 @@ def main():
         assembly,
         ratio=-3, interval=5e4, minNbin=20, dist=2e3,
         slop=2e2, species="wheat", intermediate=False, cores=args.procs)["assembly"]
-    breaks = memory.cache(find_10x_breaks)(assembly["molecule_cov"])
-    res = os.path.join(args.save_prefix, "joblib", "pytritex", "chimera_breaking", "break_10x",
-                       "v0.pkl")
-    if os.path.exists(res):
-        assembly_v1 = load(res)
-    else:
-
-        os.makedirs(os.path.dirname(res), exist_ok=True)
-        dump(assembly_v1, res, compress=("zlib", 6))
+    return
     print("Broken chimeras")
     grid_evaluation(assembly_v1, args)
     return

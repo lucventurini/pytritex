@@ -1,8 +1,7 @@
-import pandas as pd
-import numpy as np
 from .break_scaffolds import break_scaffolds
 from .find_10x_breaks import find_10x_breaks
 from functools import partial
+import dask.dataframe as dd
 
 
 def break_10x(assembly, species="wheat", ratio=-3, interval=5e4, minNbin=20,
@@ -23,7 +22,10 @@ def break_10x(assembly, species="wheat", ratio=-3, interval=5e4, minNbin=20,
 
     dist = max(dist, 2 * slop + 1)
     break_finder = partial(find_10x_breaks, interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
-    breaks = break_finder(assembly.get("molecule_cov", None))
+    molecule_cov = assembly.get("molecule_cov", None)
+    if molecule_cov is not None:
+        molecule_cov = dd.read_parquet(molecule_cov)
+    breaks = break_finder(molecule_cov)
     cycle = 0
     lbreaks = {0: breaks}  # TODO: what is this for?
     if intermediate is True:

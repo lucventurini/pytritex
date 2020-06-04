@@ -23,11 +23,11 @@ def find_10x_breaks(cov: dd.DataFrame, scaffolds=None, interval=5e4, minNbin=20,
         cov = cov.loc[scaffolds]
     cov["b"] = cov["bin"] // interval
     cov = cov.persist()
-    print(cov.compute().head(10))
     broken = cov.query("nbin >= @minNbin & r <= @ratio", local_dict=locals())
     bait = np.minimum(broken["length"] - broken["bin"], broken["bin"]) >= dist
     broken = broken.loc[bait, :].compute()
     if broken.shape[0] == 0:
         return pd.DataFrame()
-    broken = broken.sort_values("r").groupby(["scaffold_index", "b"]).head(1).rename(columns={"bin": "breakpoint"})
+    broken = broken.sort_values("r").groupby(
+        ["scaffold_index", "b"]).head(1).rename(columns={"bin": "breakpoint"}).compute()
     return broken

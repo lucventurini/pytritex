@@ -62,9 +62,8 @@ def _create_children_dataframes(broken):
 
 
 def calculate_broken_scaffolds(breaks: pd.DataFrame, assembly: dict, slop):
-    fai = assembly["fai"]
+    fai = dd.read_parquet(assembly["fai"])
     fai["derived_from_split"] = False
-    fai = fai.persist()
 
     broken = breaks.copy()
     broken = dd.merge(fai[["length"]], broken.drop("length", axis=1, errors="ignore"),
@@ -75,14 +74,14 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, assembly: dict, slop):
         # breaks: scaffold_index  length   break   n       d  nbin          mn         r         b
         # fai: scaffold_index scaffold  length  orig_scaffold_index  start  orig_start     end  orig_end
         initial_shape = fai.shape[0]
-        maxid = fai["scaffold_index"].max()  # The new scaffolds must have an index after this one.
+        maxid = fai.index.compute().values.max()  # The new scaffolds must have an index after this one.
         # TODO this is wrong, we need to go back to the original scaffold here.
         broken.loc[:, "original_breakpoint"] = broken["orig_start"] + broken["breakpoint"] - 1
-        broken = broken.sort_values(["scaffold", "breakpoint"])
+        broken = broken.sort_values(["original_scaffold_index", "breakpoint"])
         if any(_ not in broken.columns for _ in breaks.columns):
             raise KeyError([(_, _ in broken.columns) for _ in breaks.columns])
-        broken_next_cycle = broken.loc[broken["scaffold"].duplicated()][breaks.columns]
-        broken = broken.loc[~broken["scaffold"].duplicated()]
+        broken_next_cycle = broken.loc[broken["original_scaffold_index"].duplicated()][breaks.columns]
+        broken = broken.loc[~broken["original_scaffold_index"].duplicated()]
         broken = _calculate_coordinates(broken, slop, maxid)
         broken = _create_children_dataframes(broken)
         # Now, for all those scaffolds that have multiple break points, we have to:
@@ -104,7 +103,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, assembly: dict, slop):
             broken_next_cycle = fnc.merge(broken_next_cycle.drop("length", axis=1), on="scaffold_index")
             broken_next_cycle.loc[:, "breakpoint"] = broken_next_cycle["breakpoint"] - broken_next_cycle["orig_start"]
 
-        fai = pd.concat([fai, broken.sort_values("scaffold_index")]).reset_index(drop=True)
+        fai = dd.concat([fai, broken.sort_values("scaffold_index")]).reset_index(drop=True)
         if initial_shape < fai.shape[0]:
             print("Finished cycle", cycle, ", increased scaffolds from", initial_shape, "to", fai.shape[0])
         cycle += 1
