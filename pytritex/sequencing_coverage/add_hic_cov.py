@@ -77,6 +77,8 @@ Supplied values: {}, {}".format(binsize, binsize2))
 
     # Switch columns for those positions
     def column_switcher(fpairs):
+        print(fpairs.head())
+        fpairs = fpairs.reset_index(drop=True)
         query = "scaffold_index1 == scaffold_index2 & pos1 > pos2"
         values = fpairs[["pos1", "pos2"]].compute().to_numpy()
         mask = np.repeat(fpairs.eval(query).compute().to_numpy(), 2).reshape(values.shape)

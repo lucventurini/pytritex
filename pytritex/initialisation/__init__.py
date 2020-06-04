@@ -4,17 +4,18 @@ from pytritex.initialisation.read_cssaln import read_morexaln_minimap
 import os
 import subprocess as sp
 from .read_10x import read_10x_molecules
-import numpy as np
 import dask.dataframe as dd
 import time
 from joblib import load
+import numpy as np
 
 
 def fai_reader(fasta, save_dir):
-    fai = pd.read_csv(fasta + ".fai", sep="\t",
-                      usecols=[0, 1], names=["scaffold", "length"],
-                      dtype={"scaffold": "str",
-                             "length": np.int32})
+    fasta = pysam.Fastafile(fasta)
+    fai = pd.DataFrame().assign(
+        scaffold=fasta.references,
+        length=fasta.lengths).astype({"scaffold": "str", "length": np.int32})
+
     fai["scaffold_index"] = pd.Series(range(1, fai["length"].shape[0] + 1))
     fai["orig_scaffold_index"] = fai["scaffold_index"]
     fai["start"] = fai["orig_start"] = 1
@@ -72,9 +73,6 @@ def initial(popseq, fasta, css, tenx, hic, save, client, memory, cores=1):
     pop_name = os.path.join(save_dir, "popseq")
     dd.to_parquet(popseq, pop_name, compute=True)
     popseq = dd.read_parquet(pop_name)
-
-    if not os.path.exists(fasta + ".fai"):
-        pysam.Fastafile(fasta)
 
     def fai_submitter(fasta, save_dir):
         fairead = client.submit(fai_reader, fasta, save_dir)
