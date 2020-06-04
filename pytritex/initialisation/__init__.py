@@ -63,7 +63,7 @@ def read_fpairs(hic, fai, save_dir):
     return fname
 
 
-def initial(popseq, fasta, css, tenx, hic, save, client, cores=1):
+def initial(popseq, fasta, css, tenx, hic, save, client, memory, cores=1):
 
     save_dir = os.path.join(save, "joblib", "pytritex", "initialisation")
     os.makedirs(save_dir, exist_ok=True)
@@ -76,27 +76,41 @@ def initial(popseq, fasta, css, tenx, hic, save, client, cores=1):
     if not os.path.exists(fasta + ".fai"):
         pysam.Fastafile(fasta)
 
+    def fai_submitter(fasta, save_dir):
+        fairead = client.submit(fai_reader, fasta, save_dir)
+        fai, fai_name = client.gather(fairead)
+        return fai, fai_name
+
     print(time.ctime(), "Reading the FAIDX index")
-    fairead = client.submit(fai_reader, fasta, save_dir)
-    fai, fai_name = client.gather(fairead)
+    fai, fai_name = memory.cache(fai_submitter)(fasta, save_dir)
     print(time.ctime(), "Read the FAIDX index")
     # Alignment of genetic markers used for the genetic map. In this example, the Morex WGS assembly by IBSC (2012).
     print(time.ctime(), "Reading the CSS alignment")
-    cssaln = client.submit(read_morexaln_minimap,
-                           paf=css, popseq=popseq, save_dir=save_dir,
-                           fai=fai, minqual=30, minlen=500, ref=True)
-    cssaln = client.gather(cssaln)
-    print(time.ctime(), "Read the CSS alignment")
 
+    def cssaln_submitter(fai, css, popseq, save_dir, minqual, minlen, ref):
+        cssaln = client.submit(read_morexaln_minimap,
+                               paf=css, popseq=popseq, save_dir=save_dir,
+                               fai=fai, minqual=minqual, minlen=minlen, ref=ref)
+        cssaln = client.gather(cssaln)
+        return cssaln
+
+    cssaln = memory.cache(cssaln_submitter, ignore=["fai", "css", "popseq"])(
+        fai, css, popseq, save_dir, minqual=30, minlen=500, ref=True)
+    print(time.ctime(), "Read the CSS alignment")
     # Read the list of Hi-C links.
     print(time.ctime(), "Reading the HiC links")
-    fpairs = client.submit(read_fpairs, hic, fai, save_dir)
-    fpairs = client.gather(fpairs)
-    print(time.ctime(), "Read the HiC links")
 
+    def fpairs_reader_submitter(hic, fai, save_dir):
+        fpairs = client.submit(read_fpairs, hic, fai, save_dir)
+        fpairs = client.gather(fpairs)
+        return fpairs
+
+    fpairs = memory.cache(fpairs_reader_submitter, ignore=["hic", "fai"])(hic, fai, save_dir)
+    print(time.ctime(), "Read the HiC links")
     tenx_command = 'find {} -type f | grep "molecules.tsv.gz$"'.format(tenx)
     tenx_files = [line.rstrip().decode() for line in
                   sp.Popen(tenx_command, shell=True, stdout=sp.PIPE).stdout]
+
     if tenx_files:
         print(time.ctime(), "Reading the 10X links")
         tenx_dict = []
@@ -105,7 +119,8 @@ def initial(popseq, fasta, css, tenx, hic, save, client, cores=1):
             tenx_dict.append((index, sample, fname))
         samples = list(zip(*tenx_dict))
         samples = pd.DataFrame({"index": samples[0], "sample": samples[1], "fname": samples[2]})
-        molecules, barcodes = read_10x_molecules(samples, fai, save_dir, client=client)
+        molecules, barcodes = memory.cache(read_10x_molecules,
+                                           ignore=["fai", "client"])(samples, fai, save_dir, client=client)
         print(time.ctime(), "Read the 10X links")
     else:
         print("No 10X molecules! Error")

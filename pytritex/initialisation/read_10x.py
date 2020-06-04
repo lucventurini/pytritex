@@ -22,9 +22,10 @@ def _10xreader(item):
 def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, client):
     """Read the files as produced by run_10x_mapping.zsh"""
     # pool = mp.Pool(ncores)
+
     molecules = [client.submit(
         _10xreader, row) for row in samples[["index", "fname"]].itertuples(index=False, name=None)]
-    molecules = [client.gather(mol) for mol in molecules]
+    molecules = client.gather(molecules)
     mol = dd.concat(molecules)
     f = fai[["scaffold"]].reset_index(drop=False).set_index("scaffold")
     try:
