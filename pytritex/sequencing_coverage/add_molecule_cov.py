@@ -81,7 +81,6 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         n=finalised[:, 2]).set_index("scaffold_index")
     shape = coverage_df.shape[0]
     coverage_df = dd.from_pandas(coverage_df, npartitions=min(shape // 100, 1000))
-    print(coverage_df.head())
 
     if shape > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
@@ -119,7 +118,6 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         mr_10x = coverage_df["r"].groupby(coverage_df.index.name
                                           ).agg("min").to_frame("mr_10x")
         assert isinstance(mr_10x, dd.DataFrame)
-        print(mr_10x.head())
         # assert isinstance(info, (Delayed, dd.DataFrame))
         info = client.scatter(info)
         func = delayed(dd.merge)(mr_10x, info, how="right", on="scaffold_index", npartitions=1000)
