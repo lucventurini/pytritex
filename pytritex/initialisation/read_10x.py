@@ -61,10 +61,7 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, clien
     print(time.ctime(), "Changing barcodes with indices")
     barcodes = pd.DataFrame({"barcode_index": np.arange(barcode.shape[0], dtype=np.int32),
                              "barcode": barcode})
-    molfunc = delayed(dd.merge)(barcodes, mol, how="right", on="barcode",
-                                npartitions=100)
-    mol = client.compute(molfunc)
-    mol = dd.from_delayed([mol])
+    mol = dd.merge(barcodes, mol, how="right", on="barcode", npartitions=100)
     mol = mol.drop("barcode", axis=1).set_index("scaffold_index")
     print(time.ctime(), "Storing data to disk")
     fname = os.path.join(save_dir, "molecules")
