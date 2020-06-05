@@ -42,9 +42,12 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, clien
     f = fai[["scaffold"]].reset_index(drop=False).set_index("scaffold")
     try:
         print(time.ctime(), "Merging FAI into molecules")
+        print(type(mol))
         molfunc = delayed(dd.merge)(f, mol, on="scaffold", how="right")
-        mol = client.compute(molfunc).result()
-        mol = mol.reset_index(drop=True)
+        mol = client.compute(molfunc)
+        mol = mol.result().reset_index(drop=True)
+        assert isinstance(mol, dd.DataFrame)
+        # mol = dd.from_delayed(mol)
         print(time.ctime(), "Merged FAI into molecules")
     except KeyError:
         print(mol.head(10))
@@ -57,16 +60,21 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, clien
     mol["orig_start"] = mol["start"]
     mol["orig_end"] = mol["end"]
     mol["orig_scaffold_index"] = mol["scaffold_index"]
-    barcode = mol["barcode"].compute()
+    mol = client.persist(mol)
+    # barcode = mol["barcode"].compute()
     print(time.ctime(), "Changing barcodes with indices")
-    barcodes = pd.DataFrame({"barcode_index": np.arange(barcode.shape[0], dtype=np.int32),
-                             "barcode": barcode})
-    barcodes = dd.from_pandas(barcodes, npartitions=1000)
+    barcodes = mol["barcode"].unique().compute()
+    shape = barcodes.shape[0]
+    barcodes = pd.DataFrame().assign(
+        barcode=barcodes,
+        barcode_index=np.arange(shape, dtype=np.int32)).set_index("barcode")
+    barcodes = dd.from_pandas(barcodes, npartitions=100)
     bar_name = os.path.join(save_dir, "barcodes")
     dd.to_parquet(barcodes, bar_name, compression="gzip", engine="pyarrow", compute=True)
     barcodes = dd.read_parquet(bar_name)
-    mol = dd.merge(barcodes, mol, how="right", on="barcode", npartitions=100)
-    mol = mol.drop("barcode", axis=1).set_index("scaffold_index")
+    mol = dd.merge(barcodes, mol, how="right", on="barcode", npartitions=100
+                   ).reset_index("barcode").set_index("scaffold_index")
+    mol = client.persist(mol)
     print(time.ctime(), "Storing data to disk")
     fname = os.path.join(save_dir, "molecules")
     dd.to_parquet(mol, fname, compression="gzip", engine="pyarrow", compute=True)
