@@ -61,9 +61,13 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, clien
     print(time.ctime(), "Changing barcodes with indices")
     barcodes = pd.DataFrame({"barcode_index": np.arange(barcode.shape[0], dtype=np.int32),
                              "barcode": barcode})
+    barcodes = dd.from_pandas(barcodes, npartitions=1000)
+    bar_name = os.path.join(save_dir, "barcodes")
+    dd.to_parquet(barcodes, bar_name, compression="gzip", engine="pyarrow", compute=True)
+    barcodes = dd.read_parquet(bar_name)
     mol = dd.merge(barcodes, mol, how="right", on="barcode", npartitions=100)
     mol = mol.drop("barcode", axis=1).set_index("scaffold_index")
     print(time.ctime(), "Storing data to disk")
     fname = os.path.join(save_dir, "molecules")
     dd.to_parquet(mol, fname, compression="gzip", engine="pyarrow", compute=True)
-    return fname, barcodes
+    return fname, bar_name
