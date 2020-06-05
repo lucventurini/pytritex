@@ -91,12 +91,12 @@ def main():
         ram=args.mem)
     assembly = memory.cache(anchor_scaffolds, ignore=["client"])(
         assembly, args.save_prefix, client=client, species="wheat")
-    return
     assembly = memory.cache(add_molecule_cov, ignore=["cores", "client", "memory"])(
         assembly, cores=args.procs, client=client, binsize=200, save_dir=args.save_prefix, memory=args.mem)
     assembly = memory.cache(add_hic_cov, ignore=["cores", "memory", "client"])(
         assembly, save_dir=args.save_prefix, client=client, memory=args.mem,
         cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
+    client.close()
     return
     assembly_v1 = memory.cache(break_10x, ignore=["cores"])(
         assembly,

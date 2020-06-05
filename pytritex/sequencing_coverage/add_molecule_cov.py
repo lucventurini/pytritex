@@ -6,6 +6,8 @@ import dask.dataframe as dd
 from dask.distributed import Client
 import os
 from .collapse_bins import collapse_bins as cbn
+from dask import delayed
+import time
 
 
 def _group_analyser(group: pd.DataFrame, binsize, cores=1):
@@ -37,6 +39,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         molecules = dd.read_parquet(assembly["molecules"])
         null = True
     else:
+        info = client.scatter(info)
         info = client.submit(dd.merge, info, scaffolds, on="scaffold_index", how="left",
                              resources={"process": 1, "MEMORY": memory})
         info = client.gather(info).drop("scaffold", axis=1, errors="ignore")
@@ -76,58 +79,71 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         scaffold_index=finalised[:, 0],
         bin=finalised[:, 1],
         n=finalised[:, 2]).set_index("scaffold_index")
+    shape = coverage_df.shape[0]
+    coverage_df = dd.from_pandas(coverage_df, npartitions=min(shape // 100, 1000))
+    print(coverage_df.head())
 
-    if coverage_df.shape[0] > 0:
+    if shape > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
         print(ctime(), "Merging on coverage DF (10X)")
-        try:
-            coverage_df = client.submit(dd.merge, info[["length"]], coverage_df,
-                                        on="scaffold_index", how="right",
-                                        resources={"process": 1, "MEMORY": memory})
-            coverage_df = client.gather(coverage_df).compute()
-        except ValueError:
-            print(coverage_df.head())
-            raise ValueError((coverage_df["scaffold_index"].dtype, info["scaffold_index"].dtype))
-        coverage_df["d"] = pd.to_numeric(
-            np.minimum(
-                coverage_df["bin"],
-                ((coverage_df["length"] - coverage_df["bin"]) // binsize) * binsize
-            ), downcast="integer")
-
-        nbins = coverage_df.groupby(level=0).size().to_frame("nbin")
-        coverage_df = coverage_df.merge(nbins, how="left", on="scaffold_index")
+        assert info.index.name == coverage_df.index.name
+        coverage_df = client.scatter(coverage_df)
+        info_length = client.scatter(info[["length"]])
+        # coverage_df = dd.merge(info_length, coverage_df,
+        #          left_index=True, right_index=True,
+        #          how="right", npartitions=1000)
+        func = delayed(dd.merge)(info_length, coverage_df,
+                                 left_index=True, right_index=True,
+                                 how="right", npartitions=1000)
+        coverage_df = client.compute(func).result()
+        assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
+        arr = coverage_df[["bin", "length"]].to_dask_array(lengths=True)
+        distance = dd.from_array(np.minimum(
+            arr[:, 0],
+            (arr[:, 1] - arr[:, 0]) // binsize * binsize)).to_frame("d")
+        distance.index = coverage_df.index
+        coverage_df = coverage_df.assign(d=distance["d"])
+        nbins = coverage_df.groupby(coverage_df.index.name).size().to_frame("nbin")
+        assert isinstance(nbins, dd.DataFrame), type(nbins)
+        assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
+        coverage_df = dd.merge(coverage_df, nbins, how="left", left_index=True, right_index=True,
+                               npartitions=1000)
+        assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         # Get the average coverage ACROSS ALL SCAFFOLDS by distance to the end of the bin.
-        coverage_df["mn"] = pd.to_numeric(
-            coverage_df.reset_index(drop=False).groupby("d")["n"].transform("mean"), downcast="float")
+        mn = coverage_df.groupby("d")["n"].mean().to_frame("mn")
+        coverage_df = dd.merge(coverage_df.reset_index(drop=False), mn, on="d", how="left"
+                               ).set_index("scaffold_index")
+        assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         coverage_df = coverage_df.eval("r = log(n / mn) / log(2)")
-        __left = coverage_df["r"].groupby(level=0).agg(mr_10x=("r", "min"))
-        __left.loc[:, "mr_10x"] = pd.to_numeric(__left["mr_10x"], downcast="float")
-        info_mr = client.submit(dd.merge, __left, info, how="right", on="scaffold_index",
-                                resources={"process": 1, "MEMORY": memory})
-        info_mr = client.gather(info_mr).drop(
-            "index", axis=1, errors="ignore").drop("scaffold", axis=1, errors="ignore")
-
+        assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
+        mr_10x = coverage_df["r"].groupby(coverage_df.index.name
+                                          ).agg("min").to_frame("mr_10x")
+        assert isinstance(mr_10x, dd.DataFrame)
+        print(mr_10x.head())
+        # assert isinstance(info, (Delayed, dd.DataFrame))
+        info = client.scatter(info)
+        func = delayed(dd.merge)(mr_10x, info, how="right", on="scaffold_index", npartitions=1000)
+        info_mr = client.compute(func).result()
+        assert isinstance(info_mr, dd.DataFrame), type(info_mr)
+        # assert isinstance(info_mr, dd.DataFrame), type(info_mr)
+        info_mr = info_mr.drop("index", axis=1, errors="ignore").drop("scaffold", axis=1, errors="ignore")
         print(ctime(), "Merged on coverage DF (10X)")
     else:
         info_mr = info.drop("mr_10x", axis=1, errors="ignore")
         # info_mr.drop("mr_10x", inplace=True, errors="ignore", axis=1)
-    # info_mr = info_mr.persist()
-    coverage_df = client.submit(dd.from_pandas,
-                                coverage_df, npartitions=np.unique(coverage_df.index.values).shape[0],
-                                resources={"process": 1, "MEMORY": memory})
-    coverage_df = client.gather(coverage_df)
-    # coverage_df = coverage_df.persist()
+
     if null is True:
         assembly["info"] = info_mr
         assembly["molecule_cov"] = coverage_df
+        assert isinstance(assembly["molecule_cov"], dd.DataFrame), type(assembly["molecule_cov"])
+        assert isinstance(assembly["info"], dd.DataFrame), type(assembly["info"])
         assembly["mol_binsize"] = binsize
         for key in ["info", "molecule_cov"]:
+            print(time.ctime(), "Storing", key)
             fname = os.path.join(save_dir, "joblib", "pytritex", "sequencing_coverage", key + "_10x")
-            parqueting = client.submit(dd.to_parquet,
-                                       assembly[key], fname, compression="gzip", engine="pyarrow", compute=True,
-                                       resources={"process": 1, "MEMORY": memory})
-            client.gather(parqueting)
+            dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
             assembly[key] = fname
+        print(time.ctime(), "Finished storing 10X coverage.")
         return assembly
     else:
         # TODO: this might need to be amended if we are going to checkpoint.

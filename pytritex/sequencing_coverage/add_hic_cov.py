@@ -8,6 +8,7 @@ pd.options.mode.chained_assignment = 'raise'
 from time import ctime
 import os
 from .collapse_bins import collapse_bins as cbn
+from dask import delayed
 
 
 def _group_analyser(group, binsize, cores=1):
@@ -66,7 +67,6 @@ Supplied values: {}, {}".format(binsize, binsize2))
     if "mr" in info.columns or "mri" in info.columns:
         raise KeyError("Assembly[info] already has mr and/or mri columns; aborting.")
     fpairs = dd.read_parquet(assembly["fpairs"])
-    # fpairs = fpairs.reset_index(drop=True)
 
     binsize = np.int(np.floor(binsize))
     if scaffolds is None:
@@ -89,8 +89,8 @@ Supplied values: {}, {}".format(binsize, binsize2))
         fpairs = fpairs.drop_duplicates()
         return fpairs
 
-    fpairs = client.submit(column_switcher, fpairs, resources={"process": 1, "MEMORY": memory})
-    fpairs = fpairs.result()
+    fpairs = client.submit(column_switcher, fpairs).result()
+    assert isinstance(fpairs, dd.DataFrame)
     # Bin positions of the match by BinSize; only select those bins where the distance between the two bins is
     # greater than the double of the binsize.
     query = "scaffold_index1 == scaffold_index2"
@@ -120,47 +120,48 @@ Supplied values: {}, {}".format(binsize, binsize2))
         print(ctime(), "Merging on coverage DF (HiC)")
         # Group by bin, count how covered is each bin, reset the index so it is only by scaffold_index
         coverage_df = coverage_df.groupby(["scaffold_index", "bin"]).agg(n=("n", "sum")).reset_index(level=1)
-        coverage_df = client.submit(dd.merge, info[["length"]],
-                               coverage_df, on="scaffold_index", how="right",
-                                    resources={"process": 1, "MEMORY": memory})
-        coverage_df = client.gather(coverage_df).compute()
+        coverage_df = client.scatter(dd.from_pandas(coverage_df, npartitions=1000))
+        info_length = client.scatter(info[["length"]])
+        func = delayed(dd.merge)(info_length, coverage_df, on="scaffold_index", how="right")
+        coverage_df = client.compute(func).result()
+        assert isinstance(coverage_df, dd.DataFrame)
         # D is again the bin, but cutting it at the rightmost side
-        coverage_df["d"] = pd.to_numeric(np.minimum(
-            coverage_df["bin"],
-            coverage_df.eval("length - bin") // binsize * binsize),
-            downcast="integer")
-
+        arr = coverage_df[["bin", "length"]].to_dask_array(lengths=True)
+        distance = dd.from_array(np.minimum(
+            arr[:, 0],
+            (arr[:, 1] - arr[:, 0]) // binsize * binsize)).to_frame("d")
+        distance.index = coverage_df.index
+        coverage_df = coverage_df.assign(d=distance["d"])
         # Number of bins found in each scaffold. Take "n" as the column to count.
-        nbins = coverage_df.groupby(level=0).size().to_frame("nbin")
-        coverage_df = coverage_df.merge(nbins, on="scaffold_index", how="left")
+        nbins = coverage_df.groupby(coverage_df.index.name).size().to_frame("nbin")
+        coverage_df = dd.merge(coverage_df, nbins, how="left", left_index=True, right_index=True,
+                               npartitions=1000)
         # Mean number of pairs covering each bin (cut at the rightmost side)
-        coverage_df["mn"] = coverage_df[["d", "n"]].groupby(["scaffold_index", "d"])["n"].transform("mean")
+        mn = coverage_df.groupby("d")["n"].mean().to_frame("mn")
+        coverage_df = dd.merge(coverage_df.reset_index(drop=False), mn, on="d", how="left"
+                               ).set_index("scaffold_index")
         # Logarithm of number of pairs in bin divided by mean of number of pairs in bin?
         coverage_df = coverage_df.eval("r = log(n/mn) / log(2)")
+        assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         # For each scaffold where the number of found bins is greater than minNbin,
         # calculate the minimum ratio (in log2) of the coverage per-bin divided by the mean coverage (in the scaffold)
-        min_ratio = coverage_df.query("nbin >= @minNbin")["r"].groupby(level=0).agg(
-            mr=("r", "min")).sort_values("mr")
+        min_ratio = coverage_df[coverage_df["nbin"] >= minNbin]["r"]
+        min_ratio = min_ratio.groupby("scaffold_index").min().to_frame("mr").compute().sort_values("mr")
+        min_ratio = dd.from_pandas(min_ratio, npartitions=1000)
         # For those scaffolds where we have at least one bin which is further away from the start than "innerDist",
         # calculate the minimum coverage *for those bins only*.
-        min_internal_ratio = coverage_df.query(
-            "nbin > @minNbin & d >= @innerDist")["r"].groupby(level=0).agg(mri=("r", "min"))
-        coverage_df = min_internal_ratio.merge(
-            min_ratio.merge(coverage_df, on="scaffold_index", how="right"),
-            on="scaffold_index", how="right").drop("scaffold", axis=1, errors="ignore")
-        info_mr = client.submit(dd.merge(min_ratio, info, on="scaffold_index", how="right"),
-                      resources={"process": 1, "MEMORY": memory})
-        info_mr = client.submit(dd.merge(min_internal_ratio, info_mr, on="scaffold_index", how="right"),
-                                resources={"process": 1, "MEMORY": memory})
-        info_mr = client.gather(info_mr)
+        min_internal_ratio = coverage_df[(coverage_df["nbin"] > minNbin) & (coverage_df["d"] >= innerDist)]["r"]
+        min_internal_ratio = min_internal_ratio.groupby("scaffold_index").min().to_frame("mri")
+        coverage_df = dd.merge(min_ratio, coverage_df, on="scaffold_index", how="right", npartitions=1000)
+        coverage_df = dd.merge(min_internal_ratio, coverage_df, on="scaffold_index", how="right", npartitions=1000)
+        assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
+        info_mr = dd.merge(min_ratio, info, on="scaffold_index", how="right")
+        info_mr = dd.merge(min_internal_ratio, info_mr, on="scaffold_index", how="right")
         info_mr = info_mr.drop("scaffold", axis=1, errors="ignore")
+        assert isinstance(info_mr, dd.DataFrame)
         print(ctime(), "Merged on coverage DF (HiC),", coverage_df.columns)
     else:
         info_mr = info.assign(mri=np.nan, mr=np.nan)
-
-    info_mr = info_mr.persist()
-    coverage_df = dd.from_pandas(coverage_df, npartitions=np.unique(coverage_df.index.to_numpy()).shape[0])
-    coverage_df = coverage_df.persist()
 
     if null is True:
         assembly["info"] = info_mr
@@ -169,9 +170,11 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assembly["minNbin"] = minNbin
         assembly["innerDist"] = innerDist
         for key in ["info", "cov"]:
+            print(ctime(), "Storing", key, "for HiC")
             fname = os.path.join(save_dir, "joblib", "pytritex", "sequencing_coverage", key + "_hic")
             dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
             assembly[key] = fname
+        print(ctime(), "Finished storing HiC")
         return assembly
     else:
         # TODO: this might need to be amended
