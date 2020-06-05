@@ -16,8 +16,9 @@ import numexpr as ne
 import dask
 # import dask.dataframe as dd
 import logging
-from dask.distributed import Client, LocalCluster
-
+from dask.distributed import Client, SpecCluster
+from dask.distributed import Scheduler, Worker, Nanny
+from pytritex.utils import return_size, parse_size
 
 
 def dispatcher(assembly, row):
@@ -68,22 +69,32 @@ def main():
     dask.config.global_config.update({"temporary-directory": args.dask_cache})
     dask.config.global_config.update({"distributed.comm.timeouts.tcp": "300s"})
     ne.set_num_threads(args.procs)
-    cluster = LocalCluster(n_workers=args.procs, threads_per_worker=1, processes=True,
-                           scheduler_port=0, protocol="tcp://",
-                           silence_logs=logging.WARNING)
-    cluster.adapt(maximum_memory=args.mem)
-    client = Client(cluster, set_as_default=True)
+    scheduler = {'cls': Scheduler}
+    workers = {'my-worker': {"cls": Worker, "options": {"nthreads": 1,
+                                                        "memory_limit": args.mem,
+                                                        "timeout": 60,
+                                                        "silence_logs": logging.ERROR}},
+               'my-nanny': {"cls": Nanny, "options": {"nthreads": 2,
+                                                      "memory_limit": "3GB",
+                                                      "silence_logs": logging.ERROR,
+                                                      "timeout": 60}}
+               }
+    cluster = SpecCluster(scheduler=scheduler, workers=workers, silence_logs=logging.ERROR)
+    cluster.scale(args.procs)
+    client = Client(cluster, set_as_default=True, timeout=60, direct_to_workers=True)
 
     # Initial assembly
     memory = Memory(os.path.join(".", args.save_prefix), compress=("zlib", 6), verbose=10)
-    assembly = memory.cache(initial, ignore=["cores", "client", "memory"])(
-        args.popseq, args.fasta, args.css, args.tenx, args.hic, args.save_prefix, client=client, memory=memory)
+    assembly = memory.cache(initial, ignore=["cores", "client", "memory", "ram"])(
+        args.popseq, args.fasta, args.css, args.tenx, args.hic, args.save_prefix, client=client, memory=memory,
+        ram=args.mem)
     assembly = memory.cache(anchor_scaffolds, ignore=["client"])(
         assembly, args.save_prefix, client=client, species="wheat")
-    assembly = memory.cache(add_molecule_cov, ignore=["cores", "client"])(
-        assembly, cores=args.procs, client=client, binsize=200, save_dir=args.save_prefix)
-    assembly = memory.cache(add_hic_cov, ignore=["cores", "client"])(
-        assembly, save_dir=args.save_prefix, client=client,
+    return
+    assembly = memory.cache(add_molecule_cov, ignore=["cores", "client", "memory"])(
+        assembly, cores=args.procs, client=client, binsize=200, save_dir=args.save_prefix, memory=args.mem)
+    assembly = memory.cache(add_hic_cov, ignore=["cores", "memory", "client"])(
+        assembly, save_dir=args.save_prefix, client=client, memory=args.mem,
         cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
     return
     assembly_v1 = memory.cache(break_10x, ignore=["cores"])(

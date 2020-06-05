@@ -5,6 +5,7 @@ from .add_hic_statistics import add_hic_statistics
 from .find_wrong_assignment import find_wrong_assignments
 import dask.dataframe as dd
 from dask.distributed import Client
+from dask import delayed
 import os
 
 
@@ -24,10 +25,13 @@ def anchor_scaffolds(assembly: dict,
         raise KeyError(
             "Parameter 'species' is not valid. Please set 'species' to one of "
             "\"wheat\", \"barley\", \"oats\", \"lolium\", \"sharonensis\" or \"rye\".")
+
     wheatchr = chrNames(species=species)
     fai = dd.read_parquet(assembly["fai"])
     cssaln = dd.read_parquet(assembly["cssaln"])
+    assert isinstance(cssaln, dd.DataFrame)
     popseq = dd.read_parquet(assembly["popseq"])
+    assert isinstance(popseq, dd.DataFrame)
     if "fpairs" not in assembly:
         fpairs = None
         hic = False
@@ -35,39 +39,25 @@ def anchor_scaffolds(assembly: dict,
         fpairs = dd.read_parquet(assembly["fpairs"])
         hic = (fpairs.head(5).shape[0] > 0)
 
-    scattered_css = client.scatter(cssaln)
-    scattered_fai = client.scatter(fai)
-
-    anchored_css = client.submit(assign_carma, scattered_css, scattered_fai, wheatchr)
-    anchored_css = client.submit(assign_popseq_position, cssaln=scattered_css,
-                                 popseq=popseq, anchored_css=anchored_css,
-                                 wheatchr=wheatchr)
-    anchored_css = client.gather(anchored_css)
-    anchored_css = client.scatter(anchored_css)
+    anchored_css = assign_carma(cssaln, fai, wheatchr)
+    anchored_css = assign_popseq_position(
+        cssaln=cssaln, popseq=popseq,
+        anchored_css=anchored_css, wheatchr=wheatchr)
     if hic is True:
-        assigner = client.submit(add_hic_statistics, anchored_css, fpairs)
-        anchored_css, anchored_hic_links = client.gather(assigner)
-        anchored_css = client.scatter(anchored_css)
+        anchored_css, anchored_hic_links = add_hic_statistics(anchored_css, fpairs)
         measure = ["popseq_chr", "hic_chr", "sorted_chr"]
     else:
         measure = ["popseq_chr", "sorted_chr"]
         anchored_hic_links = None
-    anchored_css = client.submit(find_wrong_assignments,
-                                 anchored_css, measure,
-                                 sorted_percentile=sorted_percentile, hic_percentile=hic_percentile,
-                                 popseq_percentile=popseq_percentile, hic=hic)
-    # anchored_css = client.gather(anchored_css)
-    # anchored_css.loc[:, "scaffold_index"] = anchored_css["scaffold_index"].fillna(0).astype(np.int)
-    # Store in parquet
-    anchored_css = client.gather(anchored_css)
+    anchored_css = find_wrong_assignments(anchored_css, measure,
+        sorted_percentile=sorted_percentile, hic_percentile=hic_percentile,
+        popseq_percentile=popseq_percentile, hic=hic)
+    assert isinstance(anchored_css, dd.DataFrame), (type(anchored_css))
     save_dir = os.path.join(save, "joblib", "pytritex", "anchoring")
-    parqueting = client.submit(dd.to_parquet, anchored_css, os.path.join(save_dir, "anchored_css"),
-                               compute=True)
-    client.gather(parqueting)
+    assert isinstance(anchored_css, dd.DataFrame)
+    dd.to_parquet(anchored_css, os.path.join(save_dir, "anchored_css"), compute=True)
     assembly["info"] = os.path.join(save_dir, "anchored_css")
     if hic is True:
-        parqueting = client.submit(dd.to_parquet,
-                                   anchored_hic_links, os.path.join(save_dir, "anchored_hic_links"))
-        client.gather(parqueting)
+        dd.to_parquet(anchored_hic_links, os.path.join(save_dir, "anchored_hic_links"), compute=True)
         assembly["fpairs"] = os.path.join(save_dir, "anchored_hic_links")
     return assembly

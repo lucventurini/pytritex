@@ -37,7 +37,8 @@ def _group_analyser(group, binsize, cores=1):
 
 
 def add_hic_cov(assembly, save_dir, client: Client,
-                scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1):
+                scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1,
+                memory="20GB"):
     """
     Calculate physical coverage with Hi-C links in sliding windows along the scaffolds.
     :param assembly:
@@ -88,7 +89,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         fpairs = fpairs.drop_duplicates()
         return fpairs
 
-    fpairs = client.submit(column_switcher, fpairs)
+    fpairs = client.submit(column_switcher, fpairs, resources={"process": 1, "MEMORY": memory})
     fpairs = fpairs.result()
     # Bin positions of the match by BinSize; only select those bins where the distance between the two bins is
     # greater than the double of the binsize.
@@ -119,8 +120,10 @@ Supplied values: {}, {}".format(binsize, binsize2))
         print(ctime(), "Merging on coverage DF (HiC)")
         # Group by bin, count how covered is each bin, reset the index so it is only by scaffold_index
         coverage_df = coverage_df.groupby(["scaffold_index", "bin"]).agg(n=("n", "sum")).reset_index(level=1)
-        coverage_df = dd.merge(info[["length"]],
-                               coverage_df, on="scaffold_index", how="right").compute()
+        coverage_df = client.submit(dd.merge, info[["length"]],
+                               coverage_df, on="scaffold_index", how="right",
+                                    resources={"process": 1, "MEMORY": memory})
+        coverage_df = client.gather(coverage_df).compute()
         # D is again the bin, but cutting it at the rightmost side
         coverage_df["d"] = pd.to_numeric(np.minimum(
             coverage_df["bin"],
@@ -145,8 +148,11 @@ Supplied values: {}, {}".format(binsize, binsize2))
         coverage_df = min_internal_ratio.merge(
             min_ratio.merge(coverage_df, on="scaffold_index", how="right"),
             on="scaffold_index", how="right").drop("scaffold", axis=1, errors="ignore")
-        info_mr = dd.merge(min_ratio, info, on="scaffold_index", how="right")
-        info_mr = dd.merge(min_internal_ratio, info_mr, on="scaffold_index", how="right")
+        info_mr = client.submit(dd.merge(min_ratio, info, on="scaffold_index", how="right"),
+                      resources={"process": 1, "MEMORY": memory})
+        info_mr = client.submit(dd.merge(min_internal_ratio, info_mr, on="scaffold_index", how="right"),
+                                resources={"process": 1, "MEMORY": memory})
+        info_mr = client.gather(info_mr)
         info_mr = info_mr.drop("scaffold", axis=1, errors="ignore")
         print(ctime(), "Merged on coverage DF (HiC),", coverage_df.columns)
     else:

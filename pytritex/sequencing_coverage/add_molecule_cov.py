@@ -20,9 +20,11 @@ def _group_analyser(group: pd.DataFrame, binsize, cores=1):
     return assigned
 
 
-def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, binsize=200, cores=1):
+def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, binsize=200, cores=1,
+                     memory="20GB"):
     info = dd.read_parquet(assembly["info"])
     binsize = np.int(np.floor(binsize))
+
     if "molecules" not in assembly:
         raise KeyError("The assembly object does not have a molecule table; aborting")
     elif assembly["molecules"] is None:
@@ -35,11 +37,12 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         molecules = dd.read_parquet(assembly["molecules"])
         null = True
     else:
-        info = client.submit(dd.merge, info, scaffolds, on="scaffold_index", how="left")
+        info = client.submit(dd.merge, info, scaffolds, on="scaffold_index", how="left",
+                             resources={"process": 1, "MEMORY": memory})
         info = client.gather(info).drop("scaffold", axis=1, errors="ignore")
         molecules = dd.read_parquet(assembly["molecules"])
         molecules = client.submit(dd.merge, molecules, scaffolds, on="scaffold_index",
-                             how="left")
+                                  how="left", resources={"process": 1, "MEMORY": memory})
         molecules = client.gather(molecules).drop("scaffold",axis=1, errors="ignore")
         null = False
 
@@ -79,7 +82,8 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         print(ctime(), "Merging on coverage DF (10X)")
         try:
             coverage_df = client.submit(dd.merge, info[["length"]], coverage_df,
-                                   on="scaffold_index", how="right")
+                                        on="scaffold_index", how="right",
+                                        resources={"process": 1, "MEMORY": memory})
             coverage_df = client.gather(coverage_df).compute()
         except ValueError:
             print(coverage_df.head())
@@ -98,7 +102,8 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         coverage_df = coverage_df.eval("r = log(n / mn) / log(2)")
         __left = coverage_df["r"].groupby(level=0).agg(mr_10x=("r", "min"))
         __left.loc[:, "mr_10x"] = pd.to_numeric(__left["mr_10x"], downcast="float")
-        info_mr = client.submit(dd.merge, __left, info, how="right", on="scaffold_index")
+        info_mr = client.submit(dd.merge, __left, info, how="right", on="scaffold_index",
+                                resources={"process": 1, "MEMORY": memory})
         info_mr = client.gather(info_mr).drop(
             "index", axis=1, errors="ignore").drop("scaffold", axis=1, errors="ignore")
 
@@ -108,7 +113,8 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         # info_mr.drop("mr_10x", inplace=True, errors="ignore", axis=1)
     # info_mr = info_mr.persist()
     coverage_df = client.submit(dd.from_pandas,
-                                coverage_df, npartitions=np.unique(coverage_df.index.values).shape[0])
+                                coverage_df, npartitions=np.unique(coverage_df.index.values).shape[0],
+                                resources={"process": 1, "MEMORY": memory})
     coverage_df = client.gather(coverage_df)
     # coverage_df = coverage_df.persist()
     if null is True:
@@ -118,7 +124,8 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         for key in ["info", "molecule_cov"]:
             fname = os.path.join(save_dir, "joblib", "pytritex", "sequencing_coverage", key + "_10x")
             parqueting = client.submit(dd.to_parquet,
-                                       assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+                                       assembly[key], fname, compression="gzip", engine="pyarrow", compute=True,
+                                       resources={"process": 1, "MEMORY": memory})
             client.gather(parqueting)
             assembly[key] = fname
         return assembly

@@ -5,6 +5,7 @@ import os
 import subprocess as sp
 from .read_10x import read_10x_molecules
 import dask.dataframe as dd
+from dask import delayed
 import time
 from joblib import load
 import numpy as np
@@ -64,19 +65,32 @@ def read_fpairs(hic, fai, save_dir):
     return fname
 
 
-def initial(popseq, fasta, css, tenx, hic, save, client, memory, cores=1):
-
-    save_dir = os.path.join(save, "joblib", "pytritex", "initialisation")
-    os.makedirs(save_dir, exist_ok=True)
+def load_popseq(popseq, save_dir):
     popseq = dd.from_pandas(load(popseq), npartitions=10)
     popseq.columns = popseq.columns.str.replace("morex", "css")
     pop_name = os.path.join(save_dir, "popseq")
     dd.to_parquet(popseq, pop_name, compute=True)
     popseq = dd.read_parquet(pop_name)
+    return popseq, pop_name
+
+
+def initial(popseq, fasta, css, tenx, hic, save, client, memory, ram="20GB", cores=1):
+
+    save_dir = os.path.join(save, "joblib", "pytritex", "initialisation")
+    os.makedirs(save_dir, exist_ok=True)
+    def submit_popseq(popseq, save_dir):
+        pop_function = delayed(load_popseq)(popseq, save_dir)
+        popped = client.compute(pop_function)
+        # result = client.compute(popped)
+        popseq, pop_name = popped.result()
+        return popseq, pop_name
+
+    popseq, pop_name = memory.cache(submit_popseq)(popseq, save_dir)
 
     def fai_submitter(fasta, save_dir):
-        fairead = client.submit(fai_reader, fasta, save_dir)
-        fai, fai_name = client.gather(fairead)
+        func = delayed(fai_reader)(fasta, save_dir)
+        fairead = client.compute(func)
+        fai, fai_name = fairead.result()
         return fai, fai_name
 
     print(time.ctime(), "Reading the FAIDX index")
@@ -118,7 +132,9 @@ def initial(popseq, fasta, css, tenx, hic, save, client, memory, cores=1):
         samples = list(zip(*tenx_dict))
         samples = pd.DataFrame({"index": samples[0], "sample": samples[1], "fname": samples[2]})
         molecules, barcodes = memory.cache(read_10x_molecules,
-                                           ignore=["fai", "client"])(samples, fai, save_dir, client=client)
+                                           ignore=["fai", "client",
+                                                   "cores", "memory"])(samples, fai, save_dir, client=client,
+                                                                       memory=ram, cores=cores)
         print(time.ctime(), "Read the 10X links")
     else:
         print("No 10X molecules! Error")

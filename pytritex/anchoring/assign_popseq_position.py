@@ -28,13 +28,14 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
     #  info[is.na(popseq_Ncss1), popseq_Ncss1 := 0]
     #  info[is.na(popseq_Ncss2), popseq_Ncss2 := 0]
 
+    assert isinstance(popseq, dd.DataFrame)
     popseq_positions = popseq.loc[~popseq["popseq_alphachr"].isna(),
                                   ["popseq_index", "popseq_alphachr", "popseq_cM"]].set_index("popseq_index")
-
+    assert isinstance(popseq_positions, dd.DataFrame)
     right = cssaln[["popseq_index"]].compute().reset_index(drop=False)
     right["popseq_index"] = pd.to_numeric(right["popseq_index"], downcast="integer")
-    popseq_positions = dd.merge(popseq_positions, right, on="popseq_index", how="left").reset_index(
-        drop=False).compute()
+    popseq_positions = dd.merge(popseq_positions, right, on="popseq_index", how="left"
+                                ).reset_index(drop=False).compute()
     popseq_stats = popseq_positions.groupby(["scaffold_index", "popseq_alphachr"])
     popseq_count = popseq_stats.size().to_frame("N").astype(np.uint32)
     popseq_stats = popseq_stats.agg({"popseq_cM": [np.mean, np.std, median_absolute_deviation]})
