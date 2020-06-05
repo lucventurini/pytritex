@@ -73,7 +73,7 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, clien
     dd.to_parquet(barcodes, bar_name, compression="gzip", engine="pyarrow", compute=True)
     barcodes = dd.read_parquet(bar_name)
     mol = dd.merge(barcodes, mol, how="right", on="barcode", npartitions=100
-                   ).reset_index("barcode").set_index("scaffold_index")
+                   ).drop("barcode", axis=1).set_index("scaffold_index")
     mol = client.persist(mol)
     print(time.ctime(), "Storing data to disk")
     fname = os.path.join(save_dir, "molecules")
