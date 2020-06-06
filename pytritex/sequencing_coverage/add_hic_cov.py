@@ -120,7 +120,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         print(ctime(), "Merging on coverage DF (HiC)")
         # Group by bin, count how covered is each bin, reset the index so it is only by scaffold_index
         coverage_df = coverage_df.groupby(["scaffold_index", "bin"]).agg(n=("n", "sum")).reset_index(level=1)
-        coverage_df = client.scatter(dd.from_pandas(coverage_df, chunksize=5000))
+        coverage_df = client.scatter(dd.from_pandas(coverage_df, chunksize=100000))
         info_length = client.scatter(info[["length"]])
         func = delayed(dd.merge)(info_length, coverage_df, on="scaffold_index", how="right")
         coverage_df = client.compute(func).result()
@@ -146,7 +146,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         # calculate the minimum ratio (in log2) of the coverage per-bin divided by the mean coverage (in the scaffold)
         min_ratio = coverage_df[coverage_df["nbin"] >= minNbin]["r"]
         min_ratio = min_ratio.groupby("scaffold_index").min().to_frame("mr").compute().sort_values("mr")
-        min_ratio = dd.from_pandas(min_ratio, chunksize=5000)
+        min_ratio = dd.from_pandas(min_ratio, chunksize=100000)
         # For those scaffolds where we have at least one bin which is further away from the start than "innerDist",
         # calculate the minimum coverage *for those bins only*.
         min_internal_ratio = coverage_df[(coverage_df["nbin"] > minNbin) & (coverage_df["d"] >= innerDist)]["r"]

@@ -80,7 +80,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         bin=finalised[:, 1],
         n=finalised[:, 2]).set_index("scaffold_index")
     shape = coverage_df.shape[0]
-    coverage_df = dd.from_pandas(coverage_df, chunksize=5000)
+    coverage_df = dd.from_pandas(coverage_df, chunksize=100000)
 
     if shape > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
