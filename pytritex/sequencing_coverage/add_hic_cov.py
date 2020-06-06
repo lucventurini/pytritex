@@ -37,6 +37,19 @@ def _group_analyser(group, binsize, cores=1):
     return assigned
 
 
+# Switch columns for those positions
+def column_switcher(fpairs: dd.DataFrame):
+    fpairs = fpairs.reset_index(drop=True)
+    query = "scaffold_index1 == scaffold_index2 & pos1 > pos2"
+    values = fpairs[["pos1", "pos2"]].to_dask_array(lengths=True)
+    mask = np.repeat(fpairs.eval(query).compute().to_numpy(), 2).reshape(values.shape)
+    values = np.where(mask, values[:, [1, 0]], values)
+    fpairs["pos1"] = values[:, 0]
+    fpairs["pos2"] = values[:, 1]
+    fpairs = fpairs.drop_duplicates()
+    return fpairs
+
+
 def add_hic_cov(assembly, save_dir, client: Client,
                 scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1,
                 memory="20GB"):
@@ -75,18 +88,6 @@ Supplied values: {}, {}".format(binsize, binsize2))
         info = info[info.scaffold_index.isin(scaffolds)]
         fpairs = fpairs[fpairs.scaffold_index1.isin(scaffolds)]
         null = False
-
-    # Switch columns for those positions
-    def column_switcher(fpairs):
-        fpairs = fpairs.reset_index(drop=True)
-        query = "scaffold_index1 == scaffold_index2 & pos1 > pos2"
-        values = fpairs[["pos1", "pos2"]].compute().to_numpy()
-        mask = np.repeat(fpairs.eval(query).compute().to_numpy(), 2).reshape(values.shape)
-        values = np.where(mask, values[:, [1, 0]], values)
-        fpairs["pos1"] = dd.from_array(values[:, 0]).reset_index(drop=True)
-        fpairs["pos2"] = dd.from_array(values[:, 1]).reset_index(drop=True)
-        fpairs = fpairs.drop_duplicates()
-        return fpairs
 
     fpairs = client.submit(column_switcher, fpairs).result()
     assert isinstance(fpairs, dd.DataFrame)
