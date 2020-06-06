@@ -80,7 +80,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         bin=finalised[:, 1],
         n=finalised[:, 2]).set_index("scaffold_index")
     shape = coverage_df.shape[0]
-    coverage_df = dd.from_pandas(coverage_df, npartitions=min(shape // 100, 1000))
+    coverage_df = dd.from_pandas(coverage_df, chunksize=5000)
 
     if shape > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
@@ -90,10 +90,10 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         info_length = client.scatter(info[["length"]])
         # coverage_df = dd.merge(info_length, coverage_df,
         #          left_index=True, right_index=True,
-        #          how="right", npartitions=1000)
+        #          how="right", chunksize=5000)
         func = delayed(dd.merge)(info_length, coverage_df,
                                  left_index=True, right_index=True,
-                                 how="right", npartitions=1000)
+                                 how="right")
         coverage_df = client.compute(func).result()
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         arr = coverage_df[["bin", "length"]].to_dask_array(lengths=True)
@@ -105,8 +105,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         nbins = coverage_df.groupby(coverage_df.index.name).size().to_frame("nbin")
         assert isinstance(nbins, dd.DataFrame), type(nbins)
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
-        coverage_df = dd.merge(coverage_df, nbins, how="left", left_index=True, right_index=True,
-                               npartitions=1000)
+        coverage_df = dd.merge(coverage_df, nbins, how="left", left_index=True, right_index=True)
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         # Get the average coverage ACROSS ALL SCAFFOLDS by distance to the end of the bin.
         mn = coverage_df.groupby("d")["n"].mean().to_frame("mn")
@@ -120,7 +119,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         assert isinstance(mr_10x, dd.DataFrame)
         # assert isinstance(info, (Delayed, dd.DataFrame))
         info = client.scatter(info)
-        func = delayed(dd.merge)(mr_10x, info, how="right", on="scaffold_index", npartitions=1000)
+        func = delayed(dd.merge)(mr_10x, info, how="right", on="scaffold_index")
         info_mr = client.compute(func).result()
         assert isinstance(info_mr, dd.DataFrame), type(info_mr)
         # assert isinstance(info_mr, dd.DataFrame), type(info_mr)
