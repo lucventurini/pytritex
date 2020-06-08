@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import dask.dataframe as dd
+import os
 
 
 def _calculate_coordinates(broken, slop, maxid):
@@ -61,7 +62,7 @@ def _create_children_dataframes(broken):
     return pd.concat(dfs).reset_index(drop=True)
 
 
-def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: dd.DataFrame,
+def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: dd.DataFrame, save_dir: str,
                                slop: float) -> dict:
 
     """
@@ -71,6 +72,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: dd.DataFrame,
     The slop parameter determines how much to keep around the breaking point.
     """
 
+    fai = dd.read_parquet(fai)
     fai["derived_from_split"] = False
 
     broken = breaks.copy()
@@ -120,4 +122,6 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: dd.DataFrame,
         # TODO: now we have to move forward the coordinates for the remaining scaffolds.
         broken = broken_next_cycle.copy()
 
-    return {"fai": fai}
+    fai_name = os.path.join(save_dir, "fai")
+    dd.to_parquet(fai, fai_name, compute=True, compression="gzip", engine="pyarrow")
+    return {"fai": fai_name}

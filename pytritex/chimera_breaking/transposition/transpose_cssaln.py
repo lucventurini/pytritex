@@ -1,9 +1,10 @@
 from ...utils import rolling_join
 import dask.dataframe as dd
 import pandas as pd
+import os
 
 
-def _transpose_cssaln(cssaln: str, fai: dd.DataFrame):
+def _transpose_cssaln(cssaln: str, fai: str, save_dir: str):
     """Transpose the CSS alignment given the newly split scaffolds."""
 
     #  cat("Transpose cssaln\n")
@@ -16,9 +17,10 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame):
     #  z[, orig_start := NULL]
     #  assembly_new$cssaln <- z
 
+    fai = dd.read_parquet(fai)
     cssaln = dd.read_parquet(cssaln)
     derived = fai[fai["derived_from_split"] == True]
-    to_keep = fai[~fai["orig_scaffold_index"].isin(derived.orig_scaffold_index.compute())]
+    to_keep = fai[fai["derived_from_split"] == False]
     to_keep_index = to_keep.index.values.compute()
     assert to_keep_index.shape[0] > 0
     derived = derived[["length", "orig_scaffold_index", "orig_start"]]
@@ -55,4 +57,7 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame):
             cssaln_up.compute(), cssaln_down[cssaln_up.columns].compute()]),
             npartitions=npartitions)
     assert set(cols.values.tolist()) == set(cssaln.columns.values.tolist())
-    return cssaln
+
+    fname = os.path.join(save_dir, "cssaln")
+    dd.to_parquet(cssaln, fname, compression="gzip", engine="pyarrow")
+    return fname

@@ -9,50 +9,46 @@ import dask.dataframe as dd
 import os
 
 
-def break_scaffolds(breaks, save_dir, assembly, slop, cores=1, species="wheat") -> dict:
-
-    fai = dd.read_parquet(assembly["fai"])
-    new_assembly = calculate_broken_scaffolds(breaks, fai=fai, slop=slop)
-    for key in ["binsize", "innerDist", "minNbin"]:
-        new_assembly[key] = assembly[key]
-    assert isinstance(new_assembly["fai"], dd.DataFrame)
-    # Now extract the correct rows and columns from the FAI:
-    # ie excluding the rows of the original scaffolds that have since been split.
-    _left1 = new_assembly["fai"].query("derived_from_split == True")
+def trim_fai(fai, save_dir):
+    new_fai = dd.read_parquet(fai)
+    _left1 = new_fai.query("derived_from_split == True")
     _left1_indices = _left1["orig_scaffold_index"].compute()
     # Now, let us get those that are NOT split AND do not have split children
-    _left2 = new_assembly["fai"].query("derived_from_split == False")
-    _left2 = new_assembly["fai"].query("scaffold_index not in @_left1_indices",
-                                       local_dict=locals())
+    _left2 = new_fai.query("derived_from_split == False")
+    _left2 = new_fai.query("scaffold_index not in @_left1_indices", local_dict=locals())
     # Put the unbroken scaffolds first
     new_fai = dd.concat([_left2, _left1])
-    new_shape = new_fai["orig_scaffold_index"].unique().shape[0].compute()
-    old_shape = fai["orig_scaffold_index"].unique().shape[0].compute()
-    assert new_shape == old_shape, (new_shape, old_shape)
-    base = os.path.join(save_dir, "joblib", "pytritex", "chimera_breaking")
-    fname = os.path.join(base, "fai")
-    dd.to_parquet(new_fai, fname, compression="gzip", engine="pyarrow")
+    fname = os.path.join(save_dir, "trimmed_fai")
+    dd.to_parquet(new_fai, fname,
+                  compute=True, compression="gzip", engine="pyarrow")
+    return fname
 
+
+def break_scaffolds(breaks, memory, save_dir, assembly, slop, cores=1, species="wheat") -> dict:
+
+    fai = assembly["fai"]
+    base = os.path.join(save_dir, "joblib", "pytritex", "chimera_breaking")
+    new_assembly = memory.cache(calculate_broken_scaffolds)(breaks, save_dir=base, fai=fai, slop=slop)
+    for key in ["binsize", "innerDist", "minNbin"]:
+        new_assembly[key] = assembly[key]
+    # Now extract the correct rows and columns from the FAI:
+    # ie excluding the rows of the original scaffolds that have since been split.
+    trimmed_fai = memory.cache(trim_fai)(new_assembly["fai"], base)
+    # new_shape = new_fai["orig_scaffold_index"].unique().shape[0].compute()
+    # old_shape = fai["orig_scaffold_index"].unique().shape[0].compute()
+    # assert new_shape == old_shape, (new_shape, old_shape)
     # Remove broken scaffolds from CSS alignment, put correct ones
     print(ctime(), "Transposing the CSS alignment")
-    new_assembly["cssaln"] = _transpose_cssaln(assembly["cssaln"], new_fai)
-    fname = os.path.join(base, "cssaln")
-    dd.to_parquet(new_assembly["cssaln"], fname, compression="gzip", engine="pyarrow")
-
+    new_assembly["cssaln"] = memory.cache(_transpose_cssaln)(assembly["cssaln"], trimmed_fai, base)
     # Do the same with HiC pairs
     print(ctime(), "Transposing the HiC alignments")
-    fpairs = assembly.get("fpairs", None)
-    if fpairs is not None:
-        fpairs = dd.read_parquet(fpairs)
-    new_assembly["fpairs"] = _transpose_fpairs(fpairs, new_fai)
-    fname = os.path.join(base, "fpairs")
-    dd.to_parquet(new_assembly["fpairs"], fname, compression="gzip", engine="pyarrow")
+    new_assembly["fpairs"] = _transpose_fpairs(assembly.get("fpairs", None), trimmed_fai, base)
 
     print(ctime(), "Transposing the 10X alignments")
     molecules = assembly.get("molecules", None)
     if molecules is not None:
         molecules = dd.read_parquet(molecules)
-    new_assembly["molecules"] = _transpose_molecules(molecules, new_fai)
+    new_assembly["molecules"] = _transpose_molecules(molecules, trimmed_fai)
     fname = os.path.join(base, "molecules")
     dd.to_parquet(new_assembly["molecules"], fname, compression="gzip", engine="pyarrow")
 
