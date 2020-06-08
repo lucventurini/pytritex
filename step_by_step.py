@@ -97,10 +97,9 @@ def main():
         assembly, save_dir=args.save_prefix, client=client, memory=args.mem,
         cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
     client.close()
-    return
     assembly_v1 = memory.cache(break_10x, ignore=["cores"])(
         assembly,
-        ratio=-3, interval=5e4, minNbin=20, dist=2e3,
+        ratio=-3, interval=5e4, minNbin=20, dist=2e3, save_dir=args.save_prefix,
         slop=2e2, species="wheat", intermediate=False, cores=args.procs)["assembly"]
     print("Broken chimeras")
     return

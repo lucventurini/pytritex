@@ -1,6 +1,7 @@
 import pandas as pd
 from ...utils.rolling_join import rolling_join
 from ...sequencing_coverage import add_hic_cov
+import dask.dataframe as dd
 
 
 def _transpose_hic_cov(new_assembly, old_info, fai, coverage, fpairs, cores=1):
@@ -25,7 +26,7 @@ def _transpose_hic_cov(new_assembly, old_info, fai, coverage, fpairs, cores=1):
     return new_assembly
 
 
-def _transpose_fpairs(fpairs, fai):
+def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame):
     # if("fpairs" %in% names(assembly) && nrow(fpairs) > 0){
     #   cat("Transpose fpairs\n")
     #   assembly$fpairs[, .(orig_scaffold1, orig_scaffold2, orig_pos1, orig_pos2)]->z
@@ -42,7 +43,7 @@ def _transpose_fpairs(fpairs, fai):
     #   assembly_new$fpairs <- data.table()
     #  }
     print("Transpose fpairs")
-    if fpairs is not None and fpairs.shape[0] > 0:
+    if fpairs is not None and fpairs.shape[0].compute() > 0:
         print("Starting transposition")
         final_columns = ['scaffold_index2', 'orig_scaffold_index2', 'scaffold_index1',
        'orig_scaffold_index1', 'orig_pos1', 'orig_pos2', 'pos1', 'pos2']
@@ -83,7 +84,7 @@ def _transpose_fpairs(fpairs, fai):
                                            stable_1_unstable_2, on="orig_scaffold_index2", by="orig_pos2")
         stable_1_unstable_2.loc[:, "pos2"] = stable_1_unstable_2.eval("orig_pos2 - orig_start2 + 2")
 
-        pairs = pd.concat([
+        pairs = dd.concat([
             stable_pairs[final_columns],
             unstable_pairs[final_columns],
             unstable_1_stable_2[final_columns],

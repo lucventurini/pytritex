@@ -1,9 +1,9 @@
-import pandas as pd
 from ...utils import rolling_join
-import numexpr as ne
+import dask.dataframe as dd
+import pandas as pd
 
 
-def _transpose_cssaln(cssaln: pd.DataFrame, fai: pd.DataFrame):
+def _transpose_cssaln(cssaln: str, fai: dd.DataFrame):
     """Transpose the CSS alignment given the newly split scaffolds."""
 
     #  cat("Transpose cssaln\n")
@@ -16,20 +16,43 @@ def _transpose_cssaln(cssaln: pd.DataFrame, fai: pd.DataFrame):
     #  z[, orig_start := NULL]
     #  assembly_new$cssaln <- z
 
-    derived = fai.loc[fai.derived_from_split]
-    to_keep = fai.loc[~fai.orig_scaffold_index.isin(derived.orig_scaffold_index)]
-    derived = derived[["scaffold_index", "length", "orig_scaffold_index", "orig_start"]].copy().assign(
-        orig_pos=lambda df: df["orig_start"])
+    cssaln = dd.read_parquet(cssaln)
+    derived = fai[fai["derived_from_split"] == True]
+    to_keep = fai[~fai["orig_scaffold_index"].isin(derived.orig_scaffold_index.compute())]
+    to_keep_index = to_keep.index.values.compute()
+    assert to_keep_index.shape[0] > 0
+    derived = derived[["length", "orig_scaffold_index", "orig_start"]]
+    derived = derived.copy().assign(orig_pos=derived["orig_start"])
+    assert "orig_start" in derived.columns
 
     # These are not split
     cols = cssaln.columns[:]
-    cssaln_up = cssaln.copy().loc[cssaln["orig_scaffold_index"].isin(to_keep["orig_scaffold_index"])]
-    cssaln_down= cssaln.copy().loc[~cssaln["orig_scaffold_index"].isin(to_keep["orig_scaffold_index"])]
-    cssaln_down = cssaln_down.copy().drop("length", axis=1).drop("scaffold_index", axis=1)
+    cssaln_up = cssaln[cssaln["orig_scaffold_index"].isin(to_keep_index)].copy()
+
+    # Now change all broken scaffolds
+    cssaln_down = cssaln[~cssaln["orig_scaffold_index"].isin(to_keep_index)].copy()
+    original_length = cssaln_down.shape[0].compute()
+    cssaln_down = cssaln_down.drop("length", axis=1).reset_index(
+        drop=True).set_index("orig_scaffold_index")
+    assert "scaffold_index" in derived.columns or derived.index.name == "scaffold_index"
     cssaln_down = rolling_join(derived, cssaln_down, on="orig_scaffold_index", by="orig_pos")
-    cssaln = pd.concat([cssaln_up, cssaln_down]).sort_values(["scaffold_index", "orig_pos"]).reset_index(drop=True)
-    cssaln.loc[:, "pos"] = cssaln.eval("orig_pos - orig_start + 1")
-    cssaln.drop("orig_start", axis=1, inplace=True)
-    print("Original css columns:", cols)
-    print("New css columns:", cssaln.columns)
+    assert cssaln_down.shape[0].compute() > max(0, original_length)
+    assert "scaffold_index" in cssaln_down.columns or cssaln_down.index.name == "scaffold_index", (
+        (derived.columns, cssaln_down.columns)
+    )
+    cssaln_down["pos"] = cssaln_down["orig_pos"] - cssaln_down["orig_start"] + 1
+    if original_length > 0:
+        assert cssaln_down.shape[0].compute() > 0
+    cssaln_down["pos"] = cssaln_down.eval("orig_pos - orig_start + 1")
+    cssaln_down = cssaln_down.drop("orig_start", axis=1)
+    cssaln_down = cssaln_down.set_index("scaffold_index")
+    assert sorted(cssaln_down.columns) == sorted(cssaln_up.columns)
+    assert cssaln_down.index.name == cssaln_up.index.name
+    cssaln_up = cssaln_up.categorize()
+    cssaln_down = cssaln_down.categorize()
+    npartitions = cssaln.npartitions
+    cssaln = dd.from_pandas(pd.concat([
+            cssaln_up.compute(), cssaln_down[cssaln_up.columns].compute()]),
+            npartitions=npartitions)
+    assert set(cols.values.tolist()) == set(cssaln.columns.values.tolist())
     return cssaln

@@ -4,7 +4,7 @@ from functools import partial
 import dask.dataframe as dd
 
 
-def break_10x(assembly, species="wheat", ratio=-3, interval=5e4, minNbin=20,
+def break_10x(assembly: dict, save_dir: str, species="wheat", ratio=-3, interval=5e4, minNbin=20,
               dist=2e3, slop=1e3, intermediate=False, cores=1, maxcycle=float("inf")):
     """Iteratively break scaffolds using 10X physical coverage. Proceed until no more breakpoints are found.
         :param assembly: dictionary containing data so far
@@ -33,7 +33,8 @@ def break_10x(assembly, species="wheat", ratio=-3, interval=5e4, minNbin=20,
 
     while breaks.shape[0] > 0 and cycle <= maxcycle:
         cycle += 1
-        assembly = break_scaffolds(breaks=breaks, assembly=assembly, slop=slop, cores=cores, species=species)
+        assembly = break_scaffolds(breaks=breaks, save_dir=save_dir,
+                                   assembly=assembly, slop=slop, cores=cores, species=species)
         if intermediate is True:
             assemblies[cycle] = assembly
         breaks = break_finder(assembly.get("molecule_cov", None))
