@@ -51,8 +51,7 @@ def column_switcher(fpairs: dd.DataFrame):
 
 
 def add_hic_cov(assembly, save_dir, client: Client,
-                scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1,
-                memory="20GB"):
+                scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1):
     """
     Calculate physical coverage with Hi-C links in sliding windows along the scaffolds.
     :param assembly:
@@ -75,7 +74,10 @@ def add_hic_cov(assembly, save_dir, client: Client,
         raise ValueError("This function presumes that binsize is at least three times smaller than binsize2.\
 Supplied values: {}, {}".format(binsize, binsize2))
 
-    info = dd.read_parquet(assembly["info"])
+    if isinstance(assembly["info"], str):
+        info = dd.read_parquet(assembly["info"])
+    else:
+        info = assembly["info"]
     assert isinstance(info, dd.DataFrame), type(info)
     if "mr" in info.columns or "mri" in info.columns:
         raise KeyError("Assembly[info] already has mr and/or mri columns; aborting.")
@@ -84,17 +86,25 @@ Supplied values: {}, {}".format(binsize, binsize2))
     binsize = np.int(np.floor(binsize))
     if scaffolds is None:
         null = True
+        fpairs = client.submit(column_switcher, fpairs).result()
     else:
-        info = info[info.scaffold_index.isin(scaffolds)]
-        fpairs = fpairs[fpairs.scaffold_index1.isin(scaffolds)]
+        info = info.loc[scaffolds]
+        fpairs = fpairs[(fpairs.scaffold_index1.isin(scaffolds)) |
+                        (fpairs.scaffold_index2.isin(scaffolds))]
+
         null = False
 
-    fpairs = client.submit(column_switcher, fpairs).result()
     assert isinstance(fpairs, dd.DataFrame)
+    assert fpairs.shape[0].compute() > 0
+    print(fpairs.compute().head())
     # Bin positions of the match by BinSize; only select those bins where the distance between the two bins is
     # greater than the double of the binsize.
     query = "scaffold_index1 == scaffold_index2"
-    temp_values = fpairs.query(query)[["scaffold_index1", "pos1", "pos2"]].compute().to_numpy()
+    try:
+        temp_values = fpairs.query(query)[["scaffold_index1", "pos1", "pos2"]].compute().to_numpy()
+    except ValueError:
+        print(fpairs.compute().head())
+        raise ValueError(fpairs.head())
     temp_frame = pd.DataFrame(
         {"scaffold_index": temp_values[:, 0],
          "bin1": temp_values[:, 1] // binsize * binsize,
@@ -176,6 +186,6 @@ Supplied values: {}, {}".format(binsize, binsize2))
         print(ctime(), "Finished storing HiC")
         return assembly
     else:
-        # TODO: this might need to be amended
-        info_mr.drop("index", inplace=True, errors="ignore", axis=1)
-        return {"info": info_mr, "cov": coverage_df}
+        info_mr = info_mr.drop("index", errors="ignore", axis=1)
+        assembly = {"info": info_mr, "cov": coverage_df}
+        return assembly

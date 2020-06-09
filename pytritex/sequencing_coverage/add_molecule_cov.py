@@ -22,8 +22,7 @@ def _group_analyser(group: pd.DataFrame, binsize, cores=1):
     return assigned
 
 
-def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, binsize=200, cores=1,
-                     memory="20GB"):
+def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, binsize=200, cores=1):
     info = dd.read_parquet(assembly["info"])
     binsize = np.int(np.floor(binsize))
 
@@ -39,14 +38,9 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         molecules = dd.read_parquet(assembly["molecules"])
         null = True
     else:
-        info = client.scatter(info)
-        info = client.submit(dd.merge, info, scaffolds, on="scaffold_index", how="left",
-                             resources={"process": 1, "MEMORY": memory})
-        info = client.gather(info).drop("scaffold", axis=1, errors="ignore")
-        molecules = dd.read_parquet(assembly["molecules"])
-        molecules = client.submit(dd.merge, molecules, scaffolds, on="scaffold_index",
-                                  how="left", resources={"process": 1, "MEMORY": memory})
-        molecules = client.gather(molecules).drop("scaffold",axis=1, errors="ignore")
+        info = info.loc[scaffolds]
+        molecules = dd.read_parquet(assembly["molecules"]).loc[scaffolds]
+        molecules = molecules.drop("scaffold",axis=1, errors="ignore")
         null = False
 
     if molecules.index.name == "scaffold_index":
@@ -144,4 +138,6 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         return assembly
     else:
         # TODO: this might need to be amended if we are going to checkpoint.
-        return {"info": info_mr, "molecule_cov": coverage_df}
+        info_mr = info_mr.drop("index", errors="ignore", axis=1)
+        assembly = {"info": info_mr, "molecule_cov": coverage_df}
+        return assembly

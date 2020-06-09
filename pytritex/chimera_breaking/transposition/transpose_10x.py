@@ -3,35 +3,28 @@ from ...utils.rolling_join import rolling_join
 from ...sequencing_coverage import add_molecule_cov
 import dask.dataframe as dd
 import os
+from dask.distributed import Client
+from joblib import Memory
+import numpy as np
 
 
-def _transpose_molecule_cov(new_assembly, fai, assembly, cores=1):
-    #  if("molecule_cov" %in% names(assembly) & nrow(molecules) > 0){
-    #   cat("10X molecule coverage\n")
-    #   add_molecule_cov(assembly_new, scaffolds=fai[split == T]$scaffold, binsize=assembly$mol_binsize, cores=cores)->cov
-    #   info[!breaks$scaffold, on="scaffold"]->x
-    #   x[, scaffold := paste0(prefix, sub(regex2, "\\2", scaffold))]
-    #   x[, split := F]
-    #   rbind(x[, names(cov$info), with=F], cov$info)->assembly_new$info
-    #   assembly_new$mol_binsize <- assembly$mol_binsize
-    #
-    #   assembly$molecule_cov[!breaks$scaffold, on="scaffold"]->x
-    #   x[, scaffold := paste0(prefix, sub(regex2, "\\2", scaffold))]
-    #   if(nrow(cov$molecule_cov) > 0){
-    #    rbind(x, cov$molecule_cov)->assembly_new$molecule_cov
-    #   } else {
-    #    x -> assembly_new$molecule_cov
-    #   }
-    #  } else {
-    #   assembly_new$molecule_cov <- data.table()
-    #  }
+def _transpose_molecule_cov(new_assembly, fai, assembly, save_dir: str, memory: Memory,
+                            client: Client, cores=1):
 
-    if assembly.get("molecule_cov", None) is not None and assembly["molecule_cov"].shape[0] > 0:
-        scaffolds = fai.loc[fai["derived_from_split"], "scaffold_index"]
-        old_to_keep = fai.loc[~fai["derived_from_split"], "scaffold_index"]
-        assert "mr_10x" not in new_assembly["info"].columns
-        coverage = add_molecule_cov(new_assembly,
-                                    scaffolds=scaffolds, binsize=assembly["mol_binsize"], cores=cores)
+    molecules = assembly.get("molecule_cov", None)
+    if molecules is not None:
+        molecules = dd.read_parquet(molecules)
+    fai = dd.read_parquet(fai)
+    info = dd.read_parquet(new_assembly["info"])
+
+    if molecules is not None and molecules.shape[0].compute() > 0:
+        scaffolds = fai[fai["derived_from_split"] == True].index.values.compute()
+        old_to_keep = fai[fai["derived_from_split"] == False].index.values.compute()
+        assert "mr_10x" not in info.columns
+        coverage = memory.cache(add_molecule_cov,
+                                ignore=["cores", "client"])(
+            new_assembly, save_dir=save_dir, client=client, scaffolds=scaffolds,
+            binsize=assembly["mol_binsize"], cores=cores)
         old_info = assembly["info"].loc[assembly["info"].scaffold_index.isin(old_to_keep)]
         new_assembly["info"] = pd.concat([old_info, coverage["info"]]).reset_index(drop=True)
         new_assembly["mol_binsize"] = assembly["mol_binsize"]
@@ -40,6 +33,25 @@ def _transpose_molecule_cov(new_assembly, fai, assembly, cores=1):
             new_assembly["molecule_cov"] = pd.concat([old_coverage, coverage["molecule_cov"]]).reset_index(drop=True)
         else:
             new_assembly["molecule_cov"] = old_coverage
+        for key in ["cov", "info"]:
+            fname = os.path.join(save_dir, key + "_hic")
+            # BugFix for pyarrow not handling float16 and int16
+            if (new_assembly[key].dtypes == np.int16).any():
+                for index, col in enumerate(new_assembly[key].dtypes == np.int16):
+                    if col is False:
+                        continue
+                    col = new_assembly[key].dtypes.index[index]
+                    new_assembly[key][col] = new_assembly[key][col].astype(np.int32)
+            if (new_assembly[key].dtypes == np.float16).any():
+                for index, col in enumerate(new_assembly[key].dtypes == np.float16):
+                    if col is False:
+                        continue
+                    col = new_assembly[key].dtypes.index[index]
+                    new_assembly[key][col] = new_assembly[key][col].astype(np.float32)
+
+            dd.to_parquet(new_assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+            new_assembly[key] = fname
+
     else:
         new_assembly["molecule_cov"] = pd.DataFrame()
     return new_assembly

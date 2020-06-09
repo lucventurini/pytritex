@@ -1,4 +1,4 @@
-import pandas as pd
+# import pandas as pd
 import numpy as np
 from .transposition import _transpose_cssaln, _transpose_molecules, _transpose_fpairs
 from .transposition import _transpose_hic_cov, _transpose_molecule_cov
@@ -7,6 +7,7 @@ from ..anchoring import anchor_scaffolds
 from time import ctime
 import dask.dataframe as dd
 import os
+from dask.distributed import Client
 
 
 def trim_fai(fai, save_dir):
@@ -24,7 +25,8 @@ def trim_fai(fai, save_dir):
     return fname
 
 
-def break_scaffolds(breaks, memory, save_dir, assembly, slop, cores=1, species="wheat") -> dict:
+def break_scaffolds(breaks, memory, save_dir, client: Client,
+                    assembly, slop, cores=1, species="wheat") -> dict:
 
     fai = assembly["fai"]
     base = os.path.join(save_dir, "joblib", "pytritex", "chimera_breaking")
@@ -57,13 +59,19 @@ def break_scaffolds(breaks, memory, save_dir, assembly, slop, cores=1, species="
     info = info.drop("mri", axis=1, errors="ignore")
     new_assembly["info"] = info
     print(ctime(), "Transposing the HiC coverage data")
-    new_assembly = _transpose_hic_cov(new_assembly, assembly["info"], trimmed_fai,
-                                      assembly["cov"], assembly["fpairs"], cores=cores)
+    new_assembly = memory.cache(_transpose_hic_cov, ignore=["client", "cores", "memory"])(
+        new_assembly, assembly["info"], fai=trimmed_fai, memory=memory,
+        coverage=assembly["cov"], fpairs=assembly["fpairs"], cores=cores, save_dir=save_dir, client=client)
     print(ctime(), "Transposing the 10X coverage data")
-    new_assembly = _transpose_molecule_cov(new_assembly, trimmed_fai, assembly, cores=cores)
+    new_assembly = memory.cache(_transpose_molecule_cov, ignore=["client", "cores", "memory"])(
+        new_assembly, trimmed_fai, save_dir=save_dir, memory=memory,
+        client=client, assembly=assembly, cores=cores)
     # Change values that are 0 to nan
     for key in ["popseq_alphachr2", "popseq_alphachr", "sorted_alphachr", "sorted_alphachr2"]:
         new_assembly["info"][key] = new_assembly["info"][key].map({0: np.nan})
     new_assembly["info"]["derived_from_split"] = new_assembly["info"]["derived_from_split"].fillna(False)
+    dd.to_parquet(info, os.path.join(base, "info"),
+                  engine="pyarrow", compression="gzip", compute=True)
+    new_assembly["info"] = os.path.join(base, "info")
     print(ctime(), "Finished transposing")
     return new_assembly

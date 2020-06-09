@@ -2,9 +2,11 @@ from .break_scaffolds import break_scaffolds
 from .find_10x_breaks import find_10x_breaks
 from functools import partial
 import dask.dataframe as dd
+from dask.distributed import Client
 
 
-def break_10x(assembly: dict, memory, save_dir: str, species="wheat", ratio=-3, interval=5e4, minNbin=20,
+def break_10x(assembly: dict, memory, save_dir: str, client: Client,
+              species="wheat", ratio=-3, interval=5e4, minNbin=20,
               dist=2e3, slop=1e3, intermediate=False, cores=1, maxcycle=float("inf")):
     """Iteratively break scaffolds using 10X physical coverage. Proceed until no more breakpoints are found.
         :param assembly: dictionary containing data so far
@@ -35,6 +37,7 @@ def break_10x(assembly: dict, memory, save_dir: str, species="wheat", ratio=-3, 
         cycle += 1
         assembly = break_scaffolds(breaks=breaks, save_dir=save_dir,
                                    memory=memory,
+                                   client=client,
                                    assembly=assembly, slop=slop, cores=cores, species=species)
         if intermediate is True:
             assemblies[cycle] = assembly

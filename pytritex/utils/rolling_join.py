@@ -3,14 +3,13 @@ import numpy as np
 from functools import partial
 import dask.dataframe as dd
 from typing import Union
-import scipy.stats as stats
+# import scipy.stats as stats
 import dask.array as da
 
 
 def _ssorted(row, by, how):
     if np.isnan(row["by"]).all():
         raise ValueError(row)
-        return np.nan
     res = np.searchsorted(row["by"], row[by], side="left")
     if res < len(row["by"]) and row["by"][res] == row[by]:
         return res
@@ -21,7 +20,8 @@ def _ssorted(row, by, how):
 
 
 def rank(series: Union[dd.Series, pd.Series, np.array]):
-    return stats.rankdata(series) - 1
+    # return stats.rankdata(series) - 1
+    return np.argsort(series)
 
 
 def rolling_join(left: Union[pd.DataFrame, dd.DataFrame], right: Union[pd.DataFrame, dd.DataFrame],

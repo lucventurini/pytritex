@@ -32,13 +32,14 @@ def _transpose_cssaln(cssaln: str, fai: str, save_dir: str):
     cssaln_up = cssaln[cssaln["orig_scaffold_index"].isin(to_keep_index)].copy()
 
     # Now change all broken scaffolds
-    cssaln_down = cssaln[~cssaln["orig_scaffold_index"].isin(to_keep_index)].copy()
-    original_length = cssaln_down.shape[0].compute()
-    cssaln_down = cssaln_down.drop("length", axis=1).reset_index(
+    _cssaln_down = cssaln[~cssaln["orig_scaffold_index"].isin(to_keep_index)].copy()
+    original_length = _cssaln_down.shape[0].compute()
+    _cssaln_down = _cssaln_down.drop("length", axis=1).reset_index(
         drop=True).set_index("orig_scaffold_index")
     assert "scaffold_index" in derived.columns or derived.index.name == "scaffold_index"
-    cssaln_down = rolling_join(derived, cssaln_down, on="orig_scaffold_index", by="orig_pos")
-    assert cssaln_down.shape[0].compute() > max(0, original_length)
+    cssaln_down = rolling_join(derived, _cssaln_down, on="orig_scaffold_index", by="orig_pos")
+    assert cssaln_down.shape[0].compute() >= max(0, original_length), (cssaln_down.shape[0].compute(),
+                                                                      original_length)
     assert "scaffold_index" in cssaln_down.columns or cssaln_down.index.name == "scaffold_index", (
         (derived.columns, cssaln_down.columns)
     )

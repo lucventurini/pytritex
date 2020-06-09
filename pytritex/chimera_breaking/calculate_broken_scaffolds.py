@@ -122,6 +122,10 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: dd.DataFrame, save_dir
         # TODO: now we have to move forward the coordinates for the remaining scaffolds.
         broken = broken_next_cycle.copy()
 
+    fai = fai.drop_duplicates()
+    _check = fai[["orig_scaffold_index", "orig_start", "length"]].drop_duplicates().shape[0].compute()
+    assert fai.shape[0].compute() == _check
+
     fai_name = os.path.join(save_dir, "fai")
     dd.to_parquet(fai, fai_name, compute=True, compression="gzip", engine="pyarrow")
     return {"fai": fai_name}

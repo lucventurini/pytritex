@@ -59,9 +59,11 @@ def read_morexaln_minimap(paf: str,
     morex = morex.reset_index(drop=True).set_index("scaffold")
     morex = dd.merge(fai[["scaffold", "length"]].reset_index(drop=False).set_index("scaffold"),
                      morex, on=["scaffold"], how="right").reset_index(drop=True).set_index("scaffold_index")
+    morex = morex[~morex.popseq_index.isna()]
     morex["orig_scaffold_index"] = morex.index.values
     morex["orig_pos"] = morex["pos"]
     fname = os.path.join(save_dir, "cssaln")
     dd.to_parquet(morex, fname, compression="gzip", compute=True, engine="pyarrow")
     buf.close()
+    os.remove(buf.name)
     return fname

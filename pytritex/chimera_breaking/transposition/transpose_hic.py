@@ -2,10 +2,14 @@ import pandas as pd
 from ...utils.rolling_join import rolling_join
 from ...sequencing_coverage import add_hic_cov
 import dask.dataframe as dd
+from dask.distributed import Client
+from joblib import Memory
 import os
+import numpy as np
 
 
-def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: str, fpairs: str, cores=1):
+def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: str, fpairs: str,
+                       save_dir: str, memory: Memory, client:Client, cores=1):
     if fpairs is not None:
         fpairs = dd.read_parquet(fpairs)
     if coverage is not None:
@@ -17,20 +21,43 @@ def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: st
         binsize, minNbin, innerDist = new_assembly["binsize"], new_assembly["minNbin"], new_assembly["innerDist"]
         scaffolds = fai.loc[fai["derived_from_split"] == True].index.values.compute()
         old_to_keep = fai.loc[fai["derived_from_split"] == False].index.values.compute()
-        new_coverage = add_hic_cov(new_assembly, scaffolds=scaffolds,
-                                   binsize=binsize, minNbin=minNbin, innerDist=innerDist, cores=cores)
-        previous_to_keep = coverage[coverage["scaffold_index"].isin(old_to_keep)]
-        if new_coverage["cov"].shape[0] > 0:
-            new_assembly["cov"] = pd.concat([previous_to_keep, new_coverage["cov"]])
+        # This returns a dictionary with "info" and "cov"
+        new_coverage = memory.cache(add_hic_cov, ignore=["cores", "client"])(
+            new_assembly, scaffolds=scaffolds,
+            client=client, save_dir=save_dir,
+            binsize=binsize, minNbin=minNbin, innerDist=innerDist, cores=cores)
+
+        # First let's get the new coverage
+        previous_to_keep = coverage.loc[old_to_keep]
+        if new_coverage["cov"].shape[0].compute() > 0:
+            new_assembly["cov"] = dd.concat([previous_to_keep, new_coverage["cov"]])
         else:
             new_assembly["cov"] = previous_to_keep
-        old_info = old_info.loc[~new_assembly["info"]["scaffold_index"].isin(old_to_keep)].drop(
-            "mr_10x", axis=1, errors="ignore")
-        new_assembly["info"] = pd.concat([
+
+        # Now extract the info which is still valid
+        old_info = old_info.loc[old_to_keep]
+        old_info = old_info.drop("mr_10x", axis=1, errors="ignore")
+        new_assembly["info"] = dd.concat([
             old_info, new_coverage["info"]
         ])
-    else:
-        new_assembly["fpairs"] = pd.DataFrame()
+        for key in ["cov", "info"]:
+            fname = os.path.join(save_dir, key + "_hic")
+            # BugFix for pyarrow not handling float16 and int16
+            if (new_assembly[key].dtypes == np.int16).any():
+                for index, col in enumerate(new_assembly[key].dtypes == np.int16):
+                    if col is False:
+                        continue
+                    col = new_assembly[key].dtypes.index[index]
+                    new_assembly[key][col] = new_assembly[key][col].astype(np.int32)
+            if (new_assembly[key].dtypes == np.float16).any():
+                for index, col in enumerate(new_assembly[key].dtypes == np.float16):
+                    if col is False:
+                        continue
+                    col = new_assembly[key].dtypes.index[index]
+                    new_assembly[key][col] = new_assembly[key][col].astype(np.float32)
+
+            dd.to_parquet(new_assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+            new_assembly[key] = fname
     return new_assembly
 
 
