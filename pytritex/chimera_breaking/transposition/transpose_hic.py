@@ -30,7 +30,7 @@ def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: st
         # First let's get the new coverage
         previous_to_keep = coverage.loc[old_to_keep]
         if new_coverage["cov"].shape[0].compute() > 0:
-            new_assembly["cov"] = dd.concat([previous_to_keep, new_coverage["cov"]])
+            new_assembly["cov"] = dd.concat([previous_to_keep, new_coverage["cov"]]).reset_index(drop=True)
         else:
             new_assembly["cov"] = previous_to_keep
 
@@ -39,25 +39,25 @@ def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: st
         old_info = old_info.drop("mr_10x", axis=1, errors="ignore")
         new_assembly["info"] = dd.concat([
             old_info, new_coverage["info"]
-        ])
-        for key in ["cov", "info"]:
-            fname = os.path.join(save_dir, key + "_hic")
-            # BugFix for pyarrow not handling float16 and int16
-            if (new_assembly[key].dtypes == np.int16).any():
-                for index, col in enumerate(new_assembly[key].dtypes == np.int16):
-                    if col is False:
-                        continue
-                    col = new_assembly[key].dtypes.index[index]
-                    new_assembly[key][col] = new_assembly[key][col].astype(np.int32)
-            if (new_assembly[key].dtypes == np.float16).any():
-                for index, col in enumerate(new_assembly[key].dtypes == np.float16):
-                    if col is False:
-                        continue
-                    col = new_assembly[key].dtypes.index[index]
-                    new_assembly[key][col] = new_assembly[key][col].astype(np.float32)
-
-            dd.to_parquet(new_assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
-            new_assembly[key] = fname
+        ]).reset_index(drop=False).set_index("scaffold_index")
+        # for key in ["cov", "info"]:
+        #     fname = os.path.join(save_dir, key + "_hic")
+        #     # BugFix for pyarrow not handling float16 and int16
+        #     if (new_assembly[key].dtypes == np.int16).any():
+        #         for index, col in enumerate(new_assembly[key].dtypes == np.int16):
+        #             if col is False:
+        #                 continue
+        #             col = new_assembly[key].dtypes.index[index]
+        #             new_assembly[key][col] = new_assembly[key][col].astype(np.int32)
+        #     if (new_assembly[key].dtypes == np.float16).any():
+        #         for index, col in enumerate(new_assembly[key].dtypes == np.float16):
+        #             if col is False:
+        #                 continue
+        #             col = new_assembly[key].dtypes.index[index]
+        #             new_assembly[key][col] = new_assembly[key][col].astype(np.float32)
+        #
+        #     dd.to_parquet(new_assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+        #     new_assembly[key] = fname
     return new_assembly
 
 

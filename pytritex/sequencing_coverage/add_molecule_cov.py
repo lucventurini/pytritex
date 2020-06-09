@@ -23,7 +23,10 @@ def _group_analyser(group: pd.DataFrame, binsize, cores=1):
 
 
 def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, binsize=200, cores=1):
-    info = dd.read_parquet(assembly["info"])
+
+    info = assembly["info"]
+    if not isinstance(info, dd.DataFrame):
+        info = dd.read_parquet(info, infer_divisions=True)
     binsize = np.int(np.floor(binsize))
 
     if "molecules" not in assembly:
@@ -39,8 +42,17 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         null = True
     else:
         info = info.loc[scaffolds]
-        molecules = dd.read_parquet(assembly["molecules"]).loc[scaffolds]
-        molecules = molecules.drop("scaffold",axis=1, errors="ignore")
+        molecules = dd.read_parquet(assembly["molecules"], infer_divisions=True)
+        assert molecules.index.name == "scaffold_index", molecules.head()
+        try:
+            idx = molecules.index.compute()
+            present = np.unique(idx.intersection(scaffolds))
+        except ValueError:
+            print(molecules.index.head())
+            print(type(scaffolds))
+            print(scaffolds[:20])
+            raise
+        molecules = molecules.loc[present]
         null = False
 
     if molecules.index.name == "scaffold_index":

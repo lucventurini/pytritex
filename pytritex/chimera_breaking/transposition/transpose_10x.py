@@ -15,43 +15,32 @@ def _transpose_molecule_cov(new_assembly, fai, assembly, save_dir: str, memory: 
     if molecules is not None:
         molecules = dd.read_parquet(molecules)
     fai = dd.read_parquet(fai)
-    info = dd.read_parquet(new_assembly["info"])
-
+    info = new_assembly["info"]
+    assert isinstance(info, dd.DataFrame)
     if molecules is not None and molecules.shape[0].compute() > 0:
         scaffolds = fai[fai["derived_from_split"] == True].index.values.compute()
         old_to_keep = fai[fai["derived_from_split"] == False].index.values.compute()
         assert "mr_10x" not in info.columns
-        coverage = memory.cache(add_molecule_cov,
-                                ignore=["cores", "client"])(
+        coverage = memory.cache(add_molecule_cov, ignore=["cores", "client"])(
             new_assembly, save_dir=save_dir, client=client, scaffolds=scaffolds,
             binsize=assembly["mol_binsize"], cores=cores)
-        old_info = assembly["info"].loc[assembly["info"].scaffold_index.isin(old_to_keep)]
-        new_assembly["info"] = pd.concat([old_info, coverage["info"]]).reset_index(drop=True)
+        old_info = dd.read_parquet(assembly["info"], infer_divisions=True)
+        assert old_info.index.name == "scaffold_index"
+        present = np.unique(old_info.index.compute().intersection(old_to_keep))
+        old_info = old_info.loc[present]
+        # We have to reset the index to trigger the sorting.
+        new_assembly["info"] = dd.concat([old_info, coverage["info"]]).reset_index(drop=False)
+        new_assembly["info"] = new_assembly["info"].set_index("scaffold_index")
+
         new_assembly["mol_binsize"] = assembly["mol_binsize"]
-        old_coverage = assembly["molecule_cov"].loc[assembly["molecule_cov"].scaffold_index.isin(old_to_keep)]
-        if coverage["molecule_cov"].shape[0] > 0:
-            new_assembly["molecule_cov"] = pd.concat([old_coverage, coverage["molecule_cov"]]).reset_index(drop=True)
+        old_coverage = dd.read_parquet(assembly["molecule_cov"], infer_divisions=True)
+        old_coverage = old_coverage.loc[np.unique(old_coverage.index.compute().intersection(old_to_keep))]
+        if coverage["molecule_cov"].shape[0].compute() > 0:
+            new_assembly["molecule_cov"] = dd.concat(
+                [old_coverage, coverage["molecule_cov"]]).reset_index(drop=False).set_index("scaffold_index")
         else:
             new_assembly["molecule_cov"] = old_coverage
-        for key in ["cov", "info"]:
-            fname = os.path.join(save_dir, key + "_hic")
-            # BugFix for pyarrow not handling float16 and int16
-            if (new_assembly[key].dtypes == np.int16).any():
-                for index, col in enumerate(new_assembly[key].dtypes == np.int16):
-                    if col is False:
-                        continue
-                    col = new_assembly[key].dtypes.index[index]
-                    new_assembly[key][col] = new_assembly[key][col].astype(np.int32)
-            if (new_assembly[key].dtypes == np.float16).any():
-                for index, col in enumerate(new_assembly[key].dtypes == np.float16):
-                    if col is False:
-                        continue
-                    col = new_assembly[key].dtypes.index[index]
-                    new_assembly[key][col] = new_assembly[key][col].astype(np.float32)
-
-            dd.to_parquet(new_assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
-            new_assembly[key] = fname
-
+        #
     else:
         new_assembly["molecule_cov"] = pd.DataFrame()
     return new_assembly
@@ -90,22 +79,16 @@ def _transpose_molecules(molecules: str, fai: str, save_dir: str):
             derived["orig_scaffold_index"].compute())].reset_index(drop=True)
         assert molecules_up.shape[0].compute() + molecules_down.shape[0].compute() == molecules.shape[0].compute()
         molecules_down = rolling_join(derived, molecules_down, on="orig_scaffold_index", by="orig_start")
-        try:
-            molecules_down["start"] = molecules_down.eval("orig_start - orig_pos + 1")
-            molecules_down["end"] = molecules_down.eval("orig_end - orig_pos + 1")
-        except pd.core.computation.ops.UndefinedVariableError:
-            print(molecules_up.compute().head())
-            print("\n###\n")
-            print(molecules_down.head())
-            print("\n###\n")
-            print(derived.compute().head())
-            print("\n###")
-            raise
-
+        molecules_down["start"] = molecules_down.eval("orig_start - orig_pos + 1")
+        molecules_down["end"] = molecules_down.eval("orig_end - orig_pos + 1")
         molecules_down = molecules_down.set_index("scaffold_index")
-        molecules = dd.concat([molecules_up, molecules_down]).reset_index(drop=True)
-        molecules = molecules.loc[molecules["end"] <= molecules["s_length"]].drop("orig_pos", axis=1).drop(
+        assert molecules_up.index.name == "scaffold_index", molecules_up.compute().head()
+        molecules = dd.concat([molecules_up, molecules_down])
+        molecules = molecules[molecules["end"] <= molecules["s_length"]].drop("orig_pos", axis=1).drop(
             "s_length", axis=1)
+        assert molecules.index.name == "scaffold_index", molecules.compute().head()
+        # We need to sort again, or it will be a mess going forward.
+        molecules = molecules.reset_index(drop=False).set_index("scaffold_index")
     elif molecules is None:
         molecules = pd.DataFrame().assign(
             scaffold_index=[], barcode_index=[], start=[], end=[],
@@ -113,5 +96,6 @@ def _transpose_molecules(molecules: str, fai: str, save_dir: str):
         molecules = dd.from_pandas(molecules, npartitions=1)
 
     fname = os.path.join(save_dir, "molecules")
+    print("", "###", fname, "###", "", sep="\n")
     dd.to_parquet(molecules, fname, engine="pyarrow", compression="gzip", compute=True)
     return fname

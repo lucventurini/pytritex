@@ -19,12 +19,14 @@ def find_10x_breaks(cov: dd.DataFrame, scaffolds=None,
     """
 
     # cov = assembly["molecule_cov"].copy()
+    if isinstance(cov, str):
+        cov = dd.read_parquet(cov, infer_divisions=True)
+    assert isinstance(cov, dd.DataFrame), type(cov)
     if scaffolds is not None:
         # Cov is indexed by scaffold index.
-        cov = cov.loc[scaffolds]
-    assert isinstance(cov, dd.DataFrame), type(cov)
+        cov = cov.loc[np.unique(cov.index.compute().intersection(scaffolds))]
+
     cov["b"] = cov["bin"] // interval
-    cov = cov.persist()
     broken = cov.query("nbin >= @minNbin & r <= @ratio", local_dict=locals())
     bait = (np.minimum(broken["length"] - broken["bin"], broken["bin"]) >= dist).compute()
     broken = broken.compute().loc[bait, :]

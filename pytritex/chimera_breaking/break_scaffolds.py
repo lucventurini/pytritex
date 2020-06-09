@@ -61,7 +61,7 @@ def break_scaffolds(breaks, memory, save_dir, client: Client,
     print(ctime(), "Transposing the HiC coverage data")
     new_assembly = memory.cache(_transpose_hic_cov, ignore=["client", "cores", "memory"])(
         new_assembly, assembly["info"], fai=trimmed_fai, memory=memory,
-        coverage=assembly["cov"], fpairs=assembly["fpairs"], cores=cores, save_dir=save_dir, client=client)
+        coverage=assembly["cov"], fpairs=assembly["fpairs"], cores=cores, save_dir=base, client=client)
     print(ctime(), "Transposing the 10X coverage data")
     new_assembly = memory.cache(_transpose_molecule_cov, ignore=["client", "cores", "memory"])(
         new_assembly, trimmed_fai, save_dir=save_dir, memory=memory,
@@ -70,8 +70,24 @@ def break_scaffolds(breaks, memory, save_dir, client: Client,
     for key in ["popseq_alphachr2", "popseq_alphachr", "sorted_alphachr", "sorted_alphachr2"]:
         new_assembly["info"][key] = new_assembly["info"][key].map({0: np.nan})
     new_assembly["info"]["derived_from_split"] = new_assembly["info"]["derived_from_split"].fillna(False)
-    dd.to_parquet(info, os.path.join(base, "info"),
-                  engine="pyarrow", compression="gzip", compute=True)
-    new_assembly["info"] = os.path.join(base, "info")
+    for key in ["molecule_cov", "info", "cov"]:
+        fname = os.path.join(base, key)
+        # BugFix for pyarrow not handling float16 and int16
+        if (new_assembly[key].dtypes == np.int16).any():
+            for index, col in enumerate(new_assembly[key].dtypes == np.int16):
+                if col is False:
+                    continue
+                col = new_assembly[key].dtypes.index[index]
+                new_assembly[key][col] = new_assembly[key][col].astype(np.int32)
+        if (new_assembly[key].dtypes == np.float16).any():
+            for index, col in enumerate(new_assembly[key].dtypes == np.float16):
+                if col is False:
+                    continue
+                col = new_assembly[key].dtypes.index[index]
+                new_assembly[key][col] = new_assembly[key][col].astype(np.float32)
+
+        dd.to_parquet(new_assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+        new_assembly[key] = fname
+
     print(ctime(), "Finished transposing")
     return new_assembly
