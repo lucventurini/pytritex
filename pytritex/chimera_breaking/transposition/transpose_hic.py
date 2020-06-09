@@ -5,11 +5,18 @@ import dask.dataframe as dd
 import os
 
 
-def _transpose_hic_cov(new_assembly, old_info, fai, coverage, fpairs, cores=1):
-    if coverage is not None and fpairs.shape[0] > 0:
+def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: str, fpairs: str, cores=1):
+    if fpairs is not None:
+        fpairs = dd.read_parquet(fpairs)
+    if coverage is not None:
+        coverage = dd.read_parquet(coverage)
+    fai = dd.read_parquet(fai)
+    old_info = dd.read_parquet(old_info)
+
+    if coverage is not None and fpairs.shape[0].compute() > 0:
         binsize, minNbin, innerDist = new_assembly["binsize"], new_assembly["minNbin"], new_assembly["innerDist"]
-        scaffolds = fai.loc[fai["derived_from_split"], "scaffold_index"]
-        old_to_keep = fai.loc[~fai["derived_from_split"], "scaffold_index"]
+        scaffolds = fai.loc[fai["derived_from_split"] == True].index.values.compute()
+        old_to_keep = fai.loc[fai["derived_from_split"] == False].index.values.compute()
         new_coverage = add_hic_cov(new_assembly, scaffolds=scaffolds,
                                    binsize=binsize, minNbin=minNbin, innerDist=innerDist, cores=cores)
         previous_to_keep = coverage[coverage["scaffold_index"].isin(old_to_keep)]
@@ -71,10 +78,10 @@ def _transpose_fpairs(fpairs: str, fai: str, save_dir: str):
         unstable_pairs = rolling_join(left.rename(columns=dict((_, _ + "1") for _ in left.columns)),
                                       unstable_pairs, on="orig_scaffold_index1", by="orig_pos1")
         unstable_pairs = unstable_pairs.reset_index(drop=False)
-        assert "scaffold_index_1" in unstable_pairs.columns, unstable_pairs.compute().head()
+        assert "scaffold_index1" in unstable_pairs.columns, unstable_pairs.compute().head()
         unstable_pairs = rolling_join(left.rename(columns=dict((_, _ + "2") for _ in left.columns)),
                                       unstable_pairs, on="orig_scaffold_index2", by="orig_pos2")
-        assert "scaffold_index_2" in unstable_pairs.columns, unstable_pairs.head()
+        assert "scaffold_index2" in unstable_pairs.columns, unstable_pairs.head()
         unstable_pairs["pos1"] = unstable_pairs.eval("orig_pos1 - orig_start1 + 1")
         unstable_pairs["pos2"] = unstable_pairs.eval("orig_pos2 - orig_start2 + 1")
         unstable_pairs = unstable_pairs[final_columns]

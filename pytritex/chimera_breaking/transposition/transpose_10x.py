@@ -1,6 +1,8 @@
 import pandas as pd
 from ...utils.rolling_join import rolling_join
 from ...sequencing_coverage import add_molecule_cov
+import dask.dataframe as dd
+import os
 
 
 def _transpose_molecule_cov(new_assembly, fai, assembly, cores=1):
@@ -43,7 +45,7 @@ def _transpose_molecule_cov(new_assembly, fai, assembly, cores=1):
     return new_assembly
 
 
-def _transpose_molecules(molecules, fai):
+def _transpose_molecules(molecules: str, fai: str, save_dir: str):
     # if("molecules" %in% names(assembly) && nrow(molecules) > 0){
     #   cat("Transpose molecules\n")
     #   copy(molecules) -> z
@@ -59,22 +61,45 @@ def _transpose_molecules(molecules, fai):
     #   assembly_new$molecules <- data.table()
     #  }
 
-    if molecules is not None and molecules.shape[0] > 0:
-        derived = fai.loc[fai.derived_from_split]
-        to_keep = fai.loc[~fai.orig_scaffold_index.isin(derived.orig_scaffold_index)]
-        derived = derived[["scaffold_index", "orig_scaffold_index", "orig_start", "length"]].rename(
-            columns={"length": "s_length"}).copy().assign(orig_pos=lambda df: df["orig_start"])
-        molecules_up = molecules.loc[molecules["orig_scaffold_index"].isin(to_keep["orig_scaffold_index"])]
-        molecules_down = molecules.loc[molecules["orig_scaffold_index"].isin(derived["orig_scaffold_index"])].drop(
-            "scaffold_index", axis=1)
+    fai = dd.read_parquet(fai)
+    if molecules is not None:
+        molecules = dd.read_parquet(molecules)
+
+    if molecules is not None and molecules.shape[0].compute() > 0:
+        derived = fai.loc[fai.derived_from_split == True]
+        to_keep = fai.loc[fai.derived_from_split == False]
+        derived = derived[["orig_scaffold_index", "orig_start", "length"]].rename(
+            columns={"length": "s_length"}).copy()
+        derived = derived.reset_index(drop=False).assign(orig_pos=lambda df: df["orig_start"])
+        molecules_up = molecules[molecules["orig_scaffold_index"].isin(
+            to_keep["orig_scaffold_index"].compute())]
+        assert molecules.index.name == "scaffold_index"
+        molecules_down = molecules.loc[molecules["orig_scaffold_index"].isin(
+            derived["orig_scaffold_index"].compute())].reset_index(drop=True)
+        assert molecules_up.shape[0].compute() + molecules_down.shape[0].compute() == molecules.shape[0].compute()
         molecules_down = rolling_join(derived, molecules_down, on="orig_scaffold_index", by="orig_start")
-        # TODO I think this is wrong, we should switch start and pos
-        molecules = pd.concat([molecules_up, molecules_down]).sort_values(
-            ["scaffold_index", "orig_start"]).reset_index(drop=True)
-        molecules.loc[:, "start"] = molecules["orig_start"] - molecules["orig_pos"] + 1
-        molecules.loc[:, "end"] = molecules["orig_end"] - molecules["orig_pos"] + 1
+        try:
+            molecules_down["start"] = molecules_down.eval("orig_start - orig_pos + 1")
+            molecules_down["end"] = molecules_down.eval("orig_end - orig_pos + 1")
+        except pd.core.computation.ops.UndefinedVariableError:
+            print(molecules_up.compute().head())
+            print("\n###\n")
+            print(molecules_down.head())
+            print("\n###\n")
+            print(derived.compute().head())
+            print("\n###")
+            raise
+
+        molecules_down = molecules_down.set_index("scaffold_index")
+        molecules = dd.concat([molecules_up, molecules_down]).reset_index(drop=True)
         molecules = molecules.loc[molecules["end"] <= molecules["s_length"]].drop("orig_pos", axis=1).drop(
             "s_length", axis=1)
-        return molecules
-    else:
-        return pd.DataFrame()
+    elif molecules is None:
+        molecules = pd.DataFrame().assign(
+            scaffold_index=[], barcode_index=[], start=[], end=[],
+            npairs=[], sample=[], length=[], orig_start=[], orig_end=[], orig_scaffold_index=[])
+        molecules = dd.from_pandas(molecules, npartitions=1)
+
+    fname = os.path.join(save_dir, "molecules")
+    dd.to_parquet(molecules, fname, engine="pyarrow", compression="gzip", compute=True)
+    return fname

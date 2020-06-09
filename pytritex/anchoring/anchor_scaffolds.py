@@ -11,12 +11,10 @@ import os
 
 def anchor_scaffolds(assembly: dict,
                      save: str,
-                     client: Client,
                      species=None,
                      sorted_percentile=95,
                      popseq_percentile=90,
-                     hic_percentile=98,
-                     verbose=False):
+                     hic_percentile=98):
     if species is None:
         raise KeyError(
             "Parameter 'species' is NULL. Please set 'species' to one of "
@@ -53,11 +51,11 @@ def anchor_scaffolds(assembly: dict,
         sorted_percentile=sorted_percentile, hic_percentile=hic_percentile,
         popseq_percentile=popseq_percentile, hic=hic)
     assert isinstance(anchored_css, dd.DataFrame), (type(anchored_css))
-    save_dir = os.path.join(save, "joblib", "pytritex", "anchoring")
+    # save_dir = os.path.join(save, "joblib", "pytritex", "anchoring")
     assert isinstance(anchored_css, dd.DataFrame)
-    dd.to_parquet(anchored_css, os.path.join(save_dir, "anchored_css"), compute=True)
-    assembly["info"] = os.path.join(save_dir, "anchored_css")
+    dd.to_parquet(anchored_css, os.path.join(save, "anchored_css"), compute=True)
+    assembly["info"] = os.path.join(save, "anchored_css")
     if hic is True:
-        dd.to_parquet(anchored_hic_links, os.path.join(save_dir, "anchored_hic_links"), compute=True)
-        assembly["fpairs"] = os.path.join(save_dir, "anchored_hic_links")
+        dd.to_parquet(anchored_hic_links, os.path.join(save, "anchored_hic_links"), compute=True)
+        assembly["fpairs"] = os.path.join(save, "anchored_hic_links")
     return assembly
