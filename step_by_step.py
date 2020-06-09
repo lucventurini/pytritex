@@ -91,16 +91,17 @@ def main():
         ram=args.mem)
     assembly = memory.cache(anchor_scaffolds)(
         assembly, os.path.join(args.save_prefix, "joblib", "pytritex", "anchoring"), species="wheat")
+    cov_base = os.path.join(args.save_prefix, "joblib", "pytritex", "sequencing_coverage")
     assembly = memory.cache(add_molecule_cov, ignore=["cores", "client", "memory"])(
-        assembly, cores=args.procs, client=client, binsize=200, save_dir=args.save_prefix, memory=args.mem)
+        assembly, cores=args.procs, client=client, binsize=200, save_dir=cov_base, memory=args.mem)
     assembly = memory.cache(add_hic_cov, ignore=["cores", "memory", "client"])(
-        assembly, save_dir=args.save_prefix, client=client, memory=args.mem,
+        assembly, save_dir=cov_base, client=client, memory=args.mem,
         cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
-    client.close()
     assembly_v1 = memory.cache(break_10x, ignore=["cores", "memory"])(
         assembly, memory=memory,
         ratio=-3, interval=5e4, minNbin=20, dist=2e3, save_dir=args.save_prefix,
         slop=2e2, species="wheat", intermediate=False, cores=args.procs)["assembly"]
+    client.close()
     print("Broken chimeras")
     return
 

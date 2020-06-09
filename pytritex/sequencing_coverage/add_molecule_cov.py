@@ -137,7 +137,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         assembly["mol_binsize"] = binsize
         for key in ["info", "molecule_cov"]:
             print(time.ctime(), "Storing", key)
-            fname = os.path.join(save_dir, "joblib", "pytritex", "sequencing_coverage", key + "_10x")
+            fname = os.path.join(save_dir, key + "_10x")
             dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
             assembly[key] = fname
         print(time.ctime(), "Finished storing 10X coverage.")

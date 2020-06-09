@@ -170,7 +170,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assembly["innerDist"] = innerDist
         for key in ["info", "cov"]:
             print(ctime(), "Storing", key, "for HiC")
-            fname = os.path.join(save_dir, "joblib", "pytritex", "sequencing_coverage", key + "_hic")
+            fname = os.path.join(save_dir, key + "_hic")
             dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
             assembly[key] = fname
         print(ctime(), "Finished storing HiC")

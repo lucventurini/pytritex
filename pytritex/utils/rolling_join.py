@@ -41,8 +41,6 @@ def rolling_join(left: Union[pd.DataFrame, dd.DataFrame], right: Union[pd.DataFr
     # right = right.sort_values([on, by])
     is_dd = isinstance(left, dd.DataFrame) or isinstance(right, dd.DataFrame)
 
-    assert left.index.dtype == right.index.dtype, (left.index.dtype, right.index.dtype)
-
     # Assign the rank to each "by" value
     if is_dd:
         assert left.shape[0].compute() > 0
