@@ -16,7 +16,7 @@ def trim_fai(fai, save_dir):
     _left1_indices = _left1["orig_scaffold_index"].compute()
     # Now, let us get those that are NOT split AND do not have split children
     _left2 = new_fai.query("derived_from_split == False")
-    _left2 = new_fai.query("scaffold_index not in @_left1_indices", local_dict=locals())
+    _left2 = _left2.loc[_left2.index.compute().difference(_left1_indices).values]
     # Put the unbroken scaffolds first
     new_fai = dd.concat([_left2, _left1])
     fname = os.path.join(save_dir, "trimmed_fai")

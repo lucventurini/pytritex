@@ -32,6 +32,8 @@ def find_10x_breaks(cov: dd.DataFrame, scaffolds=None,
     broken = broken.compute().loc[bait, :]
     if broken.shape[0] == 0:
         return pd.DataFrame()
+    # This is a dataframe with "scaffold_index", "r", "b"
+    # "scaffold_index" is the index, not a column.
     broken = broken.sort_values("r").groupby(
         ["scaffold_index", "b"]).head(1).rename(columns={"bin": "breakpoint"},
                                                 errors="raise")

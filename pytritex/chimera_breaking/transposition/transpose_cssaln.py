@@ -51,14 +51,15 @@ def _transpose_cssaln(cssaln: str, fai: str, save_dir: str):
     cssaln_down = cssaln_down.set_index("scaffold_index")
     assert sorted(cssaln_down.columns) == sorted(cssaln_up.columns)
     assert cssaln_down.index.name == cssaln_up.index.name
-    cssaln_up = cssaln_up.categorize()
-    cssaln_down = cssaln_down.categorize()
-    npartitions = cssaln.npartitions
+    # cssaln_up = cssaln_up.categorize()
+    # cssaln_down = cssaln_down.categorize()
+    # npartitions = cssaln.npartitions
     # cssaln = dd.from_pandas(pd.concat([
     #         cssaln_up.compute(), cssaln_down[cssaln_up.columns].compute()]),
     #         npartitions=npartitions)
     cssaln = dd.concat([cssaln_up,
-                        cssaln_down[cssaln_up.columns]]).reset_index(drop=False)
+                        cssaln_down[cssaln_up.columns]],
+                       interleave_partitions=True).reset_index(drop=False)
     cssaln = cssaln.set_index("scaffold_index")
     assert set(cols.values.tolist()) == set(cssaln.columns.values.tolist())
 
