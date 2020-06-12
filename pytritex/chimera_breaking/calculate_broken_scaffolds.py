@@ -5,57 +5,6 @@ import os
 from functools import partial
 
 
-def _calculate_coordinates(broken, slop, maxid):
-    ids = (maxid + np.arange(1, 3 * (broken.shape[0] + 1) - 2, dtype=np.int)).reshape(broken.shape[0], 3)
-    # add scaffold_index1, 2, 3
-    for index in range(3):
-        broken.loc[:, "scaffold_index" + str(index + 1)] = ids[:, index]
-    broken.loc[:, "start1"] = 1
-    #   br[, end1 := pmax(0, br - slop - 1)]
-    broken.loc[:, "end1"] = np.maximum(0, (broken["breakpoint"] - slop - 1).astype(int), dtype=np.int)
-    #   br[, start2 := pmax(1, br - slop)]
-    broken.loc[:, "start2"] = np.maximum(1, (broken["breakpoint"] - slop).astype(int), dtype=np.int)
-    #   br[, end2 := pmin(br + slop - 1, length)]
-    broken.loc[:, "end2"] = np.minimum(broken["length"], (broken["breakpoint"] + slop - 1).astype(int), dtype=np.int)
-    #   br[, start3 := pmin(length + 1, br + slop)]
-    broken.loc[:, "start3"] = np.minimum((broken["length"] + 1).astype(int),
-                                         (broken["breakpoint"] + slop).astype(int), dtype=np.int)
-    broken.loc[:, "end3"] = broken["length"].astype(np.int)
-    return broken
-
-
-def _create_children_dataframes(broken):
-    dfs = []
-    for index in range(1, 4):
-        index = str(index)
-        lkey, skey, ekey = "length" + index, "start" + index, "end" + index
-        broken.loc[:, lkey] = 1 + broken[ekey] - broken[skey]
-        # Assign a new name WHICH KEEPS TRACK OF WHERE WE ARE COMING FROM
-        broken.loc[:, "scaffold" + index] = (
-                broken["scaffold"] + ":" + broken[skey].astype(str) + "-" + broken[ekey].astype(str))
-        # FAI has the following keys:
-        # scaffold_index scaffold  length  orig_scaffold_index  start  orig_start  end  orig_end derived_from_split
-        df = pd.DataFrame().assign(
-            scaffold_index=broken["scaffold_index" + index],
-            scaffold=broken["scaffold" + index],
-            length=broken[lkey],
-            orig_scaffold_index=broken["orig_scaffold_index"],
-            start=1,
-            end=broken[lkey],
-            orig_start=broken["orig_start"] + broken[skey] - 1,
-            orig_end=broken["orig_start"] + broken[skey] + broken[lkey] - 2,
-            derived_from_split=True
-        )
-        for col in df.columns:
-            if col in ["scaffold", "derived_from_split"]:
-                continue
-            df.loc[:, col] = pd.to_numeric(df[col], downcast="signed")
-
-        df = df.loc[df["length"] > 0, :].copy()
-        dfs.append(df)
-    return pd.concat(dfs).reset_index(drop=True).set_index("scaffold_index")
-
-
 def _scaffold_breaker(group, slop):
     breakpoints = group["breakpoint"].values
     assert breakpoints.shape[0] == np.unique(breakpoints).shape[0], group
