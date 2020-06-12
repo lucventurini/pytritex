@@ -3,7 +3,7 @@ import numpy as np
 from functools import partial
 import dask.dataframe as dd
 from typing import Union
-# import scipy.stats as stats
+import scipy.stats as stats
 import dask.array as da
 
 
@@ -20,8 +20,8 @@ def _ssorted(row, by, how):
 
 
 def rank(series: Union[dd.Series, pd.Series, np.array]):
-    # return stats.rankdata(series) - 1
-    return np.argsort(series)
+    return stats.rankdata(series) - 1
+    # return np.argsort(series)
 
 
 def rolling_join(left: Union[pd.DataFrame, dd.DataFrame], right: Union[pd.DataFrame, dd.DataFrame],
@@ -53,14 +53,14 @@ def rolling_join(left: Union[pd.DataFrame, dd.DataFrame], right: Union[pd.DataFr
         left["__idx_pos"] = da.from_array(grouped[by].transform(rank).astype(int),
                                           chunks=chunks)
         assert left.shape[0].compute() > 0
-        s = grouped[by].agg(by=(by, lambda col: col.values.tolist()))
+        s = grouped[by].agg(by=(by, lambda col: np.sort(col.values).tolist() ))
         s = dd.from_pandas(s, chunksize=1000)
         # assert s.index.dtype == left.index.dtype, (s.index.)
     else:
         assert left.shape[0] > 0
         grouped = left.groupby(on)
         left["__idx_pos"] = grouped[by].transform(rank)
-        s = grouped[by].agg(by=(by, lambda col: col.values.tolist()))
+        s = grouped[by].agg(by=(by, lambda col: np.sort(col.values).tolist() ))
 
     merged = dd.merge(s, right, how="outer", on=on)
     assert pd.api.types.is_numeric_dtype(merged.index.dtype) is True, np.unique(merged.index.values.compute())

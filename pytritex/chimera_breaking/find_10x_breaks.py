@@ -37,4 +37,5 @@ def find_10x_breaks(cov: dd.DataFrame, scaffolds=None,
     broken = broken.sort_values("r").groupby(
         ["scaffold_index", "b"]).head(1).rename(columns={"bin": "breakpoint"},
                                                 errors="raise")
+    assert broken.shape[0] == broken[["breakpoint"]].drop_duplicates().shape[0]
     return broken

@@ -147,8 +147,8 @@ Supplied values: {}, {}".format(binsize, binsize2))
         coverage_df = dd.merge(coverage_df, nbins, how="left", left_index=True, right_index=True)
         # Mean number of pairs covering each bin (cut at the rightmost side)
         mn = coverage_df.groupby("d")["n"].mean().to_frame("mn")
-        coverage_df = dd.merge(coverage_df.reset_index(drop=False), mn, on="d", how="left"
-                               ).set_index("scaffold_index")
+        coverage_df = dd.merge(
+            coverage_df.reset_index(drop=False), mn, on="d", how="left").set_index("scaffold_index")
         # Logarithm of number of pairs in bin divided by mean of number of pairs in bin?
         coverage_df = coverage_df.eval("r = log(n/mn) / log(2)")
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
