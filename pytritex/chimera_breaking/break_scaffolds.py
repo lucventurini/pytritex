@@ -8,6 +8,7 @@ from time import ctime
 import dask.dataframe as dd
 import os
 from dask.distributed import Client
+from ..utils import _rebalance_ddf
 
 
 def trim_fai(fai, save_dir):
@@ -86,6 +87,7 @@ def break_scaffolds(breaks, memory, save_dir, client: Client,
                 col = new_assembly[key].dtypes.index[index]
                 new_assembly[key][col] = new_assembly[key][col].astype(np.float32)
 
+        new_assembly[key] = _rebalance_ddf(new_assembly[key])
         dd.to_parquet(new_assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
         new_assembly[key] = fname
 

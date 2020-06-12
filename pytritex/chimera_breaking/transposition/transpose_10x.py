@@ -65,8 +65,11 @@ def _transpose_molecules(molecules: str, fai: str, save_dir: str):
     fai = dd.read_parquet(fai)
     if molecules is not None:
         molecules = dd.read_parquet(molecules)
+        orig_shape = molecules.shape[0].compute()
+    else:
+        orig_shape = 0
 
-    if molecules is not None and molecules.shape[0].compute() > 0:
+    if molecules is not None and orig_shape > 0:
         derived = fai.loc[fai.derived_from_split == True]
         to_keep = fai.loc[fai.derived_from_split == False]
         derived = derived[["orig_scaffold_index", "orig_start", "length"]].rename(
@@ -74,21 +77,29 @@ def _transpose_molecules(molecules: str, fai: str, save_dir: str):
         derived = derived.reset_index(drop=False).assign(orig_pos=lambda df: df["orig_start"])
         molecules_up = molecules[molecules["orig_scaffold_index"].isin(
             to_keep["orig_scaffold_index"].compute())]
-        assert molecules.index.name == "scaffold_index"
+        assert molecules_up.index.name == "scaffold_index"
+        try:
+            min_idx = molecules_up.index.values.compute().min()
+        except ValueError:
+            print(molecules.head())
+            print(to_keep.head())
+            raise
         molecules_down = molecules.loc[molecules["orig_scaffold_index"].isin(
             derived["orig_scaffold_index"].compute())].reset_index(drop=True)
-        assert molecules_up.shape[0].compute() + molecules_down.shape[0].compute() == molecules.shape[0].compute()
+        assert molecules_up.shape[0].compute() + molecules_down.shape[0].compute() == orig_shape
         molecules_down = rolling_join(derived, molecules_down, on="orig_scaffold_index", by="orig_start")
         molecules_down["start"] = molecules_down.eval("orig_start - orig_pos + 1")
         molecules_down["end"] = molecules_down.eval("orig_end - orig_pos + 1")
-        molecules_down = molecules_down.set_index("scaffold_index")
-        assert molecules_up.index.name == "scaffold_index", molecules_up.compute().head()
-        molecules = dd.concat([molecules_up, molecules_down])
-        molecules = molecules[molecules["end"] <= molecules["s_length"]].drop("orig_pos", axis=1).drop(
-            "s_length", axis=1)
+        molecules_down = molecules_down.query("end <= s_length")
+        # molecules_down = molecules_down.set_index("scaffold_index")
+        assert "scaffold_index" in molecules_down
+        # assert molecules_up.index.name == "scaffold_index", molecules_up.compute().head()
+        molecules = dd.concat([molecules_up.reset_index(drop=False),
+                               molecules_down]).set_index("scaffold_index")
+        assert molecules.index.values.compute().min() == min_idx
+        molecules = molecules.drop("orig_pos", axis=1).drop("s_length", axis=1)
         assert molecules.index.name == "scaffold_index", molecules.compute().head()
-        # We need to sort again, or it will be a mess going forward.
-        molecules = molecules.reset_index(drop=False).set_index("scaffold_index")
+        assert molecules.shape[0].compute() >= molecules_up.shape[0].compute()
     elif molecules is None:
         molecules = pd.DataFrame().assign(
             scaffold_index=[], barcode_index=[], start=[], end=[],
