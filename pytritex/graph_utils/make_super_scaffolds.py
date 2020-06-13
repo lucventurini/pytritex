@@ -2,25 +2,26 @@ import pandas as pd
 from pytritex.graph_utils.make_super import make_super
 
 
-def make_super_scaffolds(links, info: pd.DataFrame, excluded=pd.Series([]), ncores=1, prefix=None):
-    info2 = info.loc[:, ["scaffold_index", "popseq_chr", "popseq_cM", "length"]].rename(
-        columns={"popseq_chr": "chr", "popseq_cM": "cM"}, errors="raise")
+def make_super_scaffolds(links, info: pd.DataFrame, excluded=pd.Series([]), ncores=1):
+    info2 = info.loc[:, ["popseq_chr", "popseq_cM", "length"]].rename(
+        columns={"popseq_chr": "chr", "popseq_cM": "cM"})
+    assert "popseq_chr" not in info2.columns and "chr" in info2.columns
+    assert "popseq_cM" not in info2.columns and "cM" in info2.columns
     if excluded is not None:
         excluded_scaffolds = excluded.copy()
     else:
         excluded = pd.Series([], name="scaffold_index")
         excluded_scaffolds = excluded.copy()
-    input_df = info2.assign(excluded=info2["scaffold_index"].isin(excluded_scaffolds)).rename(
-        columns={"scaffold_index": "cluster"})
+    input_df = info2.assign(excluded=info.index.intersection(excluded_scaffolds))
+    input_df.index = input_df.index.rename("cluster")
     hl = links.copy().rename(columns={"scaffold_index1": "cluster1", "scaffold_index2": "cluster2"})
     super_scaffolds = make_super(
         hl=hl,
         cluster_info=input_df,
-        verbose=False, prefix=prefix, cores=ncores,
+        verbose=False, cores=ncores,
         paths=True, path_max=0, known_ends=False, maxiter=100)
     mem_copy = super_scaffolds["membership"].copy().rename(columns={"cluster": "scaffold_index"})
-    maxidx = super_scaffolds["super_info"]["super"].astype(
-        str).str.replace("{}_".format(prefix), "", regex=True).astype(int).max()
+    maxidx = super_scaffolds["super_info"]["super"].max()
 
     bait = ~info.scaffold_index.isin(mem_copy["scaffold_index"])
     _to_concatenate = info.loc[bait, ["scaffold_index", "popseq_chr", "popseq_cM", "length"]].rename(
@@ -28,7 +29,7 @@ def make_super_scaffolds(links, info: pd.DataFrame, excluded=pd.Series([]), ncor
         bin=1, rank=0, backbone=True,
         excluded=info.loc[~info.scaffold_index.isin(
             mem_copy["scaffold_index"]), "scaffold_index"].isin(excluded_scaffolds),
-        super="{}_".format(prefix) + (maxidx + pd.Series(range(1, info.loc[bait].shape[0] + 1))).astype(str)
+        super=(maxidx + pd.Series(range(1, info.loc[bait].shape[0] + 1)))
     )
     mem_copy = pd.concat([mem_copy, _to_concatenate])
     res = mem_copy.groupby("super").agg(n=("scaffold_index", "size"),

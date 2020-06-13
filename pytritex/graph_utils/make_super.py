@@ -5,6 +5,7 @@ import numpy as np
 # import graph_tool.clustering
 import time
 import networkit as nk
+import dask.dataframe as dd
 from pytritex.graph_utils.make_super_path import make_super_path
 
 
@@ -62,8 +63,8 @@ def _concatenator(edges, membership, known_ends=False, maxiter=100, verbose=Fals
     return final
 
 
-def make_super(hl, cluster_info,
-               prefix="super", cores=1, paths=True, path_max=0, known_ends=False,
+def make_super(hl: dd.DataFrame, cluster_info: dd.DataFrame,
+               cores=1, paths=True, path_max=0, known_ends=False,
                maxiter=100, verbose=True):
 
     #  hl[cluster1 %in% cluster_info[excluded == F]$cluster & cluster2 %in% cluster_info[excluded == F]$cluster]->hl
@@ -90,6 +91,7 @@ def make_super(hl, cluster_info,
     #  hl[cluster1 < cluster2]->e
     #  graph.edgelist(as.matrix(e[, .(cluster1, cluster2)]), directed=F)->g
     #  E(g)$weight<-e$weight
+    nk.setNumberOfThreads(cores)
     graph = nk.Graph(n=cidx.shape[0], weighted=True, directed=False)
     edge_list.apply(lambda row: graph.addEdge(row["cidx1"], row["cidx2"], row["weight"]), axis=1)
     components = nk.components.ConnectedComponents(graph)
@@ -98,7 +100,8 @@ def make_super(hl, cluster_info,
     cidx_list, ssuper = [], []
     for idx, comp in enumerate(components.getComponents()):
         cidx_list.extend(comp)
-        ssuper.extend(["{prefix}_{idx}".format(prefix=prefix, idx=idx)] * len(comp))
+        ssuper.extend([idx] * len(comp))
+        # ssuper.extend(["{prefix}_{idx}".format(prefix=prefix, idx=idx)] * len(comp))
 
     membership = pd.DataFrame().assign(cidx=cidx_list, super=ssuper).set_index("cidx")
     membership = membership.merge(cidx.reset_index(drop=False), on=["cidx"], how="outer")

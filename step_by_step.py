@@ -23,7 +23,7 @@ from pytritex.utils import return_size, parse_size
 
 def dispatcher(assembly, row):
     result = scaffold_10x(assembly,
-                          prefix="scaffold_10x", min_npairs=row.npairs,
+                          min_npairs=row.npairs,
                           max_dist=row.dist, popseq_dist=5, max_dist_orientation=5,
                           min_nsample=row.nsample,
                           min_nmol=row.nmol, unanchored=False, ncores=1)
@@ -32,7 +32,7 @@ Result: {res}\n""".format(row=row, res=n50(result["info"]["length"])))
     return result
 
 
-def grid_evaluation(assembly, args):
+def grid_evaluation(assembly, args, client, memory):
 
     grid = pd.DataFrame(dict(zip(("npairs", "nmol", "nsample", "dist"),
                                  list(zip(*itertools.product((2, 3),
@@ -40,10 +40,10 @@ def grid_evaluation(assembly, args):
                                                              (1, 2),
                                                              range(6 * 10**4, 10**5, 10**4)))))))
     print("Starting grid evaluation")
-    pool = mp.Pool(processes=args.procs)
+    # pool = mp.Pool(processes=args.procs)
     # results = pool.starmap(dispatcher, [(assembly, row) for index, row in grid.iterrows()])
     _index, row = next(grid.iterrows())
-    result = dispatcher(assembly, row)
+    result = memory.cache(dispatcher)(assembly, row)
     return result
 
 
@@ -101,6 +101,7 @@ def main():
         assembly, memory=memory, client=client,
         ratio=-3, interval=5e4, minNbin=20, dist=2e3, save_dir=args.save_prefix,
         slop=2e2, species="wheat", intermediate=False, cores=args.procs)["assembly"]
+    # grid_evaluation(assembly_v1, args, client=client, memory=memory)
     client.close()
     print("Broken chimeras")
     return

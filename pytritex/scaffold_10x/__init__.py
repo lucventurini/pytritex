@@ -7,13 +7,15 @@ import dask.dataframe as dd
 import time
 
 
-def scaffold_10x(assembly: dict, prefix="super", min_npairs=5, max_dist=1e5, min_nmol=6,
+def scaffold_10x(assembly: dict, min_npairs=5, max_dist=1e5, min_nmol=6,
                  min_nsample=2, popseq_dist=5, max_dist_orientation=5,
                  ncores=1, verbose=True, raw=False, unanchored=True):
     """Construct super-scaffold from 10X links. Use heuristics based on genetic map information
     to prune erroneous edges in the scaffold graph."""
 
     info, molecules = assembly["info"], assembly["molecules"]
+    info = dd.read_parquet(info, infer_divisions=True)
+    molecules = dd.read_parquet(molecules, infer_divisions=True)
     # print(assembly.keys())
     print(time.ctime(), "Finding initial links")
     sample_count, links, link_pos = _initial_link_finder(info=info, molecules=molecules,
@@ -24,7 +26,7 @@ def scaffold_10x(assembly: dict, prefix="super", min_npairs=5, max_dist=1e5, min
     excluded = set()
     print(time.ctime(), "Starting initial pruning")
     out, excluded = _initial_branch_remover(
-        raw, links=links, info=info, excluded=excluded, ncores=ncores, prefix=prefix)
+        raw, links=links, info=info, excluded=excluded, ncores=ncores)
     res = out["info"]
     membership=out["membership"]
     print(time.ctime(), "Finished initial pruning")
@@ -35,11 +37,11 @@ def scaffold_10x(assembly: dict, prefix="super", min_npairs=5, max_dist=1e5, min
     if raw is False:
         membership, res, excluded = remove_tips(links=links, excluded=excluded,
                                                 out=out, info=info,
-                                                prefix=prefix, ncores=ncores, verbose=verbose,
+                                                ncores=ncores, verbose=verbose,
                                                 min_dist=1e4)
         if popseq_dist > 0 and unanchored is True:
             membership, res = _scaffold_unanchored(links, excluded, membership, info, sample_count, ncores=1,
-                                                   prefix=prefix, verbose=False)
+                                                   verbose=False)
     membership, result = orient_scaffolds(
         info=info, res=res, membership=membership,
         link_pos=link_pos, max_dist_orientation=max_dist_orientation, verbose=verbose)

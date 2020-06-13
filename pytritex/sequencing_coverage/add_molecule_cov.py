@@ -120,13 +120,9 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         coverage_df = coverage_df.eval("r = log(n / mn) / log(2)")
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
-        mr_10x = coverage_df["r"].groupby(coverage_df.index.name
-                                          ).agg("min").to_frame("mr_10x")
-        assert isinstance(mr_10x, dd.DataFrame)
-        # assert isinstance(info, (Delayed, dd.DataFrame))
-        info = client.scatter(info)
-        func = delayed(dd.merge)(mr_10x, info, how="right", on="scaffold_index")
-        info_mr = client.compute(func).result()
+        coverage_df["mr_10x"] = coverage_df["r"].groupby(
+            coverage_df.index.name).transform("min", meta=coverage_df.r.dtype).to_dask_array()
+        info_mr = dd.merge(coverage_df[["mr_10x"]], info, how="right", on="scaffold_index")
         assert isinstance(info_mr, dd.DataFrame), type(info_mr)
         # assert isinstance(info_mr, dd.DataFrame), type(info_mr)
         info_mr = info_mr.drop("index", axis=1, errors="ignore").drop("scaffold", axis=1, errors="ignore")

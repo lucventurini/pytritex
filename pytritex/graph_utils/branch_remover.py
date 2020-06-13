@@ -11,7 +11,7 @@ def _initial_branch_remover(raw, links, info, excluded, ncores, prefix=None):
         while run is True:
             counter += 1
             print(time.ctime(), "Starting run", counter)
-            out = make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=excluded, ncores=ncores)
+            out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
             membership = out["membership"]
             # res = out["info"]
             a = membership.merge(
@@ -32,7 +32,7 @@ def _initial_branch_remover(raw, links, info, excluded, ncores, prefix=None):
                 assert excluded is not None
                 print(time.ctime(), "Run", counter, ", excluding", len(excluded))
     else:
-        out = make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=excluded, ncores=ncores)
+        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
         # membership = out["membership"]
         # res = out["info"]
 

@@ -14,11 +14,11 @@ def _calculate_degree(links, excluded):
     return degree
 
 
-def _remove_bulges(links, excluded, membership, info, min_dist=minimum_distance, ncores=1, prefix=None):
+def _remove_bulges(links, excluded, membership, info, min_dist=minimum_distance, ncores=1):
     add = membership.query("(rank == 1) & (length <= @min_dist)")["scaffold_index"]
     if add.shape[0] > 0:
         excluded.update(add.tolist())
-        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores, prefix=prefix)
+        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
         membership = out["membership"]
         res = out["info"]
     else:
@@ -26,7 +26,7 @@ def _remove_bulges(links, excluded, membership, info, min_dist=minimum_distance,
     return membership, res, excluded
 
 
-def _remove_short_tips(links, excluded, membership, info, min_dist=minimum_distance, ncores=1, prefix=None):
+def _remove_short_tips(links, excluded, membership, info, min_dist=minimum_distance, ncores=1):
     # #   links[!scaffold2 %in% ex][, .(degree=.N), key=.(scaffold_index=scaffold1)]-> degree
     # # inner <- m[rank == 1][, .(super=c(super, super, super), bin=c(bin, bin-1, bin+1))]
     # # middle <- m[inner, on=c("super", "bin")]
@@ -58,19 +58,19 @@ def _remove_short_tips(links, excluded, membership, info, min_dist=minimum_dista
     out = {"membership": membership, "info": None}
     if add.shape[0] > 0:
         excluded.update(add.tolist())
-        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores, prefix=prefix)
+        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
         membership = out["membership"]
 
     membership, res, excluded = _remove_bulges(links=links, excluded=excluded,
                                                membership=membership,
-                                               info=info, min_dist=min_dist, ncores=ncores, prefix=prefix)
+                                               info=info, min_dist=min_dist, ncores=ncores)
     if res is not None:
         out["info"] = res
 
     return membership, out["info"], excluded
 
 
-def _remove_bifurcations(links, excluded, membership, info, min_dist=minimum_distance, ncores=1, prefix=None):
+def _remove_bifurcations(links, excluded, membership, info, min_dist=minimum_distance, ncores=1):
     # resolve length-one-bifurcations at the ends of paths
     if membership.shape[0] == 0:
         return membership, info, excluded
@@ -108,17 +108,17 @@ def _remove_bifurcations(links, excluded, membership, info, min_dist=minimum_dis
     out = {"membership": membership, "info": None}
     if add.shape[0] > 0:
         excluded.update(add.tolist())
-        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores, prefix=prefix)
+        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
         membership = out["membership"]
     membership, res, excluded = _remove_bulges(links=links, excluded=excluded,
                                                membership=membership,
-                                               info=info, min_dist=min_dist, ncores=ncores, prefix=prefix)
+                                               info=info, min_dist=min_dist, ncores=ncores)
     if res is not None:
         out["info"] = res
     return membership, out["info"], excluded
 
 
-def remove_tips(links, excluded, out, info, ncores=1, prefix=None,
+def remove_tips(links, excluded, out, info, ncores=1,
                 verbose=False, min_dist=minimum_distance):
 
     if verbose:
@@ -129,7 +129,7 @@ def remove_tips(links, excluded, out, info, ncores=1, prefix=None,
         return out
 
     membership, res, excluded = _remove_short_tips(links, excluded, membership, info,
-                                                   min_dist=min_dist, ncores=ncores, prefix=prefix)
+                                                   min_dist=min_dist, ncores=ncores)
     if membership.shape[0] == 0:
         print("This set of parameters leads to lose everything.")
         return membership, info, excluded
@@ -137,7 +137,7 @@ def remove_tips(links, excluded, out, info, ncores=1, prefix=None,
         out["info"] = res
 
     membership, res, excluded = _remove_bifurcations(links, excluded, membership, info,
-                                                     min_dist=min_dist, ncores=ncores, prefix=prefix)
+                                                     min_dist=min_dist, ncores=ncores)
     if membership.shape[0] == 0:
         print("This set of parameters leads to lose everything.")
         return membership, info, excluded
@@ -148,12 +148,12 @@ def remove_tips(links, excluded, out, info, ncores=1, prefix=None,
     add = degree.merge(membership.query("rank == 1"), on="scaffold_index").query("degree == 1")["scaffold_index"]
     if add.shape[0] > 0:
         excluded.update(add.tolist())
-        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores, prefix=prefix)
+        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
         membership = out["membership"]
 
     add = membership.query("rank > 0")["scaffold_index"]
     if add.shape[0] > 0:
         excluded.update(add.tolist())
-        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores, prefix=prefix)
+        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
 
     return membership, out["info"], excluded
