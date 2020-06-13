@@ -96,15 +96,14 @@ Supplied values: {}, {}".format(binsize, binsize2))
 
     assert isinstance(fpairs, dd.DataFrame)
     assert fpairs.shape[0].compute() > 0
-    print(fpairs.compute().head())
     # Bin positions of the match by BinSize; only select those bins where the distance between the two bins is
     # greater than the double of the binsize.
     query = "scaffold_index1 == scaffold_index2"
     try:
         temp_values = fpairs.query(query)[["scaffold_index1", "pos1", "pos2"]].compute().to_numpy()
     except ValueError:
-        print(fpairs.compute().head())
-        raise ValueError(fpairs.head())
+        print(fpairs.head(npartitions=-1, n=5))
+        raise ValueError(fpairs.head(npartitions=-1, n=5))
     temp_frame = pd.DataFrame(
         {"scaffold_index": temp_values[:, 0],
          "bin1": temp_values[:, 1] // binsize * binsize,
@@ -143,7 +142,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         # Number of bins found in each scaffold. Take "n" as the column to count.
         _col = coverage_df.columns[0]
         coverage_df["nbin"] = coverage_df.groupby(
-            coverage_df.index.name)[_col].transform("size", meta=int).to_dask_array()
+            coverage_df.index.name)[_col].transform("size", meta=int).to_dask_array(lengths=True)
         assert isinstance(coverage_df, dd.DataFrame)
         _ = coverage_df.head(npartitions=-1, n=5)
         # Mean number of pairs covering each bin (cut at the rightmost side)
@@ -167,7 +166,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assert "r" in coverage_df.columns
         coverage_df = coverage_df.merge(min_ratio, how="left", on=coverage_df.index.name)
         # Test
-        _ = coverage_df.head(npartitions=10, n=5)
+        _ = coverage_df.head(npartitions=-1, n=5)
         assert "r" in coverage_df.columns
         # For those scaffolds where we have at least one bin which is further away from the start than "innerDist",
         # calculate the minimum coverage *for those bins only*.
@@ -178,7 +177,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assert min_internal_ratio.index.name == coverage_df.index.name, min_internal_ratio.index.name
         coverage_df = coverage_df.merge(min_internal_ratio, how="left", on=coverage_df.index.name)
         # Test
-        _ = coverage_df.head(npartitions=10, n=5)
+        _ = coverage_df.head(npartitions=-1, n=5)
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         info_mr = dd.merge(min_ratio, info, on="scaffold_index", how="right")
         info_mr = dd.merge(min_internal_ratio, info_mr, on="scaffold_index", how="right")
