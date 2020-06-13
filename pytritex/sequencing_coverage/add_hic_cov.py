@@ -145,13 +145,13 @@ Supplied values: {}, {}".format(binsize, binsize2))
         coverage_df["nbin"] = coverage_df.groupby(
             coverage_df.index.name)[_col].transform("size", meta=int).to_dask_array()
         assert isinstance(coverage_df, dd.DataFrame)
-        _ = coverage_df.head(npartitions=5, n=5)
+        _ = coverage_df.head(npartitions=-1, n=5)
         # Mean number of pairs covering each bin (cut at the rightmost side)
         mn = coverage_df.groupby("d")["n"].mean().to_frame("mn")
         idx = coverage_df.index
         coverage_df = coverage_df.drop("mn", axis=1, errors="ignore").merge(mn, how="left", on="d")
         coverage_df.index = idx
-        _ = coverage_df.head(npartitions=5, n=5)
+        _ = coverage_df.head(npartitions=-1, n=5)
         # Logarithm of number of pairs in bin divided by mean of number of pairs in bin?
         coverage_df = coverage_df.eval("r = log(n/mn) / log(2)")
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
