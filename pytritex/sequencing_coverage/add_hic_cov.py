@@ -175,12 +175,17 @@ Supplied values: {}, {}".format(binsize, binsize2))
             coverage_df.index.name).min().rename(columns={"r": "mri"})
         assert coverage_df.index.name == "scaffold_index"
         assert min_internal_ratio.index.name == coverage_df.index.name, min_internal_ratio.index.name
-        coverage_df = coverage_df.merge(min_internal_ratio, how="left", on=coverage_df.index.name)
+        coverage_df = coverage_df.merge(min_internal_ratio, how="left",
+                                        left_index=True, right_index=True)
         # Test
         _ = coverage_df.head(npartitions=-1, n=5)
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
-        info_mr = dd.merge(min_ratio, info, on="scaffold_index", how="right")
-        info_mr = dd.merge(min_internal_ratio, info_mr, on="scaffold_index", how="right")
+        assert info.index.name == min_ratio.index.name == "scaffold_index"
+        info_mr = dd.merge(min_ratio, info, left_index=True,
+                           right_index=True, how="right")
+        assert info_mr.index.name == min_internal_ratio.index.name == "scaffold_index"
+        info_mr = dd.merge(min_internal_ratio, info_mr, left_index=True,
+                           right_index=True, how="right")
         if "scaffold" in info_mr.columns:
             info_mr = info_mr.drop("scaffold", axis=1)
         assert isinstance(info_mr, dd.DataFrame)
