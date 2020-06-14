@@ -30,8 +30,10 @@ def _transpose_molecule_cov(new_assembly, fai, assembly, save_dir: str, memory: 
         present = np.unique(_index.values[_index.isin(old_to_keep)])
         old_info = old_info.loc[present]
         # We have to reset the index to trigger the sorting.
-        new_assembly["info"] = dd.concat([old_info, coverage["info"]]).reset_index(drop=False)
-        new_assembly["info"] = new_assembly["info"].set_index("scaffold_index")
+        assert old_info.index.name == coverage["info"].index.name == "scaffold_index"
+        new_assembly["info"] = dd.concat([old_info.reset_index(drop=False),
+                                          coverage["info"].reset_index(drop=False)
+                                          ]).set_index("scaffold_index")
 
         new_assembly["mol_binsize"] = assembly["mol_binsize"]
         old_coverage = dd.read_parquet(assembly["molecule_cov"], infer_divisions=True)
@@ -39,8 +41,11 @@ def _transpose_molecule_cov(new_assembly, fai, assembly, save_dir: str, memory: 
         present = np.unique(_index.values[_index.isin(old_to_keep)])
         old_coverage = old_coverage.loc[present]
         if coverage["molecule_cov"].shape[0].compute() > 0:
+            assert "scaffold_index" == old_coverage.index.name == coverage["molecule_cov"].index.name
             new_assembly["molecule_cov"] = dd.concat(
-                [old_coverage, coverage["molecule_cov"]]).reset_index(drop=False).set_index("scaffold_index")
+                [old_coverage.reset_index(drop=False),
+                 coverage["molecule_cov"].reset_index(drop=False)
+                 ]).set_index("scaffold_index")
         else:
             new_assembly["molecule_cov"] = old_coverage
         #

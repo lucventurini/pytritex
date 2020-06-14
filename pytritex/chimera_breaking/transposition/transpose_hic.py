@@ -35,8 +35,8 @@ def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: st
         if new_coverage["cov"].shape[0].compute() > 0:
             assert "scaffold_index" == previous_to_keep.index.name == new_coverage["cov"].index.name
             new_assembly["cov"] = dd.concat([
-                previous_to_keep,
-                new_coverage["cov"]]).reset_index(drop=False).set_index(
+                previous_to_keep.reset_index(drop=False),
+                new_coverage["cov"].reset_index(drop=False)]).set_index(
                 "scaffold_index")
         else:
             new_assembly["cov"] = previous_to_keep
