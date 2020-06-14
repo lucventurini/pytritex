@@ -52,7 +52,7 @@ def break_scaffolds(breaks, memory, save_dir, client: Client,
                                                                    trimmed_fai, base)
 
     print(ctime(), "Anchoring the transposed data")
-    new_assembly = anchor_scaffolds(new_assembly, species=species, save=base)
+    new_assembly = memory.cache(anchor_scaffolds)(new_assembly, species=species, save=base)
     # Now let's recalculate the coverage
     info = dd.read_parquet(new_assembly["info"])
     info = info.drop("mr_10x", axis=1, errors="ignore")

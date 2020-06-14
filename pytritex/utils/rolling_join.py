@@ -74,8 +74,9 @@ def rolling_join(left: Union[pd.DataFrame, dd.DataFrame], right: Union[pd.DataFr
         assert shape > 0
         chunks = tuple(merged.map_partitions(len).compute())
         # size = sum(chunks)
-        __idx_pos = da.from_array(merged[["by", by]].apply(_ss, axis=1, meta=int).compute(),
-                                  chunks=chunks)
+        __idx_pos = da.from_array(
+            merged[["by", by]].apply(_ss, axis=1, meta=int).compute(),
+            chunks=chunks)
         merged = merged.assign(__idx_pos=__idx_pos)
         assert shape == merged.shape[0].compute(), (shape, merged.shape[0].compute())
     else:

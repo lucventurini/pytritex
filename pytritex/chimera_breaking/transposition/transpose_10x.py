@@ -26,7 +26,8 @@ def _transpose_molecule_cov(new_assembly, fai, assembly, save_dir: str, memory: 
             binsize=assembly["mol_binsize"], cores=cores)
         old_info = dd.read_parquet(assembly["info"], infer_divisions=True)
         assert old_info.index.name == "scaffold_index"
-        present = np.unique(old_info.index.compute().intersection(old_to_keep))
+        _index = old_info.index.compute()
+        present = np.unique(_index.values[_index.isin(old_to_keep)])
         old_info = old_info.loc[present]
         # We have to reset the index to trigger the sorting.
         new_assembly["info"] = dd.concat([old_info, coverage["info"]]).reset_index(drop=False)
@@ -34,7 +35,9 @@ def _transpose_molecule_cov(new_assembly, fai, assembly, save_dir: str, memory: 
 
         new_assembly["mol_binsize"] = assembly["mol_binsize"]
         old_coverage = dd.read_parquet(assembly["molecule_cov"], infer_divisions=True)
-        old_coverage = old_coverage.loc[np.unique(old_coverage.index.compute().intersection(old_to_keep))]
+        _index = old_coverage.index.compute()
+        present = np.unique(_index.values[_index.isin(old_to_keep)])
+        old_coverage = old_coverage.loc[present]
         if coverage["molecule_cov"].shape[0].compute() > 0:
             new_assembly["molecule_cov"] = dd.concat(
                 [old_coverage, coverage["molecule_cov"]]).reset_index(drop=False).set_index("scaffold_index")
@@ -78,15 +81,9 @@ def _transpose_molecules(molecules: str, fai: str, save_dir: str):
         molecules_up = molecules[molecules["orig_scaffold_index"].isin(
             to_keep["orig_scaffold_index"].compute())]
         assert molecules_up.index.name == "scaffold_index"
-        try:
-            min_idx = molecules_up.index.values.compute().min()
-        except ValueError:
-            print(molecules.head())
-            print(to_keep.head())
-            raise
         molecules_down = molecules.loc[molecules["orig_scaffold_index"].isin(
             derived["orig_scaffold_index"].compute())].reset_index(drop=True)
-        assert molecules_up.shape[0].compute() + molecules_down.shape[0].compute() == orig_shape
+        # assert molecules_up.shape[0].compute() + molecules_down.shape[0].compute() == orig_shape
         molecules_down = rolling_join(derived, molecules_down, on="orig_scaffold_index", by="orig_start")
         molecules_down["start"] = molecules_down.eval("orig_start - orig_pos + 1")
         molecules_down["end"] = molecules_down.eval("orig_end - orig_pos + 1")
@@ -96,10 +93,10 @@ def _transpose_molecules(molecules: str, fai: str, save_dir: str):
         # assert molecules_up.index.name == "scaffold_index", molecules_up.compute().head()
         molecules = dd.concat([molecules_up.reset_index(drop=False),
                                molecules_down]).set_index("scaffold_index")
-        assert molecules.index.values.compute().min() == min_idx
+        # assert molecules.index.values.compute().min() == min_idx
         molecules = molecules.drop("orig_pos", axis=1).drop("s_length", axis=1)
-        assert molecules.index.name == "scaffold_index", molecules.compute().head()
-        assert molecules.shape[0].compute() >= molecules_up.shape[0].compute()
+        # assert molecules.index.name == "scaffold_index", molecules.compute().head()
+        # assert molecules.shape[0].compute() >= molecules_up.shape[0].compute()
     elif molecules is None:
         molecules = pd.DataFrame().assign(
             scaffold_index=[], barcode_index=[], start=[], end=[],

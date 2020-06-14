@@ -28,17 +28,23 @@ def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: st
             binsize=binsize, minNbin=minNbin, innerDist=innerDist, cores=cores)
 
         # First let's get the new coverage
-        previous_to_keep = coverage.loc[old_to_keep]
+        present = coverage.index.compute()
+        inters = present.isin(old_to_keep)
+        present = np.unique(present.values[inters])
+        previous_to_keep = coverage.loc[present]
         if new_coverage["cov"].shape[0].compute() > 0:
-            new_assembly["cov"] = dd.concat([previous_to_keep,
-                                             new_coverage["cov"]]).reset_index(drop=False).set_index(
+            assert "scaffold_index" == previous_to_keep.index.name == new_coverage["cov"].index.name
+            new_assembly["cov"] = dd.concat([
+                previous_to_keep,
+                new_coverage["cov"]]).reset_index(drop=False).set_index(
                 "scaffold_index")
         else:
             new_assembly["cov"] = previous_to_keep
 
         # Now extract the info which is still valid
-        old_info = old_info.loc[old_to_keep]
-        old_info = old_info.drop("mr_10x", axis=1, errors="ignore")
+        present = old_info.index.compute()
+        present = np.unique(present.values[present.isin(old_to_keep)])
+        old_info = old_info.loc[present].drop("mr_10x", axis=1, errors="ignore")
         new_assembly["info"] = dd.concat([
             old_info, new_coverage["info"]
         ]).reset_index(drop=False).set_index("scaffold_index")
@@ -75,7 +81,6 @@ def _transpose_fpairs(fpairs: str, fai: str, save_dir: str):
         # "Scaffold_index" is the index name
         left = derived[["orig_scaffold_index", "orig_start"]]
         left = left.assign(orig_pos=left["orig_start"]).reset_index(drop=False)
-        print(left.compute().head())
 
         bait1 = fpairs.orig_scaffold_index1.isin(derived.orig_scaffold_index.compute())
         bait2 = fpairs.orig_scaffold_index2.isin(derived.orig_scaffold_index.compute())
