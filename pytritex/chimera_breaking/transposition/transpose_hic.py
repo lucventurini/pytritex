@@ -36,7 +36,8 @@ def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: st
             assert "scaffold_index" == previous_to_keep.index.name == new_coverage["cov"].index.name
             new_assembly["cov"] = dd.concat([
                 previous_to_keep.reset_index(drop=False),
-                new_coverage["cov"].reset_index(drop=False)]).set_index(
+                # TODO: for some reason the program crashes here unless I explicitly compute the result
+                new_coverage["cov"].compute().reset_index(drop=False)]).set_index(
                 "scaffold_index")
         else:
             new_assembly["cov"] = previous_to_keep
@@ -46,8 +47,9 @@ def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: st
         present = np.unique(present.values[present.isin(old_to_keep)])
         old_info = old_info.loc[present].drop("mr_10x", axis=1, errors="ignore")
         new_assembly["info"] = dd.concat([
-            old_info, new_coverage["info"]
-        ]).reset_index(drop=False).set_index("scaffold_index")
+            old_info.reset_index(drop=False),
+            new_coverage["info"].compute().reset_index(drop=False)
+        ]).set_index("scaffold_index")
 
     return new_assembly
 
