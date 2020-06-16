@@ -69,5 +69,8 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None):
     if npartitions is None:
         npartitions=ddf.npartitions
     divisions, _ = dd.io.io.sorted_division_locations(index, npartitions=npartitions)
-    repartitioned = ddf.repartition(divisions=divisions, force=True)
+    try:
+        repartitioned = ddf.repartition(divisions=divisions, force=True)
+    except ValueError:
+        repartitioned = ddf.repartition(npartitions=npartitions)
     return repartitioned
