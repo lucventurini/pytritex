@@ -9,6 +9,7 @@ from time import ctime
 import os
 from .collapse_bins import collapse_bins as cbn
 from dask import delayed
+from ..utils import _rebalance_ddf
 
 
 def _group_analyser(group, binsize, cores=1):
@@ -126,6 +127,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         n=finalised[:, 2]).set_index("scaffold_index")
 
     if coverage_df.shape[0] > 0:
+        original_info_size = info.shape[0].compute()
         print(ctime(), "Merging on coverage DF (HiC)")
         # Group by bin, count how covered is each bin, reset the index so it is only by scaffold_index
         coverage_df = coverage_df.groupby(["scaffold_index", "bin"]).agg(n=("n", "sum")).reset_index(level=1)
@@ -159,7 +161,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         # calculate the minimum ratio (in log2) of the coverage per-bin divided by the mean coverage (in the scaffold)
         bait = coverage_df["nbin"] >= minNbin
         min_ratio = coverage_df.loc[bait, ["r"]].groupby(coverage_df.index.name).min().rename(
-            columns={"r": "mr"})
+            columns={"r": "mr"}).drop_duplicates(ignore_index=False)
         assert isinstance(min_ratio, dd.DataFrame)
         assert coverage_df.index.name == "scaffold_index"
         assert min_ratio.index.name == coverage_df.index.name, min_ratio.index.name
@@ -172,7 +174,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         # calculate the minimum coverage *for those bins only*.
         bait = (coverage_df["nbin"] > minNbin) & (coverage_df["d"] >= innerDist)
         min_internal_ratio = coverage_df.loc[bait, ["r"]].groupby(
-            coverage_df.index.name).min().rename(columns={"r": "mri"})
+            coverage_df.index.name).min().rename(columns={"r": "mri"}).drop_duplicates(ignore_index=False)
         assert coverage_df.index.name == "scaffold_index"
         assert min_internal_ratio.index.name == coverage_df.index.name, min_internal_ratio.index.name
         coverage_df = coverage_df.merge(min_internal_ratio, how="left",
@@ -189,6 +191,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         if "scaffold" in info_mr.columns:
             info_mr = info_mr.drop("scaffold", axis=1)
         assert isinstance(info_mr, dd.DataFrame)
+        assert info_mr.shape[0].compute() == original_info_size
         print(ctime(), "Merged on coverage DF (HiC),", coverage_df.columns)
     else:
         info_mr = info.assign(mri=np.nan, mr=np.nan)
@@ -202,6 +205,8 @@ Supplied values: {}, {}".format(binsize, binsize2))
         for key in ["info", "cov"]:
             print(ctime(), "Storing", key, "for HiC")
             fname = os.path.join(save_dir, key + "_hic")
+            assembly[key] = _rebalance_ddf(assembly[key],
+                                           npartitions=min(100, assembly[key].npartitions))
             dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
             assembly[key] = fname
         print(ctime(), "Finished storing HiC")

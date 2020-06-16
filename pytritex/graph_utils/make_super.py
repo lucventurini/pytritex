@@ -69,9 +69,14 @@ def make_super(hl: dd.DataFrame, cluster_info: dd.DataFrame,
 
     #  hl[cluster1 %in% cluster_info[excluded == F]$cluster & cluster2 %in% cluster_info[excluded == F]$cluster]->hl
     hl = hl.copy()
-    hl = hl.loc[(hl["cluster1"].isin(cluster_info.loc[~cluster_info["excluded"], "cluster"]))
-                & (hl["cluster1"].isin(cluster_info.loc[~cluster_info["excluded"], "cluster"]))]
-    edge_list = hl.loc[hl.eval("cluster1 < cluster2"), ["cluster1", "cluster2", "weight"]]
+    non_excluded = cluster_info.loc[cluster_info["excluded"] == False].index.values.compute()
+    bait1 = hl["cluster1"].isin(non_excluded)
+    bait2 = hl["cluster2"].isin(non_excluded)
+    hl = hl.loc[bait1 & bait2, :]
+    # hl = hl.loc[(hl["cluster1"].isin(
+    #     cluster_info.loc[~cluster_info["excluded"]].index.values))
+    #     & (hl["cluster2"].isin(cluster_info.loc[~cluster_info["excluded"]].index.values))]
+    edge_list = hl.query("cluster1 < cluster2")[["cluster1", "cluster2", "weight"]].compute()
     # Unique cluster IDs
     cidx = np.unique(edge_list[["cluster1", "cluster2"]].values.flatten())
     cidx = np.vstack([cidx, np.arange(cidx.shape[0])])
@@ -108,11 +113,20 @@ def make_super(hl: dd.DataFrame, cluster_info: dd.DataFrame,
     membership = cluster_info.merge(membership, on="cluster", how="right")
     # info <- mem[, .(super_size=.N, length=.N, chr=unique(na.omit(chr))[1], cM=mean(na.omit(cM))),
     # keyby=super]
-    info = membership.groupby("super").agg(
-        super_size=("super", "size"), length=("super", "size"),
-        cM=("cM", lambda s: s.dropna().mean()),
-        chr=("chr", lambda s: np.nan if s.dropna().shape[0] == 0 else s.dropna().unique()[0])
-    ).reset_index(drop=False)
+    # chr=("chr", lambda s: np.nan if s.dropna().shape[0] == 0 else s.dropna().unique()[0])
+
+    grouped = membership.groupby("super")
+    info = grouped.agg(
+        {"super": "size",
+         "cM": "mean"}
+    )
+    print(info.head(npartitions=-1, n=5))
+    info["chr"] = grouped["chr"].unique().apply(lambda s: [_ for _ in s if not np.isnan(_)][0],
+                                                meta=np.float)
+    print(info.head(npartitions=-1, n=5))
+    import sys
+    sys.exit(1)
+
     assert "cluster" in membership, membership.columns
     edge_list = membership.rename(columns={"cluster": "cluster1"})[["cluster1", "super"]].merge(
         hl, on="cluster1", how="right")

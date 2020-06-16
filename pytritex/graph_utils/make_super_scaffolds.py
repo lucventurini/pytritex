@@ -1,8 +1,14 @@
 import pandas as pd
 from pytritex.graph_utils.make_super import make_super
+import dask.dataframe as dd
 
 
-def make_super_scaffolds(links, info: pd.DataFrame, excluded=pd.Series([]), ncores=1):
+def make_super_scaffolds(links: str,
+                         info: str,
+                         save_dir: str,
+                         excluded=pd.Series([]), ncores=1):
+    links = dd.read_parquet(links, infer_divisions=True)
+    info = dd.read_parquet(info, infer_divisions=True)
     info2 = info.loc[:, ["popseq_chr", "popseq_cM", "length"]].rename(
         columns={"popseq_chr": "chr", "popseq_cM": "cM"})
     assert "popseq_chr" not in info2.columns and "chr" in info2.columns
@@ -12,7 +18,7 @@ def make_super_scaffolds(links, info: pd.DataFrame, excluded=pd.Series([]), ncor
     else:
         excluded = pd.Series([], name="scaffold_index")
         excluded_scaffolds = excluded.copy()
-    input_df = info2.assign(excluded=info.index.intersection(excluded_scaffolds))
+    input_df = info2.assign(excluded=info.index.isin(excluded_scaffolds))
     input_df.index = input_df.index.rename("cluster")
     hl = links.copy().rename(columns={"scaffold_index1": "cluster1", "scaffold_index2": "cluster2"})
     super_scaffolds = make_super(

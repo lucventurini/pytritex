@@ -3,6 +3,8 @@ import numpy as np
 from .rolling_join import rolling_join
 import re
 import dask.dataframe as dd
+import dask.utils
+from dask.base import compute
 
 
 def n50(array: np.array, p=0.5):
@@ -40,14 +42,32 @@ def return_size(number, unit="GB"):
                                  unit=unit)
 
 
-def _rebalance_ddf(ddf: dd.DataFrame):
+def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None):
     """Repartition dask dataframe to ensure that partitions are roughly equal size.
 
     Assumes `ddf.index` is already sorted.
     """
+
+    if not isinstance(ddf, dd.DataFrame):
+        return ddf
+
     if not ddf.known_divisions:  # e.g. for read_parquet(..., infer_divisions=False)
-        ddf = ddf.reset_index().set_index(ddf.index.name, sorted=True)
-    index_counts = ddf.map_partitions(lambda _df: _df.index.value_counts().sort_index()).compute()
+        mins = ddf.index.map_partitions(dask.utils.M.min, meta=ddf.index)
+        maxes = ddf.index.map_partitions(dask.utils.M.max, meta=ddf.index)
+        mins, maxes = compute(mins, maxes)
+        is_sorted = not (sorted(mins) != list(mins) or sorted(maxes) != list(maxes)
+                      or any(a > b for a, b in zip(mins, maxes)))
+        # print("IS SORTED:", is_sorted)
+        if ddf.index.name is not None:
+            ddf = ddf.reset_index().set_index(ddf.index.name, sorted=is_sorted)
+        else:
+            ddf = ddf.reset_index().set_index("index", sorted=is_sorted)
+
+    index_counts = ddf.map_partitions(lambda _df: _df.index.value_counts().sort_index(),
+                                      meta=int).compute()
     index = np.repeat(index_counts.index, index_counts.values)
-    divisions, _ = dd.io.io.sorted_division_locations(index, npartitions=ddf.npartitions)
-    return ddf.repartition(divisions=divisions)
+    if npartitions is None:
+        npartitions=ddf.npartitions
+    divisions, _ = dd.io.io.sorted_division_locations(index, npartitions=npartitions)
+    repartitioned = ddf.repartition(divisions=divisions)
+    return repartitioned

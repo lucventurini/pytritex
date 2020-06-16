@@ -1,19 +1,27 @@
 import pandas as pd
 import dask.dataframe as dd
+import time
+from ..utils import _rebalance_ddf
+import os
 
 
-def _initial_link_finder(info: dd.DataFrame, molecules: dd.DataFrame,
+def _initial_link_finder(info: str, molecules: str, fai: str,
+                         save_dir: str,
                          verbose=False, popseq_dist=5,
                          min_npairs=2, max_dist=1e5, min_nmol=2, min_nsample=2):
 
     if verbose:
         print("Finding links")
 
-    molecules_over_filter = molecules.query("npairs >= @min_npairs", local_dict=locals())
+    info = dd.read_parquet(info, infer_divisions=True)
+    molecules = dd.read_parquet(molecules, infer_divisions=True)
+    fai = dd.read_parquet(fai, infer_divisions=True)
+
+    molecules_over_filter = molecules[molecules["npairs"] >= min_npairs]
     movf = molecules_over_filter
-    lengths = info[["length"]]
+    lengths = fai[["length"]]
     lengths.columns = ["scaffold_length"]
-    movf = movf.merge(lengths, left_index=True, right_index=True, how="left")
+    movf = dd.merge(movf, lengths, left_index=True, right_index=True, how="left")
     movf = movf.query("(end <= @max_dist) | (scaffold_length - start <= @max_dist)",
                       local_dict=locals())
     # Group by barcode and sample. Only keep those lines in the table where a barcode in a given sample
@@ -34,7 +42,7 @@ def _initial_link_finder(info: dd.DataFrame, molecules: dd.DataFrame,
                  "npairs": "npairs1"}).drop(["start", "end"], axis=1)
     assert "start" in movf.columns
 
-    scaffold1_side.index.name = "scaffold_index1"
+    print(time.ctime(), "Prepared left (scaffold 1) side")
     scaffold2_side = movf.loc[:, side_columns].eval("pos2 = floor((start + end) / 2)")
     scaffold2_side = scaffold2_side.rename(
         columns={"scaffold_index": "scaffold_index2",
@@ -42,16 +50,21 @@ def _initial_link_finder(info: dd.DataFrame, molecules: dd.DataFrame,
     # Now merge the two sides
     both_sides = scaffold1_side.merge(scaffold2_side, how="outer", on=["sample", "barcode_index"])
     link_pos = both_sides.copy()
+    print(time.ctime(), "Prepared left (scaffold 2) side")
 
     # First aggregate on the molecules ("barcode_index") and select only those
     # samples that have at least min_nmol
+    # computed = both_sides.compute()
+    print(time.ctime(), "Arrived at merging both sides")
     mol_count = both_sides.groupby(
         ["scaffold_index1", "scaffold_index2", "sample"]
     )["barcode_index"].agg("size").to_frame(
         "nmol").query("nmol >= @min_nmol", local_dict=locals()).compute()
     # Then count how many samples pass the filter, and keep track of it.
+    # Notice that sample_count is now a Pandas
     sample_count = mol_count[~mol_count.index.duplicated()].reset_index(
-        level=2, drop=False).groupby(level=[0, 1]).agg(
+        level=2, drop=False).groupby(
+        ["scaffold_index1", "scaffold_index2"]).agg(
         nsample=("sample", "size")).query("nsample >= @min_nsample")
     sample_count = sample_count.reset_index(level="scaffold_index2", drop=False)
     assert sample_count.index.name == "scaffold_index1", sample_count.head()
@@ -64,19 +77,31 @@ def _initial_link_finder(info: dd.DataFrame, molecules: dd.DataFrame,
     sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index2")
     left = basic.rename(columns=dict((col, col + "2") for col in basic.columns))
     left.index = left.index.rename("scaffold_index2")
-    sample_count = left.merge(sample_count, on="scaffold_index2", how="right")
+    sample_count = dd.merge(left, sample_count, on="scaffold_index2", how="right")
     # Check that chromosomes are not NAs
     print("Positions without an assigned chromosome:",
-          sample_count.loc[sample_count["popseq_chr1"].isna()].shape[0])
+          sample_count.loc[sample_count["popseq_chr1"].isna()].shape[0].compute())
     sample_count = sample_count.eval(
         "same_chr = ((popseq_chr1 == popseq_chr2) & (popseq_chr1 == popseq_chr1) & (popseq_chr2 == popseq_chr2))"
     )
     sample_count = sample_count.eval("weight = -1 * log10((length1 + length2) / 1e9)")
     sample_count = sample_count.reset_index(drop=False)
+    sample_count = _rebalance_ddf(sample_count, npartitions=100)
+    link_pos_name = os.path.join(save_dir, "link_pos")
+    sample_count_name = os.path.join(save_dir, "sample_count")
+
     if popseq_dist > 0:
         links = sample_count.copy().loc[(sample_count["same_chr"] == True) & (
             (sample_count["popseq_cM2"] - sample_count["popseq_cM1"]).abs() <= popseq_dist), :]
+        links_name = os.path.join(save_dir, "links")
+        links = _rebalance_ddf(links, npartitions=min(100, links.npartitions))
+        dd.to_parquet(links, links_name, compression="gzip", engine="pyarrow")
     else:
-        links = sample_count[:]
+        # links = sample_count[:]
+        links_name = sample_count_name[:]
 
-    return sample_count, links, link_pos
+    for ddf, name in zip([sample_count, link_pos], [sample_count_name, link_pos_name]):
+        ddf = _rebalance_ddf(ddf, npartitions=min(100, ddf.npartitions))
+        dd.to_parquet(ddf, name, compression="gzip", engine="pyarrow")
+
+    return sample_count_name, links_name, link_pos_name

@@ -8,6 +8,7 @@ import os
 from .collapse_bins import collapse_bins as cbn
 from dask import delayed
 import time
+from ..utils import _rebalance_ddf
 
 
 def _group_analyser(group: pd.DataFrame, binsize, cores=1):
@@ -122,7 +123,8 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         coverage_df["mr_10x"] = coverage_df["r"].groupby(
             coverage_df.index.name).transform("min", meta=coverage_df.r.dtype).to_dask_array()
-        info_mr = dd.merge(coverage_df[["mr_10x"]], info, how="right", on="scaffold_index")
+        info_mr = dd.merge(coverage_df[["mr_10x"]].drop_duplicates(),
+                           info, how="right", on="scaffold_index")
         assert isinstance(info_mr, dd.DataFrame), type(info_mr)
         # assert isinstance(info_mr, dd.DataFrame), type(info_mr)
         info_mr = info_mr.drop("index", axis=1, errors="ignore").drop("scaffold", axis=1, errors="ignore")
@@ -140,6 +142,8 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         for key in ["info", "molecule_cov"]:
             print(time.ctime(), "Storing", key)
             fname = os.path.join(save_dir, key + "_10x")
+            assembly[key] = _rebalance_ddf(assembly[key],
+                                           npartitions=min(100, assembly[key].npartitions))
             dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
             assembly[key] = fname
         print(time.ctime(), "Finished storing 10X coverage.")

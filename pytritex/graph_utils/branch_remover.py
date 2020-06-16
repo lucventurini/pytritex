@@ -1,8 +1,11 @@
 from pytritex.graph_utils.make_super_scaffolds import make_super_scaffolds
 import time
+import dask.dataframe as dd
+from joblib import Memory
 
 
-def _initial_branch_remover(raw, links, info, excluded, ncores, prefix=None):
+def _initial_branch_remover(raw, memory: Memory, folder: str, links: str,
+                            info: str, excluded, ncores):
 
     print(time.ctime(), "Starting the run")
     if raw is False:
@@ -11,7 +14,8 @@ def _initial_branch_remover(raw, links, info, excluded, ncores, prefix=None):
         while run is True:
             counter += 1
             print(time.ctime(), "Starting run", counter)
-            out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
+            out = memory.cache(make_super_scaffolds, ignore=["ncores"])(
+                links=links, save_dir=folder, info=info, excluded=excluded, ncores=ncores)
             membership = out["membership"]
             # res = out["info"]
             a = membership.merge(
