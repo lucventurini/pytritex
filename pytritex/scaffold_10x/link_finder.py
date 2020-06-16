@@ -59,25 +59,26 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     mol_count = both_sides.groupby(
         ["scaffold_index1", "scaffold_index2", "sample"]
     )["barcode_index"].agg("size").to_frame(
-        "nmol").query("nmol >= @min_nmol", local_dict=locals()).compute()
+        "nmol").query("nmol >= @min_nmol", local_dict=locals())
     # Then count how many samples pass the filter, and keep track of it.
-    # Notice that sample_count is now a Pandas
-    sample_count = mol_count[~mol_count.index.duplicated()].reset_index(
-        level=2, drop=False).groupby(
-        ["scaffold_index1", "scaffold_index2"]).agg(
-        nsample=("sample", "size")).query("nsample >= @min_nsample")
-    sample_count = sample_count.reset_index(level="scaffold_index2", drop=False)
+    sample_count = mol_count.reset_index(drop=False).drop_duplicates(
+        subset=["scaffold_index1", "scaffold_index2", "sample"]).groupby(
+        ["scaffold_index1", "scaffold_index2"])["sample"].size().rename("nsample")
+    sample_count = sample_count[sample_count >= min_nsample]
+    sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index1", sorted=True)
     assert sample_count.index.name == "scaffold_index1", sample_count.head()
 
     basic = info.loc[:, ["popseq_chr", "length", "popseq_pchr", "popseq_cM"]]
     left = basic.rename(columns=dict((col, col + "1") for col in basic.columns))
     left.index = left.index.rename("scaffold_index1")
     assert left.index.name == sample_count.index.name, (left.head(), sample_count.head())
-    sample_count = dd.merge(left, sample_count, on="scaffold_index1", how="right")
-    sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index2")
+    sample_count = dd.merge(left, sample_count, left_index=True,
+                            right_index=True, how="right")
+    sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index2", sorted=False)
     left = basic.rename(columns=dict((col, col + "2") for col in basic.columns))
     left.index = left.index.rename("scaffold_index2")
-    sample_count = dd.merge(left, sample_count, on="scaffold_index2", how="right")
+    sample_count = dd.merge(left, sample_count, left_index=True,
+                            right_index=True, how="right")
     # Check that chromosomes are not NAs
     print(time.ctime(),
           "Positions without an assigned chromosome:",
