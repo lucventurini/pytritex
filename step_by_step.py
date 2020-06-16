@@ -17,7 +17,7 @@ import dask
 # import dask.dataframe as dd
 import logging
 from dask.distributed import Client, SpecCluster
-from dask.distributed import Scheduler, Worker, Nanny
+# from dask.distributed import Scheduler, Worker, Nanny
 from pytritex.utils import return_size, parse_size
 
 
@@ -70,22 +70,24 @@ def main():
     # Initial set-up
     os.makedirs(args.dask_cache, exist_ok=True)
     dask.config.global_config.update({"temporary-directory": args.dask_cache})
-    dask.config.global_config.update({"distributed.comm.timeouts.tcp": "300s"})
+    # dask.config.global_config.update({"distributed.comm.timeouts.tcp": "300s"})
     ne.set_num_threads(args.procs)
-    scheduler = {'cls': Scheduler}
-    workers = {
-               'my-nanny': {"cls": Nanny, "options": {"nthreads": 2,
-                                                      "memory_limit": args.mem,
-                                                      "silence_logs": logging.ERROR,
-                                                      "timeout": 60}}
-               }
-    cluster = SpecCluster(scheduler=scheduler, workers=workers, worker=workers["my-nanny"])
-    cluster.scale(args.procs)
-    print(cluster.workers)
-    print(cluster.worker_spec)
-    print(cluster.new_spec)
-    cluster.scale(cores=args.procs, memory=args.mem)
-    client = Client(cluster, set_as_default=True, timeout=60, direct_to_workers=True)
+    # scheduler = {'cls': Scheduler}
+    # workers = {
+    #            'my-nanny': {"cls": Nanny, "options": {"nthreads": 2,
+    #                                                   "memory_limit": args.mem,
+    #                                                   "silence_logs": logging.ERROR,
+    #                                                   "timeout": 60}}
+    #            }
+    # cluster = SpecCluster(scheduler=scheduler, workers=workers, worker=workers["my-nanny"])
+    # cluster.scale(args.procs)
+    # print(cluster.workers)
+    # print(cluster.worker_spec)
+    # print(cluster.new_spec)
+    # cluster.scale(cores=args.procs, memory=args.mem)
+    worker_mem = return_size(parse_size(args.mem)[0] / args.procs, "GB")
+    client = Client(set_as_default=True, timeout=60, direct_to_workers=True, memory_limit=worker_mem)
+    client.cluster.scale(n=args.procs)
 
     # Initial assembly
     memory = Memory(os.path.join(".", args.save_prefix), compress=("zlib", 6), verbose=1)

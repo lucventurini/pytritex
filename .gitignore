@@ -6,5 +6,8 @@ Minimal/*pdf
 .RData
 .Rhistory
 *~
-pytritex/graph_utils/k_opt_tsp.cpp
-pytritex/graph_utils/k_opt_tsp*so
+*__pycache__
+*cpython*so
+*ipynb
+pytritex/*/*so
+pytritex/*/*html
