@@ -48,15 +48,22 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
         columns={"scaffold_index": "scaffold_index2",
                  "npairs": "npairs2"}).drop(["start", "end"], axis=1)
     # Now merge the two sides
-    both_sides = scaffold1_side.merge(scaffold2_side, how="outer", on=["sample", "barcode_index"])
-    link_pos = both_sides.copy()
+    link_pos = scaffold1_side.merge(scaffold2_side, how="outer", on=["sample", "barcode_index"])
+    # link_pos = both_sides.copy()
+    ddf = _rebalance_ddf(link_pos, npartitions=min(100, link_pos.npartitions))
+    link_pos_name = os.path.join(save_dir, "link_pos")
+    dd.to_parquet(ddf, link_pos_name, compression="gzip", engine="pyarrow")
+    del link_pos
+    # Reload from disk
+    link_pos = dd.read_parquet(link_pos_name, infer_divisions=True)
+
     print(time.ctime(), "Prepared left (scaffold 2) side")
 
     # First aggregate on the molecules ("barcode_index") and select only those
     # samples that have at least min_nmol
     # computed = both_sides.compute()
     print(time.ctime(), "Arrived at merging both sides")
-    mol_count = both_sides.groupby(
+    mol_count = link_pos.groupby(
         ["scaffold_index1", "scaffold_index2", "sample"]
     )["barcode_index"].agg("size").to_frame(
         "nmol").query("nmol >= @min_nmol", local_dict=locals())
@@ -89,8 +96,8 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     sample_count = sample_count.eval("weight = -1 * log10((length1 + length2) / 1e9)")
     sample_count = sample_count.reset_index(drop=False)
     sample_count = _rebalance_ddf(sample_count, npartitions=100)
-    link_pos_name = os.path.join(save_dir, "link_pos")
     sample_count_name = os.path.join(save_dir, "sample_count")
+    dd.to_parquet(ddf, sample_count_name, compression="gzip", engine="pyarrow")
 
     if popseq_dist > 0:
         links = sample_count.copy().loc[(sample_count["same_chr"] == True) & (
@@ -101,9 +108,5 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     else:
         # links = sample_count[:]
         links_name = sample_count_name[:]
-
-    for ddf, name in zip([sample_count, link_pos], [sample_count_name, link_pos_name]):
-        ddf = _rebalance_ddf(ddf, npartitions=min(100, ddf.npartitions))
-        dd.to_parquet(ddf, name, compression="gzip", engine="pyarrow")
 
     return sample_count_name, links_name, link_pos_name
