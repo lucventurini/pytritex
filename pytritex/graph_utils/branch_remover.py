@@ -4,7 +4,7 @@ import dask.dataframe as dd
 from joblib import Memory
 
 
-def _initial_branch_remover(raw, memory: Memory, folder: str, links: str,
+def _initial_branch_remover(raw, memory: Memory, save_dir: str, links: str,
                             info: str, excluded, ncores):
 
     print(time.ctime(), "Starting the run")
@@ -15,7 +15,7 @@ def _initial_branch_remover(raw, memory: Memory, folder: str, links: str,
             counter += 1
             print(time.ctime(), "Starting run", counter)
             out = memory.cache(make_super_scaffolds, ignore=["ncores"])(
-                links=links, save_dir=folder, info=info, excluded=excluded, ncores=ncores)
+                links=links, save_dir=save_dir, info=info, excluded=excluded, ncores=ncores)
             membership = out["membership"]
             # res = out["info"]
             a = membership.merge(
@@ -36,8 +36,8 @@ def _initial_branch_remover(raw, memory: Memory, folder: str, links: str,
                 assert excluded is not None
                 print(time.ctime(), "Run", counter, ", excluding", len(excluded))
     else:
-        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
-        # membership = out["membership"]
-        # res = out["info"]
+        out = make_super_scaffolds(links=links,
+                                   save_dir=save_dir,
+                                   info=info, excluded=excluded, ncores=ncores)
 
     return out, excluded

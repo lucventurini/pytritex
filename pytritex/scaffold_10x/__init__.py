@@ -36,8 +36,9 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
     print(time.ctime(), "Found initial links")
     excluded = set()
     print(time.ctime(), "Starting initial pruning")
-    out, excluded = memory.cache(_initial_branch_remover, ignore=["ncores"])(
-        raw, save_dir=folder, links=links, info=info, excluded=excluded, ncores=ncores)
+    out, excluded = memory.cache(_initial_branch_remover, ignore=["ncores", "memory"])(
+        raw, memory=memory,
+        save_dir=folder, links=links, info=info, excluded=excluded, ncores=ncores)
     res = out["info"]
     membership=out["membership"]
     print(time.ctime(), "Finished initial pruning")

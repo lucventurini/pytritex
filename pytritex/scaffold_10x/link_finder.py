@@ -79,7 +79,8 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     left.index = left.index.rename("scaffold_index2")
     sample_count = dd.merge(left, sample_count, on="scaffold_index2", how="right")
     # Check that chromosomes are not NAs
-    print("Positions without an assigned chromosome:",
+    print(time.ctime(),
+          "Positions without an assigned chromosome:",
           sample_count.loc[sample_count["popseq_chr1"].isna()].shape[0].compute())
     sample_count = sample_count.eval(
         "same_chr = ((popseq_chr1 == popseq_chr2) & (popseq_chr1 == popseq_chr1) & (popseq_chr2 == popseq_chr2))"
