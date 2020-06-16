@@ -51,6 +51,7 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None):
     if not isinstance(ddf, dd.DataFrame):
         return ddf
 
+    orig_shape = ddf.shape[0].compute()
     if not ddf.known_divisions:  # e.g. for read_parquet(..., infer_divisions=False)
         mins = ddf.index.map_partitions(dask.utils.M.min, meta=ddf.index)
         maxes = ddf.index.map_partitions(dask.utils.M.max, meta=ddf.index)
@@ -72,5 +73,7 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None):
     try:
         repartitioned = ddf.repartition(divisions=divisions, force=True)
     except ValueError:
-        repartitioned = ddf.repartition(npartitions=npartitions)
+        repartitioned = ddf
+
+    assert repartitioned.shape[0].compute() == orig_shape
     return repartitioned
