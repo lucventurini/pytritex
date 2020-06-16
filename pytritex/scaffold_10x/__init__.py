@@ -8,13 +8,12 @@ import time
 from joblib import Memory
 import os
 import hashlib
-from dask.distributed import Client
+# from dask.distributed import Client
 
 sha = hashlib.sha256()
 
 
 def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
-                 client: Client,
                  min_npairs=5, max_dist=1e5, min_nmol=6,
                  min_nsample=2, popseq_dist=5, max_dist_orientation=5,
                  ncores=1, verbose=True, raw=False, unanchored=True):
