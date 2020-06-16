@@ -29,8 +29,13 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     barcode_counts = movf[["barcode_index", "sample"]].groupby(
         ["barcode_index", "sample"]).size().to_frame("nsc").reset_index(drop=False)
     # Only keep those cases where a given barcode has been confirmed in at least two samples.
-    movf = barcode_counts.merge(
-        movf.reset_index(drop=False), on=["barcode_index", "sample"]).query("nsc >= 2")
+
+    mindex = movf.index.to_dask_array(lengths=True)
+    movf = dd.merge(barcode_counts, movf,
+                    how="right",
+                    on=["barcode_index", "sample"])
+    movf.index = mindex
+    movf = movf.query("nsc >= 2")
 
     # These are the columns we are interested in
     side_columns = ["scaffold_index", "npairs", "start", "end", "sample", "barcode_index"]
@@ -56,7 +61,6 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     del link_pos
     # Reload from disk
     link_pos = dd.read_parquet(link_pos_name, infer_divisions=True)
-
     print(time.ctime(), "Prepared left (scaffold 2) side")
 
     # First aggregate on the molecules ("barcode_index") and select only those
@@ -74,7 +78,6 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     sample_count = sample_count[sample_count >= min_nsample]
     sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index1", sorted=True)
     assert sample_count.index.name == "scaffold_index1", sample_count.head()
-
     basic = info.loc[:, ["popseq_chr", "length", "popseq_pchr", "popseq_cM"]]
     left = basic.rename(columns=dict((col, col + "1") for col in basic.columns))
     left.index = left.index.rename("scaffold_index1")

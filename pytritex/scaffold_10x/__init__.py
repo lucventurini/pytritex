@@ -8,12 +8,13 @@ import time
 from joblib import Memory
 import os
 import hashlib
-# from dask.distributed import Client
+from dask.distributed import Client
 
 sha = hashlib.sha256()
 
 
 def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
+                 client: Client,
                  min_npairs=5, max_dist=1e5, min_nmol=6,
                  min_nsample=2, popseq_dist=5, max_dist_orientation=5,
                  ncores=1, verbose=True, raw=False, unanchored=True):
@@ -27,7 +28,6 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
     params = (min_npairs, max_dist, min_nmol, min_nsample, popseq_dist, max_dist_orientation, raw)
     sha.update(str(params).encode())
     folder = os.path.join(save_dir, "joblib", "pytritex", "scaffold_10x", sha.hexdigest())
-
     sample_count, links, link_pos = memory.cache(_initial_link_finder)(
         info=info, molecules=molecules,
         save_dir=folder,
