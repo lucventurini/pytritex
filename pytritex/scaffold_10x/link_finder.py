@@ -3,6 +3,8 @@ import dask.dataframe as dd
 import time
 from ..utils import _rebalance_ddf
 import os
+import tempfile
+import shutil
 
 
 def _initial_link_finder(info: str, molecules: str, fai: str,
@@ -14,18 +16,28 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
         print("Finding links")
 
     info = dd.read_parquet(info, infer_divisions=True)
-    molecules = dd.read_parquet(molecules, infer_divisions=True)
+    molecules_over_filter = dd.read_parquet(molecules, infer_divisions=True,
+                                filters=[
+                                    ("npairs", ">=", min_npairs)
+                                ])
+    molecules_over_filter = molecules_over_filter[molecules_over_filter["npairs"] >= min_npairs]
     # We need to repartition. 100 partitions are just too few.
-    _nmols = molecules.shape[0].compute()
+    _nmols = molecules_over_filter.shape[0].compute()
     chunksize = 4000
     if _nmols < chunksize:
         parts = 100
     else:
         parts = _nmols // 4000
-    molecules = molecules.repartition(npartitions=parts)
-    fai = dd.read_parquet(fai, infer_divisions=True)
-    molecules_over_filter = molecules[molecules["npairs"] >= min_npairs]
+    molecules_over_filter = molecules_over_filter.repartition(npartitions=parts)
+    # Now resave the parquet.
+    savefold = tempfile.mkdtemp(dir=save_dir, prefix="molecules")
+    dd.to_parquet(molecules_over_filter, savefold, compression="gzip", engine="pyarrow",
+                  compute=True)
+    del molecules_over_filter
+    molecules_over_filter = dd.read_parquet(savefold, infer_divisions=True)
     movf = molecules_over_filter
+    fai = dd.read_parquet(fai, infer_divisions=True)
+
     lengths = fai[["length"]]
     lengths.columns = ["scaffold_length"]
     movf = dd.merge(movf, lengths, left_index=True, right_index=True, how="left")
@@ -131,4 +143,5 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
         # links = sample_count[:]
         links_name = sample_count_name[:]
 
+    shutil.rmtree(savefold)
     return sample_count_name, links_name, link_pos_name

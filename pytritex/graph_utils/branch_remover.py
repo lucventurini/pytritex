@@ -36,8 +36,7 @@ def _initial_branch_remover(raw, memory: Memory, save_dir: str, links: str,
                 assert excluded is not None
                 print(time.ctime(), "Run", counter, ", excluding", len(excluded))
     else:
-        out = make_super_scaffolds(links=links,
-                                   save_dir=save_dir,
-                                   info=info, excluded=excluded, ncores=ncores)
+        out = memory.cache(make_super_scaffolds, ignore=["ncores"])(
+                links=links, save_dir=save_dir, info=info, excluded=excluded, ncores=ncores)
 
     return out, excluded
