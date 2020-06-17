@@ -4,6 +4,7 @@ from collections import Counter
 import time
 from ..utils import _rebalance_ddf
 import os
+import numpy as np
 
 
 def merger(left, right, left_on=None, right_on=None, left_index=False, right_index=False,
@@ -45,11 +46,19 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
 
     # Group by barcode and sample. Only keep those lines in the table where a barcode in a given sample
     # is linking two different scaffolds.
-    barcode_counts = movf[["barcode_index", "sample"]].groupby(
-        ["barcode_index", "sample"]).size().to_frame("nsc").query("nsc >= 2").reset_index(
-        drop=False)
-    nparts = min(1 + barcode_counts.shape[0].compute() // 10000, movf.npartitions)
-    barcode_counts = barcode_counts.repartition(npartitions=nparts)
+    barcode_counts = Counter()
+
+    for partition in movf.partitions:
+        vals = [tuple(_) for _ in partition[["barcode_index", "sample"]].values.compute().tolist()]
+        barcode_counts.update(vals)
+    barcode_counts = np.array([(key[0], key[1], item) for key, item in barcode_counts.items()])
+    barcode_counts = barcode_counts[barcode_counts[:, 2] >= 2]
+    nparts = min(1 + barcode_counts.shape[0] // 10000, movf.npartitions)
+    barcode_counts = pd.DataFrame().assign(
+        barcode_index=barcode_counts[:, 0],
+        sample=barcode_counts[:, 1],
+        nsc=barcode_counts[:, 2])
+
     # let's write down this.
     # Only keep those cases where a given barcode has been confirmed in at least two samples.
     # movf = movf.map_partitions(lambda df: dd.merge(barcode_counts, df,
