@@ -6,6 +6,12 @@ from ..utils import _rebalance_ddf
 import os
 
 
+def merger(left, right, left_on=None, right_on=None, left_index=False, right_index=False,
+           how="inner"):
+    return dd.merge(left, right, left_on=left_on, right_on=right_on,
+                    left_index=left_index, right_index=right_index, how=how)
+
+
 def _initial_link_finder(info: str, molecules: str, fai: str,
                          save_dir: str,
                          verbose=False, popseq_dist=5,
@@ -22,7 +28,7 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
                                 ])
     molecules_over_filter = molecules_over_filter[molecules_over_filter["npairs"] >= min_npairs]
     # rebalance
-    molecules_over_filter = _rebalance_ddf(molecules_over_filter, target_memory= 5 * 10**7)
+    molecules_over_filter = _rebalance_ddf(molecules_over_filter, target_memory=5 * 10**7)
 
     # We need to repartition. 100 partitions are just too few.
     movf = molecules_over_filter
@@ -30,9 +36,13 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     fai = dd.read_parquet(fai, infer_divisions=True)
     lengths = fai[["length"]]
     lengths.columns = ["scaffold_length"]
-    movf = dd.merge(movf, lengths, left_index=True, right_index=True, how="left")
+    movf = dd.map_partitions(merger, movf, right=lengths,
+                             left_index=True, right_index=True, how="left")
+
+    # movf = dd.merge(movf, lengths, left_index=True, right_index=True, how="left")
+    assert "scaffold_length" in movf.columns
     movf = movf.query("(end <= @max_dist) | (scaffold_length - start <= @max_dist)",
-                      local_dict=locals())
+                      local_dict=locals()).reset_index(drop=False)
 
     # Group by barcode and sample. Only keep those lines in the table where a barcode in a given sample
     # is linking two different scaffolds.
@@ -41,9 +51,11 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     # Only keep those cases where a given barcode has been confirmed in at least two samples.
     # movf = movf.map_partitions(lambda df: dd.merge(barcode_counts, df,
     #                                                how="right", on=["barcode_index", "sample"]))
-
-    movf = dd.merge(barcode_counts, movf.reset_index(drop=False), how="right",
-                    on=["barcode_index", "sample"]).query("nsc >= 2")
+    movf = dd.map_partitions(merger, movf, right=barcode_counts, how="right",
+                             left_on=["barcode_index", "sample"],
+                             right_on=["barcode_index", "sample"])
+    assert "nsc" in movf.columns
+    movf = movf[movf["nsc"] >= 2]
     assert isinstance(movf, dd.DataFrame)
     # These are the columns we are interested in
     side_columns = ["scaffold_index", "npairs", "start", "end", "sample", "barcode_index"]
@@ -67,7 +79,12 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
         columns={"scaffold_index": "scaffold_index2",
                  "npairs": "npairs2"}).drop(["start", "end"], axis=1)
     # Now merge the two sides
-    link_pos = scaffold1_side.merge(scaffold2_side, how="outer", on=["sample", "barcode_index"])
+    link_pos = dd.map_partitions(merger, scaffold1_side, right=scaffold2_side, how="outer",
+                                 left_on=["sample", "barcode_index"],
+                                 right_on=["sample", "barcode_index"])
+    assert "scaffold_index2" in link_pos
+    assert "npairs2" in link_pos
+    # link_pos = scaffold1_side.merge(scaffold2_side, how="outer", on=["sample", "barcode_index"])
     # link_pos = both_sides.copy()
     link_pos = _rebalance_ddf(link_pos, target_memory= 5 * 10**7)
     link_pos_name = os.path.join(save_dir, "link_pos")
