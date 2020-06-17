@@ -27,6 +27,9 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
                                 filters=[
                                     ("npairs", ">=", min_npairs)
                                 ])
+    molecules_over_filter = molecules_over_filter.astype(
+        dict((col, np.int32) for col in molecules_over_filter.columns)
+    )
     molecules_over_filter = molecules_over_filter[molecules_over_filter["npairs"] >= min_npairs]
     # rebalance
     molecules_over_filter = _rebalance_ddf(molecules_over_filter, target_memory=5 * 10**7)
@@ -46,18 +49,28 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
 
     # Group by barcode and sample. Only keep those lines in the table where a barcode in a given sample
     # is linking two different scaffolds.
-    barcode_counts = Counter()
-
-    for partition in movf.partitions:
-        vals = [tuple(_) for _ in partition[["barcode_index", "sample"]].values.compute().tolist()]
-        barcode_counts.update(vals)
-    barcode_counts = np.array([(key[0], key[1], item) for key, item in barcode_counts.items()])
-    barcode_counts = barcode_counts[barcode_counts[:, 2] >= 2]
-    nparts = min(1 + barcode_counts.shape[0] // 10000, movf.npartitions)
-    barcode_counts = pd.DataFrame().assign(
-        barcode_index=barcode_counts[:, 0],
-        sample=barcode_counts[:, 1],
-        nsc=barcode_counts[:, 2])
+    barcode_counts = movf[["barcode_index", "sample"]].astype({
+        "barcode_index": np.int32, "sample": np.int32})
+    print(barcode_counts.head(npartitions=-1))
+    barcode_counts = barcode_counts.groupby(
+        ["barcode_index", "sample"]).size().to_frame("nsc").query("nsc >= 2").reset_index(
+        drop=False).astype(
+        {"barcode_index": np.int32, "sample": np.int32, "nsc": np.int32})
+    nparts = min(1 + barcode_counts.shape[0].compute() // 10000, movf.npartitions)
+    barcode_counts = barcode_counts.repartition(npartitions=nparts)
+    #
+    # barcode_counts = Counter()
+    #
+    # for partition in movf.partitions:
+    #     vals = [tuple(_) for _ in partition[["barcode_index", "sample"]].values.compute().tolist()]
+    #     barcode_counts.update(vals)
+    # barcode_counts = np.array([(key[0], key[1], item) for key, item in barcode_counts.items()])
+    # barcode_counts = barcode_counts[barcode_counts[:, 2] >= 2]
+    # nparts = min(1 + barcode_counts.shape[0] // 10000, movf.npartitions)
+    # barcode_counts = pd.DataFrame().assign(
+    #     barcode_index=barcode_counts[:, 0],
+    #     sample=barcode_counts[:, 1],
+    #     nsc=barcode_counts[:, 2])
 
     # let's write down this.
     # Only keep those cases where a given barcode has been confirmed in at least two samples.
