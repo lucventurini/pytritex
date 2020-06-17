@@ -41,14 +41,20 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     side_columns = ["scaffold_index", "npairs", "start", "end", "sample", "barcode_index"]
     # Only rename the first two columns
     assert "start" in movf.columns
-    scaffold1_side = movf.loc[:, side_columns].eval("pos1 = floor((start + end) / 2)")
+    scaffold1_side = movf.loc[:, side_columns]
+    scaffold1_side["pos1"] = scaffold1_side.map_partitions(
+        lambda df: df.eval("floor((start + end) / 2)")
+    )
     scaffold1_side = scaffold1_side.rename(
         columns={"scaffold_index": "scaffold_index1",
                  "npairs": "npairs1"}).drop(["start", "end"], axis=1)
     assert "start" in movf.columns
 
     print(time.ctime(), "Prepared left (scaffold 1) side")
-    scaffold2_side = movf.loc[:, side_columns].eval("pos2 = floor((start + end) / 2)")
+    scaffold2_side = movf.loc[:, side_columns]
+    scaffold2_side["pos2"] = scaffold2_side.map_partitions(
+        lambda df: df.eval("floor((start + end) / 2)")
+    )
     scaffold2_side = scaffold2_side.rename(
         columns={"scaffold_index": "scaffold_index2",
                  "npairs": "npairs2"}).drop(["start", "end"], axis=1)
@@ -92,10 +98,15 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     print(time.ctime(),
           "Positions without an assigned chromosome:",
           sample_count.loc[sample_count["popseq_chr1"].isna()].shape[0].compute())
-    sample_count = sample_count.eval(
-        "same_chr = ((popseq_chr1 == popseq_chr2) & (popseq_chr1 == popseq_chr1) & (popseq_chr2 == popseq_chr2))"
+
+    sample_count["same_chr"] = sample_count.map_partitions(
+        lambda df: df.eval(
+            "((popseq_chr1 == popseq_chr2) & (popseq_chr1 == popseq_chr1) & (popseq_chr2 == popseq_chr2))"
+        ))
+    sample_count["weight"] = sample_count.map_partitions(
+        lambda df: df.eval("-1 * log10((length1 + length2) / 1e9)")
     )
-    sample_count = sample_count.eval("weight = -1 * log10((length1 + length2) / 1e9)")
+
     sample_count = sample_count.reset_index(drop=False)
     sample_count = _rebalance_ddf(sample_count, npartitions=100)
     sample_count_name = os.path.join(save_dir, "sample_count")
