@@ -47,7 +47,8 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     # Group by barcode and sample. Only keep those lines in the table where a barcode in a given sample
     # is linking two different scaffolds.
     barcode_counts = movf[["barcode_index", "sample"]].groupby(
-        ["barcode_index", "sample"]).size().to_frame("nsc").reset_index(drop=False)
+        ["barcode_index", "sample"]).size(
+        split_out=movf.npartitions).to_frame("nsc").reset_index(drop=False)
     # let's write down this.
     print(time.ctime(), "Writing down the barcode counts")
     dd.to_parquet(barcode_counts, os.path.join(save_dir, "barcode_counts"),
@@ -108,11 +109,13 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     print(time.ctime(), "Arrived at merging both sides")
     mol_count = link_pos.groupby(
         ["scaffold_index1", "scaffold_index2", "sample"]
-    )["barcode_index"].agg("size").to_frame("nmol").query("nmol >= @min_nmol", local_dict=locals())
+    )["barcode_index"].size(
+        split_out=link_pos.npartitions).to_frame("nmol").query("nmol >= @min_nmol", local_dict=locals())
     # Then count how many samples pass the filter, and keep track of it.
     sample_count = mol_count.reset_index(drop=False).drop_duplicates(
         subset=["scaffold_index1", "scaffold_index2", "sample"]).groupby(
-        ["scaffold_index1", "scaffold_index2"])["sample"].size().rename("nsample")
+        ["scaffold_index1", "scaffold_index2"])["sample"].size(
+        split_out=mol_count.npartitions).rename("nsample")
     sample_count = sample_count[sample_count >= min_nsample]
     sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index1", sorted=True)
     assert sample_count.index.name == "scaffold_index1", sample_count.head()
@@ -126,7 +129,7 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index2", sorted=False)
     left = basic.rename(columns=dict((col, col + "2") for col in basic.columns))
     left.index = left.index.rename("scaffold_index2")
-    sample_count = dd.map_partitions(left, sample_count,
+    sample_count = dd.map_partitions(merger, left, sample_count,
                                      left_index=True,
                                      right_index=True,
                                      how="right")
