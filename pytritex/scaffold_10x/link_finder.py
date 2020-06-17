@@ -34,7 +34,7 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     movf = dd.merge(barcode_counts, movf,
                     how="right",
                     on=["barcode_index", "sample"])
-    movf.index = mindex
+    movf["scaffold_index"] = mindex
     movf = movf.query("nsc >= 2")
 
     # These are the columns we are interested in
@@ -69,8 +69,7 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     print(time.ctime(), "Arrived at merging both sides")
     mol_count = link_pos.groupby(
         ["scaffold_index1", "scaffold_index2", "sample"]
-    )["barcode_index"].agg("size").to_frame(
-        "nmol").query("nmol >= @min_nmol", local_dict=locals())
+    )["barcode_index"].agg("size").to_frame("nmol").query("nmol >= @min_nmol", local_dict=locals())
     # Then count how many samples pass the filter, and keep track of it.
     sample_count = mol_count.reset_index(drop=False).drop_duplicates(
         subset=["scaffold_index1", "scaffold_index2", "sample"]).groupby(
