@@ -87,7 +87,7 @@ def break_scaffolds(breaks, memory, save_dir, client: Client,
                 col = new_assembly[key].dtypes.index[index]
                 new_assembly[key][col] = new_assembly[key][col].astype(np.float32)
 
-        new_assembly[key] = _rebalance_ddf(new_assembly[key])
+        new_assembly[key] = _rebalance_ddf(new_assembly[key], target_memory=5 * 10**7)
         dd.to_parquet(new_assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
         new_assembly[key] = fname
 

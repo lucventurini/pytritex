@@ -42,7 +42,7 @@ def return_size(number, unit="GB"):
                                  unit=unit)
 
 
-def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None):
+def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
     """Repartition dask dataframe to ensure that partitions are roughly equal size.
 
     Assumes `ddf.index` is already sorted.
@@ -67,13 +67,20 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None):
     index_counts = ddf.map_partitions(lambda _df: _df.index.value_counts().sort_index(),
                                       meta=int).compute()
     index = np.repeat(index_counts.index, index_counts.values)
-    if npartitions is None:
+    if target_memory is not None:
+        mem_usage = ddf.memory_usage(deep=True).sum().compute()
+        npartitions = 1 + mem_usage // target_memory
+        print("Using", npartitions, "for storing", mem_usage, ", target:", target_memory)
+    elif npartitions is None:
         npartitions=ddf.npartitions
     divisions, _ = dd.io.io.sorted_division_locations(index, npartitions=npartitions)
     try:
         repartitioned = ddf.repartition(divisions=divisions, force=True)
     except ValueError:
-        repartitioned = ddf
+        try:
+            repartitioned = ddf.repartition(npartitions=npartitions)
+        except ValueError:
+            repartitioned = ddf
 
     assert repartitioned.shape[0].compute() == orig_shape
     return repartitioned

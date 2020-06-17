@@ -206,7 +206,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
             print(ctime(), "Storing", key, "for HiC")
             fname = os.path.join(save_dir, key + "_hic")
             assembly[key] = _rebalance_ddf(assembly[key],
-                                           npartitions=min(100, assembly[key].npartitions))
+                                           target_memory=5 * 10**7)
             dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
             assembly[key] = fname
         print(ctime(), "Finished storing HiC")

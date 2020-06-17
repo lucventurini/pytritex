@@ -6,6 +6,7 @@ import os
 from dask.distributed import Client
 from joblib import Memory
 import numpy as np
+from ...utils import _rebalance_ddf
 
 
 def _transpose_molecule_cov(new_assembly, fai, assembly, save_dir: str, memory: Memory,
@@ -110,5 +111,6 @@ def _transpose_molecules(molecules: str, fai: str, save_dir: str):
 
     fname = os.path.join(save_dir, "molecules")
     print("", "###", fname, "###", "", sep="\n")
+    molecules = _rebalance_ddf(molecules, target_memory=5*10**7)
     dd.to_parquet(molecules, fname, engine="pyarrow", compression="gzip", compute=True)
     return fname

@@ -6,6 +6,7 @@ from dask.distributed import Client
 from joblib import Memory
 import os
 import numpy as np
+from ...utils import _rebalance_ddf
 
 
 def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: str, fpairs: str,
@@ -134,5 +135,6 @@ def _transpose_fpairs(fpairs: str, fai: str, save_dir: str):
         fpairs = pd.DataFrame().assign(**dict((column, list()) for column in final_columns))
 
     fname = os.path.join(save_dir, "fpairs")
+    fpairs = _rebalance_ddf(fpairs, target_memory=5 * 10**7)
     dd.to_parquet(fpairs, fname, compression="gzip", engine="pyarrow")
     return fname

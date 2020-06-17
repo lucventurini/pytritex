@@ -1,10 +1,9 @@
 import pandas as pd
 import dask.dataframe as dd
+import dask.array as da
 import time
 from ..utils import _rebalance_ddf
 import os
-import tempfile
-import shutil
 
 
 def _initial_link_finder(info: str, molecules: str, fai: str,
@@ -22,41 +21,30 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
                                     ("npairs", ">=", min_npairs)
                                 ])
     molecules_over_filter = molecules_over_filter[molecules_over_filter["npairs"] >= min_npairs]
-    # We need to repartition. 100 partitions are just too few.
-    _nmols = molecules_over_filter.shape[0].compute()
-    chunksize = 4000
-    if _nmols < chunksize:
-        parts = 100
-    else:
-        parts = _nmols // 4000
-    molecules_over_filter = molecules_over_filter.repartition(npartitions=parts)
-    # Now resave the parquet.
-    savefold = tempfile.mkdtemp(dir=save_dir, prefix="molecules")
-    dd.to_parquet(molecules_over_filter, savefold, compression="gzip", engine="pyarrow",
-                  compute=True)
-    del molecules_over_filter
-    molecules_over_filter = dd.read_parquet(savefold, infer_divisions=True)
-    movf = molecules_over_filter
-    fai = dd.read_parquet(fai, infer_divisions=True)
+    # rebalance
+    molecules_over_filter = _rebalance_ddf(molecules_over_filter, target_memory= 5 * 10**7)
 
+    # We need to repartition. 100 partitions are just too few.
+    movf = molecules_over_filter
+    nparts = movf.npartitions
+    fai = dd.read_parquet(fai, infer_divisions=True)
     lengths = fai[["length"]]
     lengths.columns = ["scaffold_length"]
     movf = dd.merge(movf, lengths, left_index=True, right_index=True, how="left")
     movf = movf.query("(end <= @max_dist) | (scaffold_length - start <= @max_dist)",
                       local_dict=locals())
+
     # Group by barcode and sample. Only keep those lines in the table where a barcode in a given sample
     # is linking two different scaffolds.
     barcode_counts = movf[["barcode_index", "sample"]].groupby(
         ["barcode_index", "sample"]).size().to_frame("nsc").reset_index(drop=False)
     # Only keep those cases where a given barcode has been confirmed in at least two samples.
+    # movf = movf.map_partitions(lambda df: dd.merge(barcode_counts, df,
+    #                                                how="right", on=["barcode_index", "sample"]))
 
-    mindex = movf.index.to_dask_array(lengths=True)
-    movf = dd.merge(barcode_counts, movf,
-                    how="right",
-                    on=["barcode_index", "sample"])
-    movf["scaffold_index"] = mindex
-    movf = movf.query("nsc >= 2")
-
+    movf = dd.merge(barcode_counts, movf.reset_index(drop=False), how="right",
+                    on=["barcode_index", "sample"]).query("nsc >= 2")
+    assert isinstance(movf, dd.DataFrame)
     # These are the columns we are interested in
     side_columns = ["scaffold_index", "npairs", "start", "end", "sample", "barcode_index"]
     # Only rename the first two columns
@@ -81,9 +69,9 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     # Now merge the two sides
     link_pos = scaffold1_side.merge(scaffold2_side, how="outer", on=["sample", "barcode_index"])
     # link_pos = both_sides.copy()
-    ddf = _rebalance_ddf(link_pos, npartitions=min(100, link_pos.npartitions))
+    link_pos = _rebalance_ddf(link_pos, target_memory= 5 * 10**7)
     link_pos_name = os.path.join(save_dir, "link_pos")
-    dd.to_parquet(ddf, link_pos_name, compression="gzip", engine="pyarrow")
+    dd.to_parquet(link_pos, link_pos_name, compression="gzip", engine="pyarrow")
     del link_pos
     # Reload from disk
     link_pos = dd.read_parquet(link_pos_name, infer_divisions=True)
@@ -128,21 +116,20 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     )
 
     sample_count = sample_count.reset_index(drop=False)
-    sample_count = _rebalance_ddf(sample_count, npartitions=min(sample_count.npartitions, 100))
+    sample_count = _rebalance_ddf(sample_count, target_memory=5 * 10**7)
     sample_count_name = os.path.join(save_dir, "sample_count")
-    dd.to_parquet(ddf, sample_count_name, compression="gzip", engine="pyarrow")
+    dd.to_parquet(sample_count, sample_count_name, compression="gzip", engine="pyarrow")
     del sample_count
-    sample_count = ddf.read_parquet(sample_count_name, infer_divisions=True)
+    sample_count = dd.read_parquet(sample_count_name, infer_divisions=True)
 
     if popseq_dist > 0:
         links = sample_count.copy().loc[(sample_count["same_chr"] == True) & (
             (sample_count["popseq_cM2"] - sample_count["popseq_cM1"]).abs() <= popseq_dist), :]
         links_name = os.path.join(save_dir, "links")
-        links = _rebalance_ddf(links, npartitions=min(100, links.npartitions))
+        links = _rebalance_ddf(links, target_memory=5 * 10**7)
         dd.to_parquet(links, links_name, compression="gzip", engine="pyarrow")
     else:
         # links = sample_count[:]
         links_name = sample_count_name[:]
 
-    shutil.rmtree(savefold)
     return sample_count_name, links_name, link_pos_name
