@@ -15,8 +15,15 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
 
     info = dd.read_parquet(info, infer_divisions=True)
     molecules = dd.read_parquet(molecules, infer_divisions=True)
+    # We need to repartition. 100 partitions are just too few.
+    _nmols = molecules.shape[0].compute()
+    chunksize = 4000
+    if _nmols < chunksize:
+        parts = 100
+    else:
+        parts = _nmols // 4000
+    molecules = molecules.repartition(npartitions=parts)
     fai = dd.read_parquet(fai, infer_divisions=True)
-
     molecules_over_filter = molecules[molecules["npairs"] >= min_npairs]
     movf = molecules_over_filter
     lengths = fai[["length"]]
