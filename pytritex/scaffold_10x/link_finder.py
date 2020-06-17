@@ -50,14 +50,13 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     # Group by barcode and sample. Only keep those lines in the table where a barcode in a given sample
     # is linking two different scaffolds.
     barcode_counts = movf[["barcode_index", "sample"]].astype({
-        "barcode_index": np.int32, "sample": np.int32})
-    print(barcode_counts.head(npartitions=-1))
+        "barcode_index": np.int32, "sample": np.int32}).reset_index(drop=True).compute()
+    # print(barcode_counts.head(npartitions=-1))
     barcode_counts = barcode_counts.groupby(
         ["barcode_index", "sample"]).size().to_frame("nsc").query("nsc >= 2").reset_index(
-        drop=False).astype(
-        {"barcode_index": np.int32, "sample": np.int32, "nsc": np.int32})
+        drop=False).astype({"barcode_index": np.int32, "sample": np.int32, "nsc": np.int32})
     nparts = min(1 + barcode_counts.shape[0].compute() // 10000, movf.npartitions)
-    barcode_counts = barcode_counts.repartition(npartitions=nparts)
+    barcode_counts = dd.from_pandas(barcode_counts, npartitions=nparts)
     #
     # barcode_counts = Counter()
     #
