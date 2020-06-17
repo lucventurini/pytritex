@@ -1,6 +1,6 @@
 import pandas as pd
 import dask.dataframe as dd
-import dask.array as da
+from collections import Counter
 import time
 from ..utils import _rebalance_ddf
 import os
@@ -36,8 +36,7 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     fai = dd.read_parquet(fai, infer_divisions=True)
     lengths = fai[["length"]]
     lengths.columns = ["scaffold_length"]
-    movf = dd.map_partitions(merger, movf, right=lengths,
-                             left_index=True, right_index=True, how="left")
+    movf = dd.merge(movf, lengths, left_index=True, right_index=True, how="left")
 
     # movf = dd.merge(movf, lengths, left_index=True, right_index=True, how="left")
     assert "scaffold_length" in movf.columns
@@ -47,25 +46,19 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     # Group by barcode and sample. Only keep those lines in the table where a barcode in a given sample
     # is linking two different scaffolds.
     barcode_counts = movf[["barcode_index", "sample"]].groupby(
-        ["barcode_index", "sample"]).size(
-        split_out=movf.npartitions).to_frame("nsc").reset_index(drop=False)
+        ["barcode_index", "sample"]).size().to_frame("nsc").query("nsc >= 2").reset_index(
+        drop=False)
+    nparts = min(1 + barcode_counts.shape[0].compute() // 10000, movf.npartitions)
+    barcode_counts = barcode_counts.repartition(npartitions=nparts)
     # let's write down this.
-    print(time.ctime(), "Writing down the barcode counts")
-    dd.to_parquet(barcode_counts, os.path.join(save_dir, "barcode_counts"),
-                  compression="gzip", engine="pyarrow")
-    del barcode_counts
-    barcode_counts = dd.read_parquet(os.path.join(save_dir, "barcode_counts"),
-                                     infer_divisions=True)
-    print(time.ctime(), "Written down the barcode counts")
     # Only keep those cases where a given barcode has been confirmed in at least two samples.
     # movf = movf.map_partitions(lambda df: dd.merge(barcode_counts, df,
     #                                                how="right", on=["barcode_index", "sample"]))
-    movf = dd.map_partitions(merger, movf, right=barcode_counts, how="right",
-                             left_on=["barcode_index", "sample"],
-                             right_on=["barcode_index", "sample"])
+    movf = dd.merge(movf, barcode_counts, how="right",
+                    left_on=["barcode_index", "sample"],
+                    right_on=["barcode_index", "sample"]).dropna(subset=["nsc"])
     assert "nsc" in movf.columns
-    movf = movf[movf["nsc"] >= 2]
-    assert isinstance(movf, dd.DataFrame)
+    # assert isinstance(movf, dd.DataFrame)
     # These are the columns we are interested in
     side_columns = ["scaffold_index", "npairs", "start", "end", "sample", "barcode_index"]
     # Only rename the first two columns
@@ -78,7 +71,6 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
         columns={"scaffold_index": "scaffold_index1",
                  "npairs": "npairs1"}).drop(["start", "end"], axis=1)
     assert "start" in movf.columns
-
     print(time.ctime(), "Prepared left (scaffold 1) side")
     scaffold2_side = movf.loc[:, side_columns]
     scaffold2_side["pos2"] = scaffold2_side.map_partitions(
@@ -107,9 +99,9 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     # samples that have at least min_nmol
     # computed = both_sides.compute()
     print(time.ctime(), "Arrived at merging both sides")
-    mol_count = link_pos.groupby(
-        ["scaffold_index1", "scaffold_index2", "sample"]
-    )["barcode_index"].size(
+    mol_count = link_pos[
+        ["scaffold_index1", "scaffold_index2", "sample", "barcode_index"]].groupby(
+        ["scaffold_index1", "scaffold_index2", "sample"])["barcode_index"].size(
         split_out=link_pos.npartitions).to_frame("nmol").query("nmol >= @min_nmol", local_dict=locals())
     # Then count how many samples pass the filter, and keep track of it.
     sample_count = mol_count.reset_index(drop=False).drop_duplicates(
