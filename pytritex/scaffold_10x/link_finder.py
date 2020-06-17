@@ -15,6 +15,7 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     if verbose:
         print("Finding links")
 
+    os.makedirs(save_dir, exist_ok=True)
     info = dd.read_parquet(info, infer_divisions=True)
     molecules_over_filter = dd.read_parquet(molecules, infer_divisions=True,
                                 filters=[
