@@ -108,9 +108,11 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     )
 
     sample_count = sample_count.reset_index(drop=False)
-    sample_count = _rebalance_ddf(sample_count, npartitions=100)
+    sample_count = _rebalance_ddf(sample_count, npartitions=min(sample_count.npartitions, 100))
     sample_count_name = os.path.join(save_dir, "sample_count")
     dd.to_parquet(ddf, sample_count_name, compression="gzip", engine="pyarrow")
+    del sample_count
+    sample_count = ddf.read_parquet(sample_count_name, infer_divisions=True)
 
     if popseq_dist > 0:
         links = sample_count.copy().loc[(sample_count["same_chr"] == True) & (
