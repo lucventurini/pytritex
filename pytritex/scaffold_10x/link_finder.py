@@ -1,11 +1,11 @@
-import pandas as pd
 import dask.dataframe as dd
 import dask.array as da
 import time
-from ..utils import _rebalance_ddf
 import os
 import numpy as np
 from dask.delayed import delayed
+import logging
+dask_logger = logging.getLogger("dask")
 
 
 def _initial_link_finder(info: str, molecules: str, fai: str,
@@ -13,9 +13,6 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
                          client,
                          verbose=False, popseq_dist=5,
                          min_npairs=2, max_dist=1e5, min_nmol=2, min_nsample=2):
-
-    if verbose:
-        print("Finding links")
 
     os.makedirs(save_dir, exist_ok=True)
     info = dd.read_parquet(info, infer_divisions=True)
@@ -32,14 +29,12 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
 
     # We need to repartition. 100 partitions are just too few.
     movf = molecules_over_filter
-    nparts = movf.npartitions
     movf = client.scatter(movf)
     fai = dd.read_parquet(fai, infer_divisions=True)
     lengths = fai[["length"]]
     lengths.columns = ["scaffold_length"]
     merger = delayed(dd.merge)(movf, lengths, left_index=True, right_index=True, how="left")
     movf = client.compute(merger).result()
-    print(movf.head(npartitions=-1))
 
     # movf = dd.merge(movf, lengths, left_index=True, right_index=True, how="left")
     # assert "scaffold_length" in movf.columns
@@ -52,7 +47,6 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
         return df.map_partitions(len)
     chunks = delayed(chunk_computer)(movf)
     chunks = tuple(client.compute(chunks).result().compute().values.tolist())
-    print("Chunks:", chunks, type(chunks))
 
     def pair_counter(df):
         return df[["barcode_index", "sample", "npairs"]].astype(np.int32).compute().groupby(
@@ -63,7 +57,6 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     nsc = da.from_array(nsc, chunks=chunks)
     movf = client.gather(movf)
     movf = movf.assign(nsc=nsc).query("nsc >= 2")
-    print(movf.head(npartitions=-1))
     # These are the columns we are interested in.
     side_columns = ["npairs", "start", "end", "sample", "barcode_index"]
     # Only rename the first two columns
@@ -91,23 +84,27 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     # First aggregate on the molecules ("barcode_index") and select only those
     # samples that have at least min_nmol
     # computed = both_sides.compute()
-    print(time.ctime(), "Arrived at merging both sides")
-    mol_count = link_pos[
-        ["scaffold_index1", "scaffold_index2", "sample", "barcode_index"]]
-    mol_count = mol_count.groupby(["scaffold_index1", "scaffold_index2", "sample"]
-    )["barcode_index"].size().to_frame("nmol")
-    mol_count = mol_count[mol_count["nmol"] >= min_nmol]
-    # Then count how many samples pass the filter, and keep track of it.
-    sample_count = mol_count.reset_index(drop=False).drop_duplicates(
-        subset=["scaffold_index1", "scaffold_index2", "sample"]).groupby(
-        ["scaffold_index1", "scaffold_index2"])["sample"].size().rename("nsample")
-    sample_count = sample_count[sample_count >= min_nsample].persist()
-    print("Sample count")
-    print(sample_count.head(npartitions=-1))
+    dask_logger.warning("Arrived at merging both sides")
+
+    def sample_counter(link_pos, min_nmol, min_nsample):
+        mol_count = link_pos[
+            ["scaffold_index1", "scaffold_index2", "sample", "barcode_index"]]
+        mol_count = mol_count.groupby(["scaffold_index1", "scaffold_index2", "sample"]
+                                      )["barcode_index"].size().to_frame("nmol")
+        mol_count = mol_count[mol_count["nmol"] >= min_nmol]
+        # Then count how many samples pass the filter, and keep track of it.
+        sample_count = mol_count.reset_index(drop=False).drop_duplicates(
+            subset=["scaffold_index1", "scaffold_index2", "sample"]).groupby(
+            ["scaffold_index1", "scaffold_index2"])["sample"].size().rename("nsample")
+        sample_count = sample_count[sample_count >= min_nsample]
+        return sample_count
+
+    link_pos = client.scatter(link_pos)
+    counter = delayed(sample_counter)(link_pos, min_nmol, min_nsample)
+    sample_count = client.compute(counter).result()
+    dask_logger.warning("Calculated the sample_count")
     sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index1", sorted=True)
-    assert sample_count.index.name == "scaffold_index1", sample_count.head()
-    print("Setting index on SC")
-    print(sample_count.head(npartitions=-1))
+    dask_logger.warning("Setting index on SC")
     basic = info.loc[:, ["popseq_chr", "length", "popseq_pchr", "popseq_cM"]]
     left = basic.rename(columns=dict((col, col + "1") for col in basic.columns))
     left.index = left.index.rename("scaffold_index1")
@@ -116,10 +113,7 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     merger = delayed(dd.merge)(left, right=sample_count, left_index=True,
                                right_index=True, how="right")
     sample_count = client.compute(merger).result()
-    print("Partial sample count")
-    print(sample_count.head(npartitions=-1))
     sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index2", sorted=False)
-    left = client.gather(left)
     left = basic.rename(columns=dict((col, col + "2") for col in basic.columns))
     left.index = left.index.rename("scaffold_index2")
     left = client.scatter(left)
@@ -138,7 +132,6 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     sample_count["weight"] = sample_count.map_partitions(
         lambda df: df.eval("-1 * log10((length1 + length2) / 1e9)")
     )
-
     sample_count = sample_count.reset_index(drop=False)
     # sample_count = _rebalance_ddf(sample_count, target_memory=5 * 10**7)
     sample_count_name = os.path.join(save_dir, "sample_count")
@@ -150,8 +143,6 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
         links = sample_count.loc[
                 (sample_count["same_chr"] == True) & (
                 (sample_count.eval("popseq_cM2 - popseq_cM1").astype(float)).abs() <= popseq_dist), :]
-        print("Links: ")
-        print(links.head(npartitions=-1))
         links_name = os.path.join(save_dir, "links")
         # links = _rebalance_ddf(links, target_memory=5 * 10**7)
         dd.to_parquet(links, links_name, compression="gzip", engine="auto")
