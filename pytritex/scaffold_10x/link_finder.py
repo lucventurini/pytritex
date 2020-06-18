@@ -8,18 +8,12 @@ import logging
 dask_logger = logging.getLogger("dask")
 
 
-def _initial_link_finder(info: str, molecules: str, fai: str,
-                         save_dir: str,
-                         client,
-                         verbose=False, popseq_dist=5,
-                         min_npairs=2, max_dist=1e5, min_nmol=2, min_nsample=2):
-
-    os.makedirs(save_dir, exist_ok=True)
-    info = dd.read_parquet(info, infer_divisions=True)
+def _calculate_link_pos(molecules: str, fai: str, save_dir: str,
+                        client, min_npairs: int, max_dist: float):
     molecules_over_filter = dd.read_parquet(molecules, infer_divisions=True,
-                                filters=[
-                                    ("npairs", ">=", min_npairs)
-                                ])
+                                            filters=[
+                                                ("npairs", ">=", min_npairs)
+                                            ])
     molecules_over_filter = molecules_over_filter.astype(
         dict((col, np.int32) for col in molecules_over_filter.columns)
     )
@@ -43,14 +37,16 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     # Group by barcode and sample. Only keep those lines in the table where a barcode in a given sample
     # is linking two different scaffolds.
     movf = client.scatter(movf)
+
     def chunk_computer(df):
         return df.map_partitions(len)
+
     chunks = delayed(chunk_computer)(movf)
     chunks = tuple(client.compute(chunks).result().compute().values.tolist())
 
     def pair_counter(df):
         return df[["barcode_index", "sample", "npairs"]].astype(np.int32).compute().groupby(
-                      ["barcode_index", "sample"])["npairs"].transform("size")
+            ["barcode_index", "sample"])["npairs"].transform("size")
 
     nsc = delayed(pair_counter)(movf)
     nsc = client.compute(nsc).result().values
@@ -79,57 +75,92 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     link_pos_name = os.path.join(save_dir, "link_pos")
     dd.to_parquet(link_pos, link_pos_name, compression="gzip", engine="pyarrow")
     del link_pos
+    return link_pos_name
+
+
+def sample_counter(link_pos, min_nmol, min_nsample):
+    mol_count = link_pos[
+        ["scaffold_index1", "scaffold_index2", "sample", "barcode_index"]]
+    mol_count = mol_count.groupby(["scaffold_index1", "scaffold_index2", "sample"]
+                                  )["barcode_index"].size().to_frame("nmol")
+    mol_count = mol_count[mol_count["nmol"] >= min_nmol]
+    # Then count how many samples pass the filter, and keep track of it.
+    sample_count = mol_count.reset_index(drop=False).drop_duplicates(
+        subset=["scaffold_index1", "scaffold_index2", "sample"]).groupby(
+        ["scaffold_index1", "scaffold_index2"])["sample"].size().rename("nsample")
+    sample_count = sample_count[sample_count >= min_nsample]
+    sample_count = sample_count.reset_index(drop=False)
+    sample_count = sample_count.set_index("scaffold_index1", sorted=True)
+    return sample_count
+
+
+def index_resetter(sample_count, index_name, sorted=False):
+    return sample_count.reset_index(drop=False).set_index(index_name, sorted=sorted)
+
+
+def _initial_link_finder(info: str, molecules: str, fai: str,
+                         save_dir: str,
+                         client,
+                         verbose=False, popseq_dist=5,
+                         min_npairs=2, max_dist=1e5, min_nmol=2, min_nsample=2):
+
+    os.makedirs(save_dir, exist_ok=True)
+    info = dd.read_parquet(info, infer_divisions=True)
+
     # Reload from disk
+    link_pos_name = _calculate_link_pos(molecules, fai, save_dir, client, min_npairs,
+                                        max_dist)
     link_pos = dd.read_parquet(link_pos_name, infer_divisions=True)
-    # First aggregate on the molecules ("barcode_index") and select only those
-    # samples that have at least min_nmol
-    # computed = both_sides.compute()
     dask_logger.warning("Arrived at merging both sides")
-
-    def sample_counter(link_pos, min_nmol, min_nsample):
-        mol_count = link_pos[
-            ["scaffold_index1", "scaffold_index2", "sample", "barcode_index"]]
-        mol_count = mol_count.groupby(["scaffold_index1", "scaffold_index2", "sample"]
-                                      )["barcode_index"].size().to_frame("nmol")
-        mol_count = mol_count[mol_count["nmol"] >= min_nmol]
-        # Then count how many samples pass the filter, and keep track of it.
-        sample_count = mol_count.reset_index(drop=False).drop_duplicates(
-            subset=["scaffold_index1", "scaffold_index2", "sample"]).groupby(
-            ["scaffold_index1", "scaffold_index2"])["sample"].size().rename("nsample")
-        sample_count = sample_count[sample_count >= min_nsample]
-        sample_count = sample_count.reset_index(drop=False)
-        return sample_count
-
-    # def index_resetter(sample_count, index_name):
-    #     return sample_count.reset_index(drop=False).set_index(index_name)
 
     link_pos = client.scatter(link_pos)
     sample_count = delayed(sample_counter)(link_pos, min_nmol, min_nsample)
-    basic = info.loc[:, ["popseq_chr", "length", "popseq_pchr", "popseq_cM"]].reset_index(drop=False)
+    sample_count = client.compute(sample_count)
+    sample_count_name = os.path.join(save_dir, "sample_count")
+    dask_logger.warning("Storing the raw sample counts")
+    dd.to_parquet(sample_count.result(),
+                  sample_count_name, compression="gzip", engine="pyarrow")
+    sample_count = dd.read_parquet(sample_count_name, infer_divisions=True)
+    dask_logger.warning("Stored the raw sample counts")
+
+    basic = info.loc[:, ["popseq_chr", "length", "popseq_pchr", "popseq_cM"]]
     left = basic.rename(columns=dict((col, col + "1") for col in basic.columns))
+    left.index = left.index.rename("scaffold_index1")
     left = client.scatter(left)
     sample_count = delayed(dd.merge)(left, sample_count,
-                                     on="scaffold_index1", how="right")
+                                     left_index=True,
+                                     right_index=True,
+                                     how="right")
+    sample_count = client.compute(sample_count)
+    dask_logger.warning("{} Storing the first merge of sample counts".format(time.ctime()))
+    dd.to_parquet(sample_count.result(),
+                  sample_count_name, compression="gzip", engine="pyarrow")
+    dask_logger.warning("{} Stored the first merge of sample counts".format(time.ctime()))
+    sample_count = dd.read_parquet(sample_count_name, infer_divisions=True)
+    sample_count = client.scatter(sample_count)
+    sample_count = delayed(index_resetter)(sample_count, "scaffold_index2", sorted=False)
     left = basic.rename(
         columns=dict((col, col + "2") for col in basic.columns))
+    left.index = left.index.rename("scaffold_index2")
     left = client.scatter(left)
     sample_count = delayed(dd.merge)(
         left, sample_count,
-        left_on="scaffold_index2", right_on="scaffold_index2", how="right")
-
+        left_index=True, right_index=True,
+        how="right")
     sample_count = client.compute(sample_count)
-    sample_count_name = os.path.join(save_dir, "sample_count")
+    dask_logger.warning("{} Storing the second merge of sample counts".format(time.ctime()))
     dd.to_parquet(sample_count.result(),
                   sample_count_name, compression="gzip", engine="pyarrow")
-    del sample_count
-    dask_logger.warning("Merged sample_count with the info table")
+    dask_logger.warning("{} Stored the second merge of sample counts".format(time.ctime()))
     sample_count = dd.read_parquet(sample_count_name, infer_divisions=True)
-    sample_count = client.scatter(sample_count)
+
     def add_cols(sample_count):
         sample_count["same_chr"] = sample_count.eval(
         "((popseq_chr1 == popseq_chr2) & (popseq_chr1 == popseq_chr1) & (popseq_chr2 == popseq_chr2))")
         sample_count["weight"] = sample_count.eval("-1 * log10((length1 + length2) / 1e9)")
         return sample_count
+    sample_count = client.scatter(sample_count)
+    sample_count = delayed(lambda df: df.reset_index(drop=False))(sample_count)
     sample_count = delayed(add_cols)(sample_count)
     sample_count = client.compute(sample_count)
     dask_logger.warning("Added the last columns to sample_count.")
