@@ -97,26 +97,24 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
             subset=["scaffold_index1", "scaffold_index2", "sample"]).groupby(
             ["scaffold_index1", "scaffold_index2"])["sample"].size().rename("nsample")
         sample_count = sample_count[sample_count >= min_nsample]
+        sample_count = sample_count.reset_index(drop=False)
         return sample_count
 
-    def index_resetter(sample_count, index_name):
-        return sample_count.reset_index(drop=False).set_index(index_name)
+    # def index_resetter(sample_count, index_name):
+    #     return sample_count.reset_index(drop=False).set_index(index_name)
 
     link_pos = client.scatter(link_pos)
     sample_count = delayed(sample_counter)(link_pos, min_nmol, min_nsample)
-    sample_count = delayed(index_resetter)(sample_count, "scaffold_index1")
-    basic = info.loc[:, ["popseq_chr", "length", "popseq_pchr", "popseq_cM"]]
+    basic = info.loc[:, ["popseq_chr", "length", "popseq_pchr", "popseq_cM"]].reset_index(drop=False)
     left = basic.rename(columns=dict((col, col + "1") for col in basic.columns))
-    left.index = left.index.rename("scaffold_index1")
     left = client.scatter(left)
-    sample_count = delayed(dd.merge)(left, sample_count, left_index=True,
-                               right_index=True, how="right")
-    sample_count = delayed(index_resetter)(sample_count, "scaffold_index2")
-    left = basic.rename(columns=dict((col, col + "2") for col in basic.columns))
-    left.index = left.index.rename("scaffold_index2")
+    sample_count = delayed(dd.merge)(left, sample_count,
+                                     on="scaffold_index1", how="right")
+    left = basic.rename(
+        columns=dict((col, col + "2") for col in basic.columns))
     left = client.scatter(left)
     merger = delayed(dd.merge)(left, sample_count,
-                               left_index=True, right_index=True, how="right")
+                               left_on="scaffold_index2", right_on="scaffold_index2", how="right")
     sample_count = client.compute(merger).result()
     sample_count["same_chr"] = sample_count.map_partitions(
         lambda df: df.eval(
@@ -125,7 +123,7 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     sample_count["weight"] = sample_count.map_partitions(
         lambda df: df.eval("-1 * log10((length1 + length2) / 1e9)")
     )
-    sample_count = sample_count.reset_index(drop=False)
+
     # sample_count = _rebalance_ddf(sample_count, target_memory=5 * 10**7)
     sample_count_name = os.path.join(save_dir, "sample_count")
     dd.to_parquet(sample_count, sample_count_name, compression="gzip", engine="pyarrow")
