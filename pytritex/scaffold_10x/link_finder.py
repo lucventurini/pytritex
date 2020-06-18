@@ -1,6 +1,6 @@
 import pandas as pd
 import dask.dataframe as dd
-from collections import Counter
+import dask.array as da
 import time
 from ..utils import _rebalance_ddf
 import os
@@ -49,62 +49,30 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
 
     # Group by barcode and sample. Only keep those lines in the table where a barcode in a given sample
     # is linking two different scaffolds.
-    barcode_counts = movf[["barcode_index", "sample"]].astype({
-        "barcode_index": np.int32, "sample": np.int32}).reset_index(drop=True).compute()
-    # print(barcode_counts.head(npartitions=-1))
-    barcode_counts = barcode_counts.groupby(
-        ["barcode_index", "sample"]).size().to_frame("nsc").query("nsc >= 2").reset_index(
-        drop=False).astype({"barcode_index": np.int32, "sample": np.int32, "nsc": np.int32})
-    nparts = min(1 + barcode_counts.shape[0].compute() // 10000, movf.npartitions)
-    barcode_counts = dd.from_pandas(barcode_counts, npartitions=nparts)
-    #
-    # barcode_counts = Counter()
-    #
-    # for partition in movf.partitions:
-    #     vals = [tuple(_) for _ in partition[["barcode_index", "sample"]].values.compute().tolist()]
-    #     barcode_counts.update(vals)
-    # barcode_counts = np.array([(key[0], key[1], item) for key, item in barcode_counts.items()])
-    # barcode_counts = barcode_counts[barcode_counts[:, 2] >= 2]
-    # nparts = min(1 + barcode_counts.shape[0] // 10000, movf.npartitions)
-    # barcode_counts = pd.DataFrame().assign(
-    #     barcode_index=barcode_counts[:, 0],
-    #     sample=barcode_counts[:, 1],
-    #     nsc=barcode_counts[:, 2])
-
-    # let's write down this.
-    # Only keep those cases where a given barcode has been confirmed in at least two samples.
-    # movf = movf.map_partitions(lambda df: dd.merge(barcode_counts, df,
-    #                                                how="right", on=["barcode_index", "sample"]))
-    movf = dd.merge(movf, barcode_counts, how="right",
-                    left_on=["barcode_index", "sample"],
-                    right_on=["barcode_index", "sample"]).dropna(subset=["nsc"])
-    assert "nsc" in movf.columns
-    # assert isinstance(movf, dd.DataFrame)
-    # These are the columns we are interested in
+    chunks = tuple(movf.map_partitions(len).compute())
+    nsc = movf[["barcode_index", "sample", "npairs"]].astype(np.int32).compute()
+    nsc = nsc.groupby(["barcode_index", "sample"])["npairs"].transform("size").values
+    nsc = da.from_array(nsc, chunks=chunks)
+    movf = movf.assign(nsc=nsc).query("nsc >= 2")
+    # These are the columns we are interested in.
     side_columns = ["scaffold_index", "npairs", "start", "end", "sample", "barcode_index"]
     # Only rename the first two columns
     assert "start" in movf.columns
-    scaffold1_side = movf.loc[:, side_columns]
-    scaffold1_side["pos1"] = scaffold1_side.map_partitions(
-        lambda df: df.eval("floor((start + end) / 2)")
-    )
-    scaffold1_side = scaffold1_side.rename(
+    base = movf.loc[:, side_columns]
+    base["pos"] = base.map_partitions(lambda df: df.eval("floor((start + end) / 2)"))
+    base = base.drop(["start", "end"], axis=1).persist()
+    print(base.head(npartitions=-1))
+    scaffold1_side = base[:].rename(
         columns={"scaffold_index": "scaffold_index1",
-                 "npairs": "npairs1"}).drop(["start", "end"], axis=1)
-    assert "start" in movf.columns
-    print(time.ctime(), "Prepared left (scaffold 1) side")
-    scaffold2_side = movf.loc[:, side_columns]
-    scaffold2_side["pos2"] = scaffold2_side.map_partitions(
-        lambda df: df.eval("floor((start + end) / 2)")
-    )
-    scaffold2_side = scaffold2_side.rename(
+                 "npairs": "npairs1"})
+    scaffold2_side = base[:].rename(
         columns={"scaffold_index": "scaffold_index2",
-                 "npairs": "npairs2"}).drop(["start", "end"], axis=1)
+                 "npairs": "npairs2"})
     # Now merge the two sides
-    link_pos = dd.map_partitions(merger, scaffold1_side, right=scaffold2_side, how="outer",
-                                 left_on=["sample", "barcode_index"],
-                                 right_on=["sample", "barcode_index"])
-    assert "scaffold_index2" in link_pos
+    link_pos = dd.merge(scaffold1_side, right=scaffold2_side, how="outer",
+                        left_on=["sample", "barcode_index"],
+                        right_on=["sample", "barcode_index"])
+    assert "scaffold_index2" in link_pos, link_pos.head()
     assert "npairs2" in link_pos
     # link_pos = scaffold1_side.merge(scaffold2_side, how="outer", on=["sample", "barcode_index"])
     # link_pos = both_sides.copy()
