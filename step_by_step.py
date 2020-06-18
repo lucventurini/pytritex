@@ -19,12 +19,16 @@ import logging
 from dask.distributed import Client, SpecCluster
 # from dask.distributed import Scheduler, Worker, Nanny
 from pytritex.utils import return_size, parse_size
+import logging
+logger = logging.getLogger("distributed.comm.tcp")
+logger.setLevel(logging.ERROR)
 
 
-def dispatcher(assembly, save_dir, memory, row):
+def dispatcher(assembly, save_dir, memory, client, row):
     result = scaffold_10x(assembly,
                           memory=memory,
                           save_dir=save_dir,
+                          client=client,
                           min_npairs=row.npairs,
                           max_dist=row.dist, popseq_dist=5, max_dist_orientation=5,
                           min_nsample=row.nsample,
@@ -45,8 +49,9 @@ def grid_evaluation(assembly, args, client, memory):
     # pool = mp.Pool(processes=args.procs)
     # results = pool.starmap(dispatcher, [(assembly, row) for index, row in grid.iterrows()])
     _index, row = next(grid.iterrows())
-    result = memory.cache(dispatcher)(assembly, save_dir=args.save_prefix,
-                                      memory=memory, row=row)
+    result = memory.cache(dispatcher, ignore=["memory", "client"])(
+        assembly, save_dir=args.save_prefix,
+        memory=memory, row=row, client=client)
     return result
 
 
@@ -86,7 +91,8 @@ def main():
     # print(cluster.new_spec)
     # cluster.scale(cores=args.procs, memory=args.mem)
     worker_mem = return_size(parse_size(args.mem)[0] / args.procs, "GB")
-    client = Client(set_as_default=True, timeout=60, direct_to_workers=True, memory_limit=worker_mem)
+    client = Client(set_as_default=True, timeout=60, direct_to_workers=True, memory_limit=worker_mem,
+                    nanny=False)
     client.cluster.scale(n=args.procs)
 
     # Initial assembly

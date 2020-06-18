@@ -82,5 +82,6 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
         except ValueError:
             repartitioned = ddf
 
-    assert repartitioned.shape[0].compute() == orig_shape
+    new_shape = repartitioned.shape[0].compute()
+    assert new_shape == orig_shape, (orig_shape, new_shape)
     return repartitioned
