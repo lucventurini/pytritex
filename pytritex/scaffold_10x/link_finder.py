@@ -113,23 +113,29 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     left = basic.rename(
         columns=dict((col, col + "2") for col in basic.columns))
     left = client.scatter(left)
-    merger = delayed(dd.merge)(left, sample_count,
-                               left_on="scaffold_index2", right_on="scaffold_index2", how="right")
-    sample_count = client.compute(merger).result()
-    sample_count["same_chr"] = sample_count.map_partitions(
-        lambda df: df.eval(
-            "((popseq_chr1 == popseq_chr2) & (popseq_chr1 == popseq_chr1) & (popseq_chr2 == popseq_chr2))"
-        ))
-    sample_count["weight"] = sample_count.map_partitions(
-        lambda df: df.eval("-1 * log10((length1 + length2) / 1e9)")
-    )
+    sample_count = delayed(dd.merge)(
+        left, sample_count,
+        left_on="scaffold_index2", right_on="scaffold_index2", how="right")
 
+    sample_count = client.compute(sample_count)
+    dask_logger.warning("Merged sample_count with the info table")
+    print(sample_count.result().head())
+    def add_cols(sample_count):
+        sample_count["same_chr"] = sample_count.eval(
+        "((popseq_chr1 == popseq_chr2) & (popseq_chr1 == popseq_chr1) & (popseq_chr2 == popseq_chr2))")
+        sample_count["weight"] = sample_count.eval("-1 * log10((length1 + length2) / 1e9)")
+        return sample_count
+
+    sample_count = delayed(add_cols)(sample_count)
+    sample_count = client.compute(sample_count)
+    dask_logger.warning("Added the last columns to sample_count.")
     # sample_count = _rebalance_ddf(sample_count, target_memory=5 * 10**7)
     sample_count_name = os.path.join(save_dir, "sample_count")
-    dd.to_parquet(sample_count, sample_count_name, compression="gzip", engine="pyarrow")
+    dd.to_parquet(sample_count.result(),
+                  sample_count_name, compression="gzip", engine="pyarrow")
     del sample_count
     sample_count = dd.read_parquet(sample_count_name, infer_divisions=True)
-
+    dask_logger.warning("Calculating the link positions.")
     if popseq_dist > 0:
         links = sample_count.loc[
                 (sample_count["same_chr"] == True) & (
