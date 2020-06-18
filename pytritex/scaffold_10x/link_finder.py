@@ -118,14 +118,18 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
         left_on="scaffold_index2", right_on="scaffold_index2", how="right")
 
     sample_count = client.compute(sample_count)
+    sample_count_name = os.path.join(save_dir, "sample_count")
+    dd.to_parquet(sample_count.result(),
+                  sample_count_name, compression="gzip", engine="pyarrow")
+    del sample_count
     dask_logger.warning("Merged sample_count with the info table")
-    print(sample_count.result().head())
+    sample_count = dd.read_parquet(sample_count_name, infer_divisions=True)
+    sample_count = client.scatter(sample_count)
     def add_cols(sample_count):
         sample_count["same_chr"] = sample_count.eval(
         "((popseq_chr1 == popseq_chr2) & (popseq_chr1 == popseq_chr1) & (popseq_chr2 == popseq_chr2))")
         sample_count["weight"] = sample_count.eval("-1 * log10((length1 + length2) / 1e9)")
         return sample_count
-
     sample_count = delayed(add_cols)(sample_count)
     sample_count = client.compute(sample_count)
     dask_logger.warning("Added the last columns to sample_count.")
