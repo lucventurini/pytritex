@@ -78,15 +78,19 @@ def _calculate_link_pos(molecules: str, fai: str, save_dir: str,
     return link_pos_name
 
 
-def sample_counter(link_pos, min_nmol, min_nsample):
+def mol_counter(link_pos, min_nmol):
     mol_count = link_pos[
-        ["scaffold_index1", "scaffold_index2", "sample", "barcode_index"]]
-    mol_count = mol_count.groupby(["scaffold_index1", "scaffold_index2", "sample"]
-                                  )["barcode_index"].size().to_frame("nmol")
+        ["scaffold_index1", "scaffold_index2", "sample", "barcode_index"]].drop_duplicates()
+    mol_count = mol_count.groupby(
+        ["scaffold_index1", "scaffold_index2", "sample"])["barcode_index"].size().to_frame("nmol")
     mol_count = mol_count[mol_count["nmol"] >= min_nmol]
     # Then count how many samples pass the filter, and keep track of it.
-    sample_count = mol_count.reset_index(drop=False).drop_duplicates(
-        subset=["scaffold_index1", "scaffold_index2", "sample"]).groupby(
+    return mol_count
+
+
+def sample_counter(mol_count, min_nsample):
+    sample_count = mol_count.reset_index(drop=False)[
+        ["scaffold_index1", "scaffold_index2", "sample"]].drop_duplicates().groupby(
         ["scaffold_index1", "scaffold_index2"])["sample"].size().rename("nsample")
     sample_count = sample_count[sample_count >= min_nsample]
     sample_count = sample_count.reset_index(drop=False)
@@ -114,8 +118,14 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     dask_logger.warning("Arrived at merging both sides")
 
     link_pos = client.scatter(link_pos)
-    sample_count = delayed(sample_counter)(link_pos, min_nmol, min_nsample)
+    mol_count = delayed(mol_counter)(link_pos, min_nmol)
+    dask_logger.warning("{} Computing the molecule counts".format(time.ctime()))
+    mol_count = client.compute(mol_count).result()
+    mol_count = client.scatter(mol_count)
+    dask_logger.warning("{} Computed the molecule counts".format(time.ctime()))
+    sample_count = delayed(sample_counter)(mol_count, min_nsample)
     sample_count = client.compute(sample_count)
+    dask_logger.warning("{} Computed the sample counts".format(time.ctime()))
     sample_count_name = os.path.join(save_dir, "sample_count")
     dask_logger.warning("Storing the raw sample counts")
     dd.to_parquet(sample_count.result(),
