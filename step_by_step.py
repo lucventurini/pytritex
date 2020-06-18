@@ -77,20 +77,7 @@ def main():
     dask.config.global_config.update({"temporary-directory": args.dask_cache})
     # dask.config.global_config.update({"distributed.comm.timeouts.tcp": "300s"})
     ne.set_num_threads(args.procs)
-    # scheduler = {'cls': Scheduler}
-    # workers = {
-    #            'my-nanny': {"cls": Nanny, "options": {"nthreads": 2,
-    #                                                   "memory_limit": args.mem,
-    #                                                   "silence_logs": logging.ERROR,
-    #                                                   "timeout": 60}}
-    #            }
-    # cluster = SpecCluster(scheduler=scheduler, workers=workers, worker=workers["my-nanny"])
-    # cluster.scale(args.procs)
-    # print(cluster.workers)
-    # print(cluster.worker_spec)
-    # print(cluster.new_spec)
-    # cluster.scale(cores=args.procs, memory=args.mem)
-    worker_mem = return_size(parse_size(args.mem)[0] / args.procs, "GB")
+    worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
     client = Client(set_as_default=True, timeout=60, direct_to_workers=True, memory_limit=worker_mem,
                     nanny=False)
     client.cluster.scale(n=args.procs)

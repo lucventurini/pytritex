@@ -120,13 +120,10 @@ def make_super(hl: dd.DataFrame, cluster_info: dd.DataFrame,
         {"super": "size",
          "cM": "mean"}
     )
-    print(info.head(npartitions=-1, n=5))
+    # print(info.head(npartitions=-1, n=5))
     info["chr"] = grouped["chr"].unique().apply(lambda s: [_ for _ in s if not np.isnan(_)][0],
                                                 meta=np.float)
     print(info.head(npartitions=-1, n=5))
-    import sys
-    sys.exit(1)
-
     assert "cluster" in membership, membership.columns
     edge_list = membership.rename(columns={"cluster": "cluster1"})[["cluster1", "super"]].merge(
         hl, on="cluster1", how="right")
