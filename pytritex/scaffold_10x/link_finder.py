@@ -99,32 +99,25 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
         sample_count = sample_count[sample_count >= min_nsample]
         return sample_count
 
+    def index_resetter(sample_count, index_name):
+        return sample_count.reset_index(drop=False).set_index(index_name)
+
     link_pos = client.scatter(link_pos)
-    counter = delayed(sample_counter)(link_pos, min_nmol, min_nsample)
-    sample_count = client.compute(counter).result()
-    dask_logger.warning("Calculated the sample_count")
-    sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index1", sorted=True)
-    dask_logger.warning("Setting index on SC")
+    sample_count = delayed(sample_counter)(link_pos, min_nmol, min_nsample)
+    sample_count = delayed(index_resetter)(sample_count, "scaffold_index1")
     basic = info.loc[:, ["popseq_chr", "length", "popseq_pchr", "popseq_cM"]]
     left = basic.rename(columns=dict((col, col + "1") for col in basic.columns))
     left.index = left.index.rename("scaffold_index1")
-    assert left.index.name == sample_count.index.name, (left.head(), sample_count.head())
     left = client.scatter(left)
-    merger = delayed(dd.merge)(left, right=sample_count, left_index=True,
+    sample_count = delayed(dd.merge)(left, sample_count, left_index=True,
                                right_index=True, how="right")
-    sample_count = client.compute(merger).result()
-    sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index2", sorted=False)
+    sample_count = delayed(index_resetter)(sample_count, "scaffold_index2")
     left = basic.rename(columns=dict((col, col + "2") for col in basic.columns))
     left.index = left.index.rename("scaffold_index2")
     left = client.scatter(left)
     merger = delayed(dd.merge)(left, sample_count,
                                left_index=True, right_index=True, how="right")
     sample_count = client.compute(merger).result()
-    # Check that chromosomes are not NAs
-    print(time.ctime(),
-          "Positions without an assigned chromosome:",
-          sample_count.loc[sample_count["popseq_chr1"].isna()].shape[0].compute())
-
     sample_count["same_chr"] = sample_count.map_partitions(
         lambda df: df.eval(
             "((popseq_chr1 == popseq_chr2) & (popseq_chr1 == popseq_chr1) & (popseq_chr2 == popseq_chr2))"
