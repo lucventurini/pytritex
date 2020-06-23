@@ -17,7 +17,7 @@ def dispatcher(_index, row):
     assembly = joblib.load("1A.pkl")
     try:
         result = scaffold_10x(assembly,
-                              prefix="scaffold_10x", min_npairs=rrow.npairs,
+                              min_npairs=rrow.npairs,
                               max_dist=rrow.dist, popseq_dist=5, max_dist_orientation=5,
                               min_nsample=rrow.nsample,
                               min_nmol=rrow.nmol, unanchored=True, ncores=10, verbose=False)

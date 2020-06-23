@@ -7,7 +7,6 @@ import scipy.sparse
 from .k_opt_tsp import tsp_2_opt
 from .insert_nodes import insert_nodes
 from .node_relocation import node_relocation
-from .block_optimise import block_optimise
 import scipy.stats
 import scipy.special
 scipy.special.seterr(all="raise")
@@ -105,9 +104,10 @@ def _get_path(matrix, cidx, start=None, end=None, ncores=1):
     return path, mst, mst_lower_bound
 
 
-def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound, ncores):
+def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound, ncores, maxiter):
     if current_upper_bound > mst_lower_bound:
         changed = True
+        rounds = 0
         while changed:
             while changed:
                 prev = path[:]
@@ -121,6 +121,9 @@ def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound, n
                     edges[path[index], path[index + 1]] for index in np.arange(path.shape[0] - 1,
                                                                                     dtype=np.int))
             path, changed, current_upper_bound = node_relocation(edges, path, current_upper_bound)
+            rounds += 1
+            if rounds >= maxiter:
+                break
 
     return path, current_upper_bound
 
@@ -143,12 +146,24 @@ def make_super_path(origin_edge_list, cms, start=None, end=None, maxiter=100, ve
     orig_coords, weights = origin_edge_list[:, [0, 1]], origin_edge_list[:, 2]
     # Transpose the ids to a new system of coordinates.
     cidx = np.unique(orig_coords.flatten())
+    # Column *0*: original scaffold indices
+    # Column *1*: new partial scaffold indices (from 0 to shape[0] - 1, inclusive)
     cidx = np.vstack([cidx, np.arange(cidx.shape[0])])
     coords = convert_array(cidx[0, :], cidx[1,:], orig_coords)
     # Assign the new index
-    shape = [int(coords.max() + 1)] * 2
+    try:
+        shape = [int(coords.max() + 1)] * 2
+    except Exception:
+        np.save("/tmp/cidx.arr", cidx)
+        np.save("/tmp/orig_coords.arr", orig_coords)
+        np.save("/tmp/coords.arr", coords)
+        pd.to_pickle(cms, "/tmp/cms.pkl")
+        pd.to_pickle(origin_edge_list, "/tmp/oel.pkl")
+        raise
+
     assert weights.min() > 0
-    matrix = scipy.sparse.coo_matrix((weights, (coords[:, 0], coords[:, 1])), dtype=weights.dtype, shape=shape)
+    matrix = scipy.sparse.coo_matrix((weights, (coords[:, 0], coords[:, 1])),
+                                     dtype=weights.dtype, shape=shape)
     edges = matrix.toarray()
     # Is the matrix symmetrical? If it is not, we have a problem.
     assert (edges - edges.T == 0).all(), (edges.tolist())
@@ -171,13 +186,10 @@ def make_super_path(origin_edge_list, cms, start=None, end=None, maxiter=100, ve
                               for index in np.arange(path.shape[0] - 1, dtype=np.int))
     cost_after_initialization = current_upper_bound
     # Run the improvement procedure ONLY IF the CUB is greater than the MST cost.
-    path, current_upper_bound = _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound, ncores)
+    path, current_upper_bound = _local_improvement(edges, path, mst,
+                                                   current_upper_bound, mst_lower_bound, ncores,
+                                                   maxiter)
     # We will presume that we have to SKIP the block_optimise procedure
-    if False:
-        changed = True
-        while changed:
-            changed, path = block_optimise(edge_list, path)
-
     # Assign to each node its rank, ie the distance from the backbone.
     ranks = _assign_ranks(edges, path, cidx, backbone)
     ranks = np.hstack(

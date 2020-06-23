@@ -1,11 +1,17 @@
 import pandas as pd
 from pytritex.graph_utils.make_super import make_super
 import dask.dataframe as dd
+import os
+from dask.distributed import Client
+import numpy as np
+import dask.array as da
+from dask.delayed import delayed
 
 
 def make_super_scaffolds(links: str,
                          info: str,
                          save_dir: str,
+                         client: Client,
                          excluded=pd.Series([]), ncores=1):
     links = dd.read_parquet(links, infer_divisions=True)
     info = dd.read_parquet(info, infer_divisions=True)
@@ -24,25 +30,52 @@ def make_super_scaffolds(links: str,
     super_scaffolds = make_super(
         hl=hl,
         cluster_info=input_df,
+        client=client,
         verbose=False, cores=ncores,
         paths=True, path_max=0, known_ends=False, maxiter=100)
     mem_copy = super_scaffolds["membership"].copy().rename(columns={"cluster": "scaffold_index"})
-    maxidx = super_scaffolds["super_info"]["super"].max()
+    mem_copy = mem_copy.set_index("scaffold_index")
+    maxidx = super_scaffolds["super_info"]["super"].max().compute()
 
-    bait = ~info.scaffold_index.isin(mem_copy["scaffold_index"])
-    _to_concatenate = info.loc[bait, ["scaffold_index", "popseq_chr", "popseq_cM", "length"]].rename(
-        columns={"popseq_chr": "chr", "popseq_cM": "cM"}).assign(
+    assert mem_copy.index.name == "scaffold_index"
+    iindex = info.index.values.compute()
+    bait_index = ~np.in1d(iindex, mem_copy.index.values.compute())
+    bait = iindex[bait_index]
+
+    _to_concatenate = info.loc[bait, ["popseq_chr", "popseq_cM", "length"]].rename(
+        columns={"popseq_chr": "chr", "popseq_cM": "cM"})
+
+    _to_concatenate = client.scatter(_to_concatenate)
+    chunks = delayed(lambda df: df.map_partitions(len))(_to_concatenate)
+    chunks = tuple(client.compute(chunks).result().compute().values.tolist())
+    _to_concatenate = client.gather(_to_concatenate)
+
+    sup_column = da.from_array(
+        maxidx + pd.Series(range(1, info.loc[bait].shape[0].compute() + 1)), chunks=chunks)
+    excl_column = da.from_array(np.in1d(bait, excluded_scaffolds), chunks=chunks)
+
+    _to_concatenate = _to_concatenate.assign(
         bin=1, rank=0, backbone=True,
-        excluded=info.loc[~info.scaffold_index.isin(
-            mem_copy["scaffold_index"]), "scaffold_index"].isin(excluded_scaffolds),
-        super=(maxidx + pd.Series(range(1, info.loc[bait].shape[0] + 1)))
-    )
-    mem_copy = pd.concat([mem_copy, _to_concatenate])
-    res = mem_copy.groupby("super").agg(n=("scaffold_index", "size"),
-                                        nbin=("bin", "max"),
-                                        max_rank=("rank", "max"),
-                                        length=("length", "sum"))
-    mem_copy = res.loc[:, ["n", "nbin"]].rename(columns={"n": "super_size", "nbin": "super_nbin"}).merge(
+        excluded=excl_column,
+        super=sup_column)
+    mem_copy = dd.concat([mem_copy, _to_concatenate])
+    mem_sup_group = mem_copy.groupby("super")
+    res_size = mem_sup_group.size().to_frame("n")
+    res_cols = mem_sup_group.agg(
+        {"bin": "max", "rank": "max", "length": "sum"})
+    res_cols.columns = ["nbin", "max_rank", "length"]
+    res = dd.merge(res_size, res_cols, on="super")
+
+    mem_copy = res.loc[:, ["n", "nbin"]].rename(
+        columns={"n": "super_size", "nbin": "super_nbin"}).merge(
         mem_copy, left_index=True, right_on="super", how="right")
 
-    return {"membership": mem_copy, "info": res}
+    mem_copy_iname = mem_copy.index.name
+    mem_copy = mem_copy.reset_index(drop=False).set_index(mem_copy_iname)
+    # mem_copy = dd.from_pandas(mem_copy, chunksize=1000)
+    dd.to_parquet(mem_copy, os.path.join(save_dir, "membership"))
+    # res = dd.from_pandas(res, chunksize=1000)
+    dd.to_parquet(res, os.path.join(save_dir, "result"))
+
+    return {"membership": os.path.join(save_dir, "membership"),
+            "info": os.path.join(save_dir, "result")}

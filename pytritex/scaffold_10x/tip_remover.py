@@ -1,6 +1,6 @@
 import pandas as pd
 from pytritex.graph_utils.make_super_scaffolds import make_super_scaffolds
-from functools import partial
+import dask.dataframe as dd
 import numpy as np
 from time import ctime
 

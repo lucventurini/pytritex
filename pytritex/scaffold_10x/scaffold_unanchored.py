@@ -4,8 +4,10 @@ from pytritex.graph_utils.make_super_scaffolds import make_super_scaffolds
 import time
 
 
-def _scaffold_unanchored(links, excluded, membership, info, sample_count, ncores=1,
-                         prefix=None, verbose=False):
+def _scaffold_unanchored(links, excluded, membership, info, sample_count, save_dir: str,
+                         client, memory,
+                         ncores=1,
+                         verbose=False):
 
     if verbose:
         print(time.ctime(), "Starting to unanchor unassigned scaffolds")
@@ -91,7 +93,7 @@ def _scaffold_unanchored(links, excluded, membership, info, sample_count, ncores
     links2.drop("index", axis=1, inplace=True, errors="ignore")
     links2.drop("cidx", axis=1, inplace=True, errors="ignore")
 
-    out = make_super_scaffolds(links=links2, prefix=prefix, info=info, excluded=excluded,
+    out = make_super_scaffolds(links=links2, save_dir=save_dir, info=info, excluded=excluded,
                                ncores=ncores)
     membership = out["membership"]
     res = out["info"]

@@ -39,11 +39,11 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
     print(time.ctime(), "Found initial links")
     excluded = set()
     print(time.ctime(), "Starting initial pruning")
-    out, excluded = memory.cache(_initial_branch_remover, ignore=["ncores", "memory"])(
-        raw, memory=memory,
+    out, excluded = memory.cache(_initial_branch_remover, ignore=["ncores", "memory", "client"])(
+        raw, memory=memory, client=client,
         save_dir=folder, links=links, info=info, excluded=excluded, ncores=ncores)
     res = out["info"]
-    membership=out["membership"]
+    membership = out["membership"]
     print(time.ctime(), "Finished initial pruning")
 
     if verbose is True:
@@ -55,7 +55,13 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
                                                 ncores=ncores, verbose=verbose,
                                                 min_dist=1e4)
         if popseq_dist > 0 and unanchored is True:
-            membership, res = _scaffold_unanchored(links, excluded, membership, info, sample_count, ncores=1,
+            membership, res = _scaffold_unanchored(links,
+                                                   excluded, membership, info,
+                                                   sample_count,
+                                                   save_dir,
+                                                   client=client,
+                                                   memory=memory,
+                                                   ncores=1,
                                                    verbose=False)
     membership, result = orient_scaffolds(
         info=info, res=res, membership=membership,
