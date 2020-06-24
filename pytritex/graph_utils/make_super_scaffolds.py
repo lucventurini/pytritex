@@ -33,7 +33,7 @@ def make_super_scaffolds(links: str,
     assert "popseq_chr" not in info2.columns and "chr" in info2.columns
     assert "popseq_cM" not in info2.columns and "cM" in info2.columns
     if excluded is not None:
-        excluded_scaffolds = pd.Series(excluded, name="scaffold_index")
+        excluded_scaffolds = pd.Series(list(excluded), name="scaffold_index")
     else:
         excluded = pd.Series([], name="scaffold_index")
         excluded_scaffolds = excluded.copy()
