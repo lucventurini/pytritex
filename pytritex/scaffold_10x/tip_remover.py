@@ -3,22 +3,31 @@ from pytritex.graph_utils.make_super_scaffolds import make_super_scaffolds
 import dask.dataframe as dd
 import numpy as np
 from time import ctime
+from dask.distributed import Client
 
 
 minimum_distance = 1e4
 
 
-def _calculate_degree(links, excluded):
-    degree = links.query("scaffold_index2 not in @excluded").groupby("scaffold_index1").size().to_frame("degree")
-    degree.index.names = ["scaffold_index"]
+def _calculate_degree(links: str, excluded) -> pd.DataFrame:
+    links = dd.read_parquet(links, infer_divisions=True)
+    degree = links[~links["scaffold_index2"].isin(excluded)].groupby(
+        "scaffold_index1").size().to_frame("degree").compute()
+    degree.index = degree.index.rename("scaffold_index")
     return degree
 
 
-def _remove_bulges(links, excluded, membership, info, min_dist=minimum_distance, ncores=1):
-    add = membership.query("(rank == 1) & (length <= @min_dist)")["scaffold_index"]
+def _remove_bulges(links: str, excluded,
+                   membership: str,
+                   client: Client,
+                   save_dir: str,
+                   info: str, min_dist=minimum_distance, ncores=1):
+    membership = dd.read_parquet(membership, infer_divisions=True)
+    add = membership[(membership["rank"] == 1) & (membership["length"] <= min_dist)].index.values.compute()
     if add.shape[0] > 0:
         excluded.update(add.tolist())
-        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
+        out = make_super_scaffolds(links=links, client=client, save_dir=save_dir,
+                                   info=info, excluded=excluded, ncores=ncores)
         membership = out["membership"]
         res = out["info"]
     else:
@@ -26,7 +35,9 @@ def _remove_bulges(links, excluded, membership, info, min_dist=minimum_distance,
     return membership, res, excluded
 
 
-def _remove_short_tips(links, excluded, membership, info, min_dist=minimum_distance, ncores=1):
+def _remove_short_tips(links: str, excluded, membership: str, info: str,
+                       client: Client, save_dir: str,
+                       min_dist=minimum_distance, ncores=1):
     # #   links[!scaffold2 %in% ex][, .(degree=.N), key=.(scaffold_index=scaffold1)]-> degree
     # # inner <- m[rank == 1][, .(super=c(super, super, super), bin=c(bin, bin-1, bin+1))]
     # # middle <- m[inner, on=c("super", "bin")]
@@ -46,23 +57,30 @@ def _remove_short_tips(links, excluded, membership, info, min_dist=minimum_dista
     # #    out$m -> m
     # #   }
 
-    inner = membership.query("rank == 1")[["super", "bin"]].values
+    membership = dd.read_parquet(membership, infer_divisions=True)
+    inner = membership.loc[membership["rank"] == 1, ["super", "bin"]].values.compute()
     inner0 = np.tile(inner[:, 0], 3)
     inner1 = np.tile(inner[:, 1], 3).reshape(3, inner.shape[0]) + np.array([0, -1, 1]).reshape(3, 1)
     inner1 = inner1.flatten()
     inner = pd.DataFrame().assign(super=inner0, bin=inner1)
-    middle = membership.merge(inner, how="right", on=["super", "bin"]).set_index("scaffold_index")
+    middle = dd.merge(membership, inner, how="right",
+                      on=["super", "bin"]).reset_index(drop=False).set_index("scaffold_index")
+    links = dd.read_parquet(links, infer_divisions=True)
     degree = _calculate_degree(links, excluded)
     a = degree.merge(middle, on="scaffold_index").reset_index(drop=False)
     add = a.query("(degree == 1) & (length <= @min_dist)")["scaffold_index"].values
     out = {"membership": membership, "info": None}
     if add.shape[0] > 0:
         excluded.update(add.tolist())
-        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
+        out = make_super_scaffolds(links=links, info=info, client=client,
+                                   save_dir=save_dir,
+                                   excluded=excluded, ncores=ncores)
         membership = out["membership"]
 
+    info = dd.read_parquet(info, infer_divisions=True)
     membership, res, excluded = _remove_bulges(links=links, excluded=excluded,
                                                membership=membership,
+                                               client=client, save_dir=save_dir,
                                                info=info, min_dist=min_dist, ncores=ncores)
     if res is not None:
         out["info"] = res
@@ -70,7 +88,9 @@ def _remove_short_tips(links, excluded, membership, info, min_dist=minimum_dista
     return membership, out["info"], excluded
 
 
-def _remove_bifurcations(links, excluded, membership, info, min_dist=minimum_distance, ncores=1):
+def _remove_bifurcations(links, excluded, membership, info,
+                         client: Client, save_dir: str,
+                         min_dist=minimum_distance, ncores=1):
     # resolve length-one-bifurcations at the ends of paths
     if membership.shape[0] == 0:
         return membership, info, excluded
@@ -108,17 +128,23 @@ def _remove_bifurcations(links, excluded, membership, info, min_dist=minimum_dis
     out = {"membership": membership, "info": None}
     if add.shape[0] > 0:
         excluded.update(add.tolist())
-        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
+        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores,
+                                   client=client, save_dir=save_dir)
         membership = out["membership"]
     membership, res, excluded = _remove_bulges(links=links, excluded=excluded,
                                                membership=membership,
+                                               save_dir=save_dir,
+                                               client=client,
                                                info=info, min_dist=min_dist, ncores=ncores)
     if res is not None:
         out["info"] = res
     return membership, out["info"], excluded
 
 
-def remove_tips(links, excluded, out, info, ncores=1,
+def remove_tips(links: str, excluded, out: dict, info: str,
+                client: Client,
+                save_dir: str,
+                ncores=1,
                 verbose=False, min_dist=minimum_distance):
 
     if verbose:
@@ -129,6 +155,7 @@ def remove_tips(links, excluded, out, info, ncores=1,
         return out
 
     membership, res, excluded = _remove_short_tips(links, excluded, membership, info,
+                                                   client=client, save_dir=save_dir,
                                                    min_dist=min_dist, ncores=ncores)
     if membership.shape[0] == 0:
         print("This set of parameters leads to lose everything.")
@@ -137,6 +164,7 @@ def remove_tips(links, excluded, out, info, ncores=1,
         out["info"] = res
 
     membership, res, excluded = _remove_bifurcations(links, excluded, membership, info,
+                                                     client=client, save_dir=save_dir,
                                                      min_dist=min_dist, ncores=ncores)
     if membership.shape[0] == 0:
         print("This set of parameters leads to lose everything.")
@@ -145,15 +173,19 @@ def remove_tips(links, excluded, out, info, ncores=1,
         out["info"] = res
 
     degree = _calculate_degree(links, excluded)
-    add = degree.merge(membership.query("rank == 1"), on="scaffold_index").query("degree == 1")["scaffold_index"]
+    add = degree.merge(
+        membership.query("rank == 1"), on="scaffold_index").query("degree == 1")
+    add = add.index.values.compute()
     if add.shape[0] > 0:
         excluded.update(add.tolist())
-        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
-        membership = out["membership"]
+        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores,
+                                   client=client, save_dir=save_dir)
+        membership = dd.read_parquet(out["membership"], infer_divisions=True)
 
     add = membership.query("rank > 0")["scaffold_index"]
     if add.shape[0] > 0:
         excluded.update(add.tolist())
-        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores)
+        out = make_super_scaffolds(links=links, info=info, excluded=excluded, ncores=ncores,
+                                   client=client, save_dir=save_dir)
 
     return membership, out["info"], excluded

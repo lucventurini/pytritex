@@ -5,7 +5,7 @@ import time
 
 
 def _scaffold_unanchored(links, excluded, membership, info, sample_count, save_dir: str,
-                         client, memory,
+                         client,
                          ncores=1,
                          verbose=False):
 
@@ -94,7 +94,7 @@ def _scaffold_unanchored(links, excluded, membership, info, sample_count, save_d
     links2.drop("cidx", axis=1, inplace=True, errors="ignore")
 
     out = make_super_scaffolds(links=links2, save_dir=save_dir, info=info, excluded=excluded,
-                               ncores=ncores)
+                               ncores=ncores, client=client)
     membership = out["membership"]
     res = out["info"]
     return membership, res

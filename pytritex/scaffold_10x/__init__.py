@@ -50,26 +50,26 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
         print("Finding initial super-scaffolds")
 
     if raw is False:
-        membership, res, excluded = remove_tips(links=links, excluded=excluded,
-                                                out=out, info=info,
-                                                ncores=ncores, verbose=verbose,
-                                                min_dist=1e4)
+
+        membership, res, excluded = memory.cache(remove_tips, ignore=["client", "ncores", "verbose"])(
+            links=links, excluded=excluded,
+            out=out, info=info,
+            client=client,
+            save_dir=os.path.join(save_dir, "tip_removal"),
+            ncores=ncores, verbose=verbose,
+            min_dist=1e4)
         if popseq_dist > 0 and unanchored is True:
-            membership, res = _scaffold_unanchored(links,
-                                                   excluded, membership, info,
-                                                   sample_count,
-                                                   save_dir,
-                                                   client=client,
-                                                   memory=memory,
-                                                   ncores=1,
-                                                   verbose=False)
+            membership, res = memory.cache(_scaffold_unanchored,
+                                           ignore=["client", "ncores", "verbose"])(
+                links,
+                excluded, membership, info,
+                sample_count,
+                save_dir=os.path.join(save_dir, "unanchored"), client=client,
+                ncores=1, verbose=False)
+
     membership, result = orient_scaffolds(
         info=info, res=res, membership=membership,
-        link_pos=link_pos, max_dist_orientation=max_dist_orientation, verbose=verbose)
-    if isinstance(membership, dd.DataFrame):
-        membership = membership.compute()
-
-    if isinstance(result, dd.DataFrame):
-        membership = membership.compute()
+        link_pos=link_pos, max_dist_orientation=max_dist_orientation,
+        save_dir=os.path.join(save_dir, "orientation"))
 
     return membership, result

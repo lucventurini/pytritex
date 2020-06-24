@@ -13,8 +13,15 @@ def make_super_scaffolds(links: str,
                          save_dir: str,
                          client: Client,
                          excluded=pd.Series([]), ncores=1):
-    links = dd.read_parquet(links, infer_divisions=True)
-    info = dd.read_parquet(info, infer_divisions=True)
+    if isinstance(links, str):
+        links = dd.read_parquet(links, infer_divisions=True)
+    else:
+        assert isinstance(links, dd.DataFrame)
+    if isinstance(info, str):
+        info = dd.read_parquet(info, infer_divisions=True)
+    else:
+        assert isinstance(info, dd.DataFrame)
+
     info2 = info.loc[:, ["popseq_chr", "popseq_cM", "length"]].rename(
         columns={"popseq_chr": "chr", "popseq_cM": "cM"})
     assert "popseq_chr" not in info2.columns and "chr" in info2.columns
