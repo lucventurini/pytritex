@@ -6,17 +6,23 @@ from dask.distributed import Client
 import numpy as np
 import dask.array as da
 from dask.delayed import delayed
+import logging
+logger = logging.getLogger("distributed.worker")
 
 
 def make_super_scaffolds(links: str,
                          info: str,
                          save_dir: str,
                          client: Client,
-                         excluded=pd.Series([]), ncores=1):
+                         excluded=None, ncores=1):
     if isinstance(links, str):
         links = dd.read_parquet(links, infer_divisions=True)
     else:
         assert isinstance(links, dd.DataFrame)
+    if excluded is None:
+        logger.warning("No excluded scaffolds.")
+    else:
+        logger.warning("No. of excluded scaffolds: %s", len(excluded))
     if isinstance(info, str):
         info = dd.read_parquet(info, infer_divisions=True)
     else:
@@ -27,12 +33,13 @@ def make_super_scaffolds(links: str,
     assert "popseq_chr" not in info2.columns and "chr" in info2.columns
     assert "popseq_cM" not in info2.columns and "cM" in info2.columns
     if excluded is not None:
-        excluded_scaffolds = excluded.copy()
+        excluded_scaffolds = pd.Series(excluded, name="scaffold_index")
     else:
         excluded = pd.Series([], name="scaffold_index")
         excluded_scaffolds = excluded.copy()
     input_df = info2.assign(excluded=info.index.isin(excluded_scaffolds))
     input_df.index = input_df.index.rename("cluster")
+    assert input_df.excluded.value_counts()[True] == excluded_scaffolds.shape[0]
     hl = links.copy().rename(columns={"scaffold_index1": "cluster1", "scaffold_index2": "cluster2"})
     super_scaffolds = make_super(
         hl=hl,
@@ -40,7 +47,8 @@ def make_super_scaffolds(links: str,
         client=client,
         verbose=False, cores=ncores,
         paths=True, path_max=0, known_ends=False, maxiter=100)
-    mem_copy = super_scaffolds["membership"].copy().rename(columns={"cluster": "scaffold_index"})
+    mem_copy = super_scaffolds["membership"].copy().rename(
+        columns={"cluster": "scaffold_index"})
     mem_copy = mem_copy.set_index("scaffold_index")
     maxidx = super_scaffolds["super_info"]["super"].max().compute()
 
