@@ -39,7 +39,7 @@ def make_super_scaffolds(links: str,
         excluded_scaffolds = excluded.copy()
     input_df = info2.assign(excluded=info.index.isin(excluded_scaffolds))
     input_df.index = input_df.index.rename("cluster")
-    assert input_df.excluded.value_counts()[True] == excluded_scaffolds.shape[0]
+    assert input_df.excluded.value_counts().compute()[True] == excluded_scaffolds.shape[0]
     hl = links.copy().rename(columns={"scaffold_index1": "cluster1", "scaffold_index2": "cluster2"})
     super_scaffolds = make_super(
         hl=hl,
