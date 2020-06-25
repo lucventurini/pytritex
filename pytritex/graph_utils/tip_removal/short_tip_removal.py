@@ -43,11 +43,13 @@ def _remove_short_tips(links: dd.DataFrame,
     func = delayed(dd.merge)(right, inner, how="right", on=["super", "bin"])
     middle = client.compute(func).result().set_index("scaffold_index")
     degree = _calculate_degree(links, excluded)
-    a = degree.merge(middle, on="scaffold_index").reset_index(drop=False)
-    add = a.query("(degree == 1) & (length <= @min_dist)")["scaffold_index"].values
+    middle = client.scatter(middle)
+    func = delayed(dd.merge)(degree, middle, left_index=True, right_index=True)
+    a = client.compute(func).result()
+    add = a.query("(degree == 1) & (length <= @min_dist)").index.compute().values
     out = {"membership": membership, "info": None}
     if add.shape[0] > 0:
-        excluded.update(add.tolist())
+        excluded.update(set(add.tolist()))
         out = make_super_scaffolds(links=links, info=info, client=client,
                                    save_dir=save_dir,
                                    membership=membership,

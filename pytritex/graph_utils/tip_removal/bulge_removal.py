@@ -11,7 +11,7 @@ def _remove_bulges(links: dd.DataFrame,
                    save_dir: str,
                    info: dd.DataFrame, min_dist=minimum_distance, ncores=1):
 
-    add = membership[(membership["rank"] == 1) & (membership["length"] <= min_dist)].index.values.compute()
+    add = membership[(membership["rank"] == 1) & (membership["length"] <= min_dist)].index.compute().values
     if add.shape[0] > 0:
         excluded.update(add.tolist())
         out = make_super_scaffolds(links=links, client=client, save_dir=save_dir,
