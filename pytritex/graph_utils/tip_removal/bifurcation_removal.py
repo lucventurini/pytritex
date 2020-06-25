@@ -11,7 +11,7 @@ import pandas as pd
 def _remove_bifurcations(links: dd.DataFrame,
                          excluded,
                          membership: dd.DataFrame,
-                         info: str,
+                         info: dd.DataFrame,
                          client: Client, save_dir: str,
                          min_dist=minimum_distance, ncores=1):
     # resolve length-one-bifurcations at the ends of paths
@@ -24,16 +24,16 @@ def _remove_bifurcations(links: dd.DataFrame,
         return bifurcated, info, excluded
     bifurcated = bifurcated[keys]
     bifurcated = bifurcated.eval("type = (bin == 2)").rename(columns={"bin": "bin0"})
-    bifurcated = bifurcated[["super", "super_nbin", "type", "length", "bin0"]]
+    bifurcated = bifurcated[["super", "super_nbin", "type", "length", "bin0"]].drop_duplicates(ignore_index=True)
     key = ["super", "bin"]
     # indexed = dd_membership.set_index(key)
     # m[x[type == T,.(super, bin0, bin=1)], on = c("super", "bin")],
-    membership = client.scatter(membership)
+    membership = client.scatter(membership.reset_index(drop=False))
     upper = client.scatter(bifurcated.loc[bifurcated.type, ["super", "bin0"]].assign(bin=1))
     func = delayed(dd.merge)(membership, upper, on=key)
     upper = client.compute(func).result()
     upper = upper.persist()
-    assert upper.index.name == "scaffold_index"
+    # assert upper.index.name == "scaffold_index"
     upper = client.scatter(upper)
     # m[x[type == F,.(super, bin0, bin=super_nbin)], on = c("super", "bin")]
     lower = client.scatter(bifurcated.loc[~bifurcated.type, ["super", "bin0", "super_nbin"]].rename(
@@ -42,7 +42,7 @@ def _remove_bifurcations(links: dd.DataFrame,
     lower = client.compute(func).result()
     lower.persist()
     lower = client.scatter(lower)
-    assert lower.index.name == "scaffold_index"
+    # assert lower.index.name == "scaffold_index"
     func = delayed(dd.concat)([upper, lower])
     a = client.compute(func).result()
     a = a.drop_duplicates().rename(columns={"length": "length2", "scaffold_index": "scaffold_index2"})
