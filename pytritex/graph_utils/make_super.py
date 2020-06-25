@@ -130,24 +130,26 @@ def make_super(hl: dd.DataFrame,
         # membership = client.scatter(membership)
         for row in order.itertuples(name=None):
             index, ssuper, popseq_chr = row
-            logger.warning("%s Analysing %s super %s on chromosome %s",
-                           time.ctime(), index, ssuper, popseq_chr)
-            indices = grouped_edges.get_group(ssuper).index
             # TODO: this is the point. IF we have the result already in the previous membership
             # TODO: then we should get those out here.
             # TODO: we also have to make sure that the index associated with the super scaffold
             # TODO: is changed, otherwise we risk ID collisions.
+            indices = grouped_membership.get_group(ssuper).index
             key = tuple(sorted(indices.compute().values.tolist()))
             if key in lookup:
+                logger.warning("%s Retrieving %s super %s on chromosome %s",
+                               time.ctime(), index, ssuper, popseq_chr)
                 old_super = lookup[key]
                 old_result = previous_membership.loc[
                     old_super, ["scaffold_index", "bin", "rank", "backbone"]].values
                 assert old_result.shape[0] == len(key)
                 previous_results.append(old_result)
             else:
-                my_edges = client.scatter(edge_list.loc[indices])
-                my_membership = client.scatter(
-                    cms.loc[grouped_membership.get_group(ssuper).index])
+                logger.warning("%s Analysing %s super %s on chromosome %s",
+                               time.ctime(), index, ssuper, popseq_chr)
+                edge_indices = grouped_edges.get_group(ssuper).index
+                my_edges = client.scatter(edge_list.loc[edge_indices])
+                my_membership = client.scatter(cms.loc[indices])
                 results.append(client.submit(_concatenator,
                     my_edges, my_membership, known_ends, maxiter, verbose))
 
