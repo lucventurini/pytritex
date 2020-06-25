@@ -44,7 +44,7 @@ def find_previous_results(raw_membership, previous_membership) -> (set, list):
 
     merged = _previous.merge(_raw, left_index=True, right_index=True, how="left")
     to_skip = set(merged["super"].values.tolist())
-    previous = previous_membership.loc[to_skip,
+    previous = previous_membership.loc[set(merged["previous_super"].values.tolist()),
                                        ["scaffold_index", "bin", "rank", "backbone"]].values
     return to_skip, [previous]
 
