@@ -7,12 +7,13 @@ import numpy as np
 import dask.array as da
 from dask.delayed import delayed
 import logging
+from typing import Union
 logger = logging.getLogger("distributed.worker")
 
 
-def make_super_scaffolds(links: str,
-                         info: str,
-                         membership: str,
+def make_super_scaffolds(links: Union[str, dd.DataFrame],
+                         info: Union[str, dd.DataFrame],
+                         membership: Union[str, dd.DataFrame],
                          save_dir: str,
                          client: Client,
                          excluded=None,
@@ -64,11 +65,10 @@ def make_super_scaffolds(links: str,
         client=client,
         verbose=False, cores=ncores,
         paths=True, path_max=0, known_ends=False, maxiter=100)
-    mem_copy = super_scaffolds["membership"].copy().rename(
-        columns={"cluster": "scaffold_index"})
-    mem_copy = mem_copy.set_index("scaffold_index")
+    mem_copy = super_scaffolds["membership"]
+    assert mem_copy.index.name == "cluster"
+    mem_copy.index = mem_copy.index.rename("scaffold_index")
     maxidx = super_scaffolds["super_info"]["super"].max().compute()
-
     assert mem_copy.index.name == "scaffold_index"
     iindex = info.index.values.compute()
     bait_index = ~np.in1d(iindex, mem_copy.index.values.compute())
@@ -90,18 +90,23 @@ def make_super_scaffolds(links: str,
         bin=1, rank=0, backbone=True,
         excluded=excl_column,
         super=sup_column)
-    mem_copy = dd.concat([mem_copy, _to_concatenate])
+    _to_concatenate = client.scatter(_to_concatenate)
+    mem_copy = client.scatter(mem_copy)
+    func = delayed(dd.concat)([mem_copy, _to_concatenate])
+    mem_copy = client.compute(func).result()
     mem_sup_group = mem_copy.groupby("super")
     res_size = mem_sup_group.size().to_frame("n")
     res_cols = mem_sup_group.agg(
         {"bin": "max", "rank": "max", "length": "sum"})
     res_cols.columns = ["nbin", "max_rank", "length"]
     res = dd.merge(res_size, res_cols, on="super")
-
-    mem_copy = res.loc[:, ["n", "nbin"]].rename(
-        columns={"n": "super_size", "nbin": "super_nbin"}).merge(
-        mem_copy, left_index=True, right_on="super", how="right")
-
+    left = res.loc[:, ["n", "nbin"]].rename(
+        columns={"n": "super_size", "nbin": "super_nbin"})
+    left = client.scatter(left)
+    mem_copy = client.scatter(mem_copy)
+    func = delayed(dd.merge)(left, mem_copy, left_index=True, right_on="super",
+                             how="right")
+    mem_copy = client.compute(func).result()
     mem_copy_iname = mem_copy.index.name
     mem_copy = mem_copy.reset_index(drop=False).set_index(mem_copy_iname)
     # mem_copy = dd.from_pandas(mem_copy, chunksize=1000)
@@ -109,7 +114,6 @@ def make_super_scaffolds(links: str,
         dd.to_parquet(mem_copy, os.path.join(save_dir, "membership"))
         # res = dd.from_pandas(res, chunksize=1000)
         dd.to_parquet(res, os.path.join(save_dir, "result"))
-
         return {"membership": os.path.join(save_dir, "membership"),
                 "info": os.path.join(save_dir, "result")}
     else:

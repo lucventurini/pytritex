@@ -101,8 +101,10 @@ def make_super(hl: dd.DataFrame,
 
     # Create a dataframe of cluster/super-scaffolds relationship
     raw_membership = pd.DataFrame().assign(cidx=cidx_list, super=ssuper).set_index("cidx")
-    raw_membership = raw_membership.merge(cidx.reset_index(drop=False), on=["cidx"], how="outer")
-    membership = cluster_info.merge(raw_membership, on="cluster", how="right")
+    raw_membership = raw_membership.merge(
+        cidx.reset_index(drop=False), on=["cidx"], how="outer").set_index("cluster")
+    membership = cluster_info.merge(raw_membership, left_index=True,
+                                    right_index=True, how="right")
     membership = membership.persist()
 
     # Where is each super-scaffold located?
@@ -115,16 +117,18 @@ def make_super(hl: dd.DataFrame,
     info["chr"] = grouped["chr"].unique().apply(lambda s: [_ for _ in s if not np.isnan(_)][0],
                                                 meta=np.float)
     # print(info.head(npartitions=-1, n=5))
-    assert "cluster" in membership, membership.columns
-    edge_list = membership.rename(columns={"cluster": "cluster1"})[["cluster1", "super"]].merge(
-        hl, on="cluster1", how="right")
+    assert membership.index.name == "cluster"
+    edge_list = membership[["super"]]
+    edge_list.index = edge_list.index.rename("cluster1")
 
-    super_object = {"super_info": info, "membership": membership, "graph": graph, "edges": edge_list}
+    edge_list = edge_list.merge(hl, on="cluster1", how="right")
+
+    super_object = {"super_info": info,
+                    "membership": membership, "graph": graph, "edges": edge_list}
 
     if paths is True:
-        cms = membership.loc[
-              :, ["cluster", "super", "cM"]].drop_duplicates().set_index("cluster")
-
+        cms = membership.loc[:, ["super", "cM"]
+              ].reset_index(drop=False).drop_duplicates().set_index("cluster")
         if path_max > 0:
             idx = super_object["super_info"].sort_values(
                 "length", ascending=False).head(path_max)["super"].unique()
@@ -159,10 +163,9 @@ def make_super(hl: dd.DataFrame,
         results = np.vstack(results + previous_results)
         results = pd.DataFrame().assign(
             cluster=results[:, 0], bin=results[:, 1], rank=results[:, 2], backbone=results[:, 3])
+        results = results.set_index("cluster")
         super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster")
-        assert "cluster" in super_object["membership"].columns
+        assert super_object["membership"].index.name == "cluster"
 
     logger.warning("%s Finished make_super run", time.ctime())
-    # import sys
-    # sys.exit(1)
     return super_object
