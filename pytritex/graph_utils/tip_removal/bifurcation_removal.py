@@ -57,9 +57,8 @@ def _remove_bifurcations(links: dd.DataFrame,
     func = delayed(dd.merge)(membership, lower, on=key)
     lower = client.compute(func).result()
     lower.persist()
-    lower = client.scatter(lower)
     assert "scaffold_index" in lower.columns
-    # assert lower.index.name == "scaffold_index"
+    lower = client.scatter(lower)
     func = delayed(dd.concat)([upper, lower])
     a = client.compute(func).result()
     a = a.drop_duplicates().rename(columns={"length": "length2", "scaffold_index": "scaffold_index2"})
@@ -70,6 +69,7 @@ def _remove_bifurcations(links: dd.DataFrame,
     a = client.compute(func).result().compute()
     add = np.where((a.length >= a.length2), a.scaffold_index2, a.scaffold_index)
     out = {"membership": membership, "info": None}
+    membership = client.gather(membership)
     if add.shape[0] > 0:
         excluded.update(add.tolist())
         out = make_super_scaffolds(links=links, info=info,
