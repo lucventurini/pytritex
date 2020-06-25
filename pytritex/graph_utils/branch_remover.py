@@ -62,6 +62,7 @@ def _initial_branch_remover(client: Client,
                                    excluded=excluded)
     membership = out["membership"]
     while run is True:
+        counter += 1
         out, excluded, run = _iterator(counter=counter,
                                        membership=membership,
                                        excluded=excluded)

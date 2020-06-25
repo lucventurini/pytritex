@@ -39,6 +39,8 @@ def make_super_scaffolds(links: str,
         # cluster=results[:, 0], bin=results[:, 1], rank=results[:, 2], backbone=results[:, 3])
         membership = membership.loc[
             membership.super_size > 1, ["super", "bin", "rank", "backbone"]].compute()
+        membership["max_rank"] = membership.groupby("super")["rank"].transform("max")
+        membership = membership.loc[membership["max_rank"] <= 1].drop("max_rank", axis=1)
     else:
         membership = pd.DataFrame(
             columns=["scaffold_index", "super", "bin", "rank", "backbone"]).set_index("scaffold_index")
