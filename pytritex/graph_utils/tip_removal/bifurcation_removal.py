@@ -5,7 +5,6 @@ from .bulge_removal import _remove_bulges
 import dask.dataframe as dd
 import numpy as np
 from dask.delayed import delayed
-import pandas as pd
 
 
 def _remove_bifurcations(links: dd.DataFrame,
@@ -30,13 +29,12 @@ def _remove_bifurcations(links: dd.DataFrame,
     #     out$membership -> m
     #    }
 
-
     if membership.shape[0].compute() == 0:
         return membership, info, excluded
     keys = ["super", "super_nbin", "length", "bin"]
     bifurcated = membership.query("(rank > 0) & ((bin == 2) | (super_nbin - 1 == bin) )")
     if bifurcated.shape[0].compute() == 0:
-        return bifurcated, info, excluded
+        return membership, info, excluded
     bifurcated = bifurcated[keys]
     bifurcated = bifurcated.eval("type = (bin == 2)").rename(columns={"bin": "bin0"})
     bifurcated = bifurcated[["super", "super_nbin", "type", "length", "bin0"]]
@@ -44,9 +42,9 @@ def _remove_bifurcations(links: dd.DataFrame,
     key = ["super", "bin"]
     # indexed = dd_membership.set_index(key)
     # m[x[type == T,.(super, bin0, bin=1)], on = c("super", "bin")],
-    membership = client.scatter(membership.reset_index(drop=False))
+    left = client.scatter(membership.reset_index(drop=False))
     upper = client.scatter(bifurcated.loc[bifurcated.type, ["super", "bin0"]].assign(bin=1))
-    func = delayed(dd.merge)(membership, upper, on=key)
+    func = delayed(dd.merge)(left, upper, on=key)
     upper = client.compute(func).result()
     upper = upper.persist()
     assert "scaffold_index" in upper.columns
@@ -54,7 +52,7 @@ def _remove_bifurcations(links: dd.DataFrame,
     # m[x[type == F,.(super, bin0, bin=super_nbin)], on = c("super", "bin")]
     lower = client.scatter(bifurcated.loc[~bifurcated.type, ["super", "bin0", "super_nbin"]].rename(
         columns={"super_nbin": "bin"}))
-    func = delayed(dd.merge)(membership, lower, on=key)
+    func = delayed(dd.merge)(left, lower, on=key)
     lower = client.compute(func).result()
     lower.persist()
     assert "scaffold_index" in lower.columns
@@ -69,7 +67,6 @@ def _remove_bifurcations(links: dd.DataFrame,
     a = client.compute(func).result().compute()
     add = np.where((a.length >= a.length2), a.scaffold_index2, a.scaffold_index)
     out = {"membership": membership, "info": None}
-    membership = client.gather(membership)
     if add.shape[0] > 0:
         excluded.update(add.tolist())
         out = make_super_scaffolds(links=links, info=info,
