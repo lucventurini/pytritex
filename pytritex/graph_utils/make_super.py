@@ -24,7 +24,9 @@ def _concatenator(edges, membership, known_ends=False, maxiter=100, verbose=Fals
     return final
 
 
-def make_super(hl: dd.DataFrame, cluster_info: dd.DataFrame,
+def make_super(hl: dd.DataFrame,
+               cluster_info: dd.DataFrame,
+               previous_membership: pd.DataFrame,
                client: Client,
                cores=1, paths=True, path_max=0, known_ends=False,
                maxiter=100, verbose=True):
@@ -75,9 +77,6 @@ def make_super(hl: dd.DataFrame, cluster_info: dd.DataFrame,
     membership = membership.merge(cidx.reset_index(drop=False), on=["cidx"], how="outer")
     membership = cluster_info.merge(membership, on="cluster", how="right")
     membership = membership.persist()
-    # info <- mem[, .(super_size=.N, length=.N, chr=unique(na.omit(chr))[1], cM=mean(na.omit(cM))),
-    # keyby=super]
-    # chr=("chr", lambda s: np.nan if s.dropna().shape[0] == 0 else s.dropna().unique()[0])
 
     # Where is each super-scaffold located?
     grouped = membership.groupby("super")
@@ -96,6 +95,15 @@ def make_super(hl: dd.DataFrame, cluster_info: dd.DataFrame,
     super_object = {"super_info": info, "membership": membership, "graph": graph, "edges": edge_list}
 
     if paths is True:
+        # TODO: first off, we need to format the previous_membership
+        # previous_membership = previous_membership.merge(cidx, right_index=True, left_index=True)
+        # TODO now we have to set up a dictionary
+        previous_membership = previous_membership.reset_index(drop=False).set_index("super")
+        _mem = previous_membership.groupby(level=0).apply(
+            lambda group: tuple(sorted(group["scaffold_index"].values.tolist()))
+        ).to_frame("key").reset_index(drop=False)
+        lookup = dict((_.key, _.super) for _ in _mem.itertuples(name="pandas", index=False))
+
         cms = membership.loc[
               :, ["cluster", "super", "cM"]].drop_duplicates().set_index("cluster")
 
@@ -112,22 +120,32 @@ def make_super(hl: dd.DataFrame, cluster_info: dd.DataFrame,
                           ["super", "chr"]].drop_duplicates().compute().sort_values(["chr"])
         print(time.ctime(), "Starting super, with", idx.shape[0], "positions to analyse.")
         results = []
+        previous_results = []
         # pool = mp.Pool(cores)
         # membership = client.scatter(membership)
         for row in order.itertuples(name=None):
             index, ssuper, popseq_chr = row
             print(time.ctime(), "Analysing", index, "super", ssuper, "on chromosome", popseq_chr)
             indices = grouped_edges.get_group(ssuper).index
-            my_edges = client.scatter(edge_list.loc[indices])  # .compute()
-            # assert my_edges.shape[0] > 0
-            my_membership = client.scatter(
-                cms.loc[grouped_membership.get_group(ssuper).index])
-            # assert my_membership.shape[0] > 0
-            results.append(client.submit(_concatenator,
-                my_edges, my_membership, known_ends, maxiter, verbose))
+            # TODO: this is the point. IF we have the result already in the previous membership
+            # TODO: then we should get those out here.
+            # TODO: we also have to make sure that the index associated with the super scaffold
+            # TODO: is changed, otherwise we risk ID collisions.
+            key = tuple(sorted(indices.compute().values.tolist()))
+            if key in lookup:
+                old_super = lookup[key]
+                old_result = previous_membership.loc[
+                    old_super, ["scaffold_index", "bin", "rank", "backbone"]].values
+                previous_results.append(old_result)
+            else:
+                my_edges = client.scatter(edge_list.loc[indices])
+                my_membership = client.scatter(
+                    cms.loc[grouped_membership.get_group(ssuper).index])
+                results.append(client.submit(_concatenator,
+                    my_edges, my_membership, known_ends, maxiter, verbose))
 
         results = client.gather(results)
-        results = np.vstack(results)
+        results = np.vstack(results + previous_results)
         results = pd.DataFrame().assign(
             cluster=results[:, 0], bin=results[:, 1], rank=results[:, 2], backbone=results[:, 3])
         super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster")

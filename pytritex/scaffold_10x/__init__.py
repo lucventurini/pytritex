@@ -1,9 +1,8 @@
 from ..graph_utils.branch_remover import _initial_branch_remover
 from .link_finder import _initial_link_finder
 from .orient_scaffolds import orient_scaffolds
-from .tip_remover import remove_tips
+from pytritex.graph_utils.tip_removal.tip_remover import remove_tips
 from .scaffold_unanchored import _scaffold_unanchored
-import dask.dataframe as dd
 import time
 from joblib import Memory
 import os
@@ -39,9 +38,8 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
     print(time.ctime(), "Found initial links")
     excluded = set()
     print(time.ctime(), "Starting initial pruning")
-    out, excluded = memory.cache(_initial_branch_remover, ignore=["ncores", "memory", "client"])(
-        raw, memory=memory, client=client,
-        save_dir=folder, links=links, info=info, excluded=excluded, ncores=ncores)
+    out, excluded = memory.cache(_initial_branch_remover, ignore=["ncores", "client"])(
+        client=client, save_dir=folder, links=links, info=info, excluded=excluded, ncores=ncores)
     res = out["info"]
     membership = out["membership"]
     print(time.ctime(), "Finished initial pruning")

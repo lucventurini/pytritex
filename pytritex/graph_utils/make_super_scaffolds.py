@@ -12,6 +12,7 @@ logger = logging.getLogger("distributed.worker")
 
 def make_super_scaffolds(links: str,
                          info: str,
+                         membership: str,
                          save_dir: str,
                          client: Client,
                          excluded=None, ncores=1):
@@ -28,6 +29,15 @@ def make_super_scaffolds(links: str,
     else:
         assert isinstance(info, dd.DataFrame)
 
+    if membership is not None:
+        membership = dd.read_parquet(membership, infer_divisions=True)
+        # cluster=results[:, 0], bin=results[:, 1], rank=results[:, 2], backbone=results[:, 3])
+        membership = membership.loc[
+            membership.super_size > 1, ["super", "bin", "rank", "backbone"]].compute()
+    else:
+        membership = pd.DataFrame(
+            columns=["scaffold_index", "super", "bin", "rank", "backbone"]).set_index("scaffold_index")
+
     info2 = info.loc[:, ["popseq_chr", "popseq_cM", "length"]].rename(
         columns={"popseq_chr": "chr", "popseq_cM": "cM"})
     assert "popseq_chr" not in info2.columns and "chr" in info2.columns
@@ -38,13 +48,12 @@ def make_super_scaffolds(links: str,
         excluded = pd.Series([], name="scaffold_index")
         excluded_scaffolds = excluded.copy()
     input_df = info2.assign(excluded=info.index.isin(excluded_scaffolds))
-    input_df_size = input_df.shape[0].compute()
     input_df.index = input_df.index.rename("cluster")
-    val_counts = input_df.excluded.value_counts().compute()
     hl = links.copy().rename(columns={"scaffold_index1": "cluster1", "scaffold_index2": "cluster2"})
     super_scaffolds = make_super(
         hl=hl,
         cluster_info=input_df,
+        previous_membership=membership,
         client=client,
         verbose=False, cores=ncores,
         paths=True, path_max=0, known_ends=False, maxiter=100)
