@@ -136,6 +136,7 @@ def make_super(hl: dd.DataFrame,
                 old_super = lookup[key]
                 old_result = previous_membership.loc[
                     old_super, ["scaffold_index", "bin", "rank", "backbone"]].values
+                assert old_result.shape[0] == len(key)
                 previous_results.append(old_result)
             else:
                 my_edges = client.scatter(edge_list.loc[indices])
