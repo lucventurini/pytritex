@@ -39,7 +39,7 @@ def find_previous_results(raw_membership, previous_membership) -> (set, list):
 
     _raw = raw_membership.reset_index(drop=False).set_index("super")
     _raw = _raw.groupby(level=0).apply(
-        lambda group: tuple(sorted(group["scaffold_index"].values.tolist()))
+        lambda group: tuple(sorted(group["cluster"].values.tolist()))
     ).to_frame("key").reset_index(drop=False).set_index("key")
 
     merged = _previous.merge(_raw, left_index=True, right_index=True, how="left")
