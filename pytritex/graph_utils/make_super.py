@@ -101,8 +101,13 @@ def make_super(hl: dd.DataFrame,
         previous_membership = previous_membership.reset_index(drop=False).set_index("super")
         _mem = previous_membership.groupby(level=0).apply(
             lambda group: tuple(sorted(group["scaffold_index"].values.tolist()))
-        ).to_frame("key").reset_index(drop=False)
-        lookup = dict((_.key, _.super) for _ in _mem.itertuples(name="pandas", index=False))
+        )
+        if _mem.shape[0] == 0:
+            lookup = dict()
+        else:
+            _mem = _mem.to_frame("key").reset_index(drop=False)
+            lookup = dict((_.key, _.super)
+                          for _ in _mem.itertuples(name="pandas", index=False))
 
         cms = membership.loc[
               :, ["cluster", "super", "cM"]].drop_duplicates().set_index("cluster")
@@ -125,7 +130,8 @@ def make_super(hl: dd.DataFrame,
         # membership = client.scatter(membership)
         for row in order.itertuples(name=None):
             index, ssuper, popseq_chr = row
-            print(time.ctime(), "Analysing", index, "super", ssuper, "on chromosome", popseq_chr)
+            logger.warning("%s Analysing %s super %s on chromosome %s",
+                           time.ctime(), index, ssuper, popseq_chr)
             indices = grouped_edges.get_group(ssuper).index
             # TODO: this is the point. IF we have the result already in the previous membership
             # TODO: then we should get those out here.
@@ -152,7 +158,7 @@ def make_super(hl: dd.DataFrame,
         super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster")
         assert "cluster" in super_object["membership"].columns
 
-    print(time.ctime(), "Finished make_super run")
+    logger.warning("%s Finished make_super run", time.ctime())
     # import sys
     # sys.exit(1)
     return super_object

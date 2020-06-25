@@ -23,8 +23,8 @@ def _initial_branch_remover(client: Client,
     while run is True:
         counter += 1
         # print(time.ctime(), "Starting run", counter)
-        logger.info("%s Starting run %s , excluded: %s",
-                    time.ctime(), counter, len(excluded))
+        logger.warning("%s Starting run %s , excluded: %s",
+                       time.ctime(), counter, len(excluded))
         out = make_super_scaffolds(links=links, save_dir=save_dir,
             client=client, membership=membership,
             info=info, excluded=excluded, ncores=ncores)
@@ -46,8 +46,7 @@ def _initial_branch_remover(client: Client,
                 # Nothing more to remove
                 run = False
             assert excluded is not None
-            logger.info("%s Run %s excluding %s",
-                        time.ctime(), counter, len(excluded))
-        logger.info("Finished run %s", counter)
+            logger.warning("%s Run %s excluding %s", time.ctime(), counter, len(excluded))
+        logger.warning("Finished run %s", counter)
 
     return out, excluded
