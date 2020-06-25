@@ -9,7 +9,7 @@ def _remove_bulges(links: dd.DataFrame,
                    membership: dd.DataFrame,
                    client: Client,
                    save_dir: str,
-                   info: str, min_dist=minimum_distance, ncores=1):
+                   info: dd.DataFrame, min_dist=minimum_distance, ncores=1):
 
     add = membership[(membership["rank"] == 1) & (membership["length"] <= min_dist)].index.values.compute()
     if add.shape[0] > 0:

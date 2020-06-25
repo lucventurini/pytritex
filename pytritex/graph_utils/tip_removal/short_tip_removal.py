@@ -3,6 +3,7 @@ from dask.distributed import Client
 from . import minimum_distance, _calculate_degree
 from .bulge_removal import _remove_bulges
 import dask.dataframe as dd
+from dask.delayed import delayed
 import numpy as np
 import pandas as pd
 
@@ -38,8 +39,9 @@ def _remove_short_tips(links: dd.DataFrame,
     inner1 = np.tile(inner[:, 1], 3).reshape(3, inner.shape[0]) + np.array([0, -1, 1]).reshape(3, 1)
     inner1 = inner1.flatten()
     inner = pd.DataFrame().assign(super=inner0, bin=inner1)
-    middle = dd.merge(membership, inner, how="right",
-                      on=["super", "bin"]).reset_index(drop=False).set_index("scaffold_index")
+    right = client.scatter(membership.reset_index(drop=False))
+    func = delayed(dd.merge)(right, inner, how="right", on=["super", "bin"])
+    middle = client.compute(func).result().set_index("scaffold_index")
     degree = _calculate_degree(links, excluded)
     a = degree.merge(middle, on="scaffold_index").reset_index(drop=False)
     add = a.query("(degree == 1) & (length <= @min_dist)")["scaffold_index"].values
