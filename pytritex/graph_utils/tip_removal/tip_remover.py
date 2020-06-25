@@ -7,6 +7,7 @@ from dask.distributed import Client
 from . import minimum_distance, _calculate_degree
 from .short_tip_removal import _remove_short_tips
 
+
 def remove_tips(links: str, excluded, out: dict, info: str,
                 client: Client,
                 save_dir: str,

@@ -15,7 +15,9 @@ def make_super_scaffolds(links: str,
                          membership: str,
                          save_dir: str,
                          client: Client,
-                         excluded=None, ncores=1):
+                         excluded=None,
+                         to_parquet=True,
+                         ncores=1):
     if isinstance(links, str):
         links = dd.read_parquet(links, infer_divisions=True)
     else:
@@ -30,7 +32,10 @@ def make_super_scaffolds(links: str,
         assert isinstance(info, dd.DataFrame)
 
     if membership is not None:
-        membership = dd.read_parquet(membership, infer_divisions=True)
+        if isinstance(membership, str):
+            membership = dd.read_parquet(membership, infer_divisions=True)
+        else:
+            assert isinstance(membership, dd.DataFrame)
         # cluster=results[:, 0], bin=results[:, 1], rank=results[:, 2], backbone=results[:, 3])
         membership = membership.loc[
             membership.super_size > 1, ["super", "bin", "rank", "backbone"]].compute()
@@ -98,9 +103,12 @@ def make_super_scaffolds(links: str,
     mem_copy_iname = mem_copy.index.name
     mem_copy = mem_copy.reset_index(drop=False).set_index(mem_copy_iname)
     # mem_copy = dd.from_pandas(mem_copy, chunksize=1000)
-    dd.to_parquet(mem_copy, os.path.join(save_dir, "membership"))
-    # res = dd.from_pandas(res, chunksize=1000)
-    dd.to_parquet(res, os.path.join(save_dir, "result"))
+    if to_parquet is True:
+        dd.to_parquet(mem_copy, os.path.join(save_dir, "membership"))
+        # res = dd.from_pandas(res, chunksize=1000)
+        dd.to_parquet(res, os.path.join(save_dir, "result"))
 
-    return {"membership": os.path.join(save_dir, "membership"),
-            "info": os.path.join(save_dir, "result")}
+        return {"membership": os.path.join(save_dir, "membership"),
+                "info": os.path.join(save_dir, "result")}
+    else:
+        return {"membership": mem_copy, "info": res}
