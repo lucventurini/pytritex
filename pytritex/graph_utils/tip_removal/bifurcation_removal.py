@@ -15,7 +15,22 @@ def _remove_bifurcations(links: dd.DataFrame,
                          client: Client, save_dir: str,
                          min_dist=minimum_distance, ncores=1):
     # resolve length-one-bifurcations at the ends of paths
-    # dd_membership = dd.read_parquet(membership, infer_divisions=True)
+    #    m[rank > 0][bin == 2 | super_nbin - 1 == bin ][,
+    #    .(super, super_nbin, type = bin == 2, scaffold, length, bin0=bin)]->x
+    #    unique(rbind(
+    #    m[x[type == T, .(super, bin0, bin=1)], on=c("super", "bin")],
+    #    m[x[type == F, .(super, bin0, bin=super_nbin)], on=c("super", "bin")]
+    #    ))->a
+    #    a[, .(super, bin0, scaffold2=scaffold, length2=length)][
+    #    x, on=c("super", "bin0")][, ex := ifelse(length >= length2, scaffold2, scaffold)]$ex -> add
+    #
+    #    if(length(add) > 0){
+    #     ex <- c(ex, add)
+    #     make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=ex, ncores=ncores) -> out
+    #     out$membership -> m
+    #    }
+
+
     if membership.shape[0].compute() == 0:
         return membership, info, excluded
     keys = ["super", "super_nbin", "length", "bin"]
@@ -24,7 +39,8 @@ def _remove_bifurcations(links: dd.DataFrame,
         return bifurcated, info, excluded
     bifurcated = bifurcated[keys]
     bifurcated = bifurcated.eval("type = (bin == 2)").rename(columns={"bin": "bin0"})
-    bifurcated = bifurcated[["super", "super_nbin", "type", "length", "bin0"]].drop_duplicates(ignore_index=True)
+    bifurcated = bifurcated[["super", "super_nbin", "type", "length", "bin0"]]
+    bifurcated = bifurcated.reset_index(drop=False).drop_duplicates()
     key = ["super", "bin"]
     # indexed = dd_membership.set_index(key)
     # m[x[type == T,.(super, bin0, bin=1)], on = c("super", "bin")],
@@ -33,7 +49,7 @@ def _remove_bifurcations(links: dd.DataFrame,
     func = delayed(dd.merge)(membership, upper, on=key)
     upper = client.compute(func).result()
     upper = upper.persist()
-    # assert upper.index.name == "scaffold_index"
+    assert "scaffold_index" in upper.columns
     upper = client.scatter(upper)
     # m[x[type == F,.(super, bin0, bin=super_nbin)], on = c("super", "bin")]
     lower = client.scatter(bifurcated.loc[~bifurcated.type, ["super", "bin0", "super_nbin"]].rename(
@@ -42,6 +58,7 @@ def _remove_bifurcations(links: dd.DataFrame,
     lower = client.compute(func).result()
     lower.persist()
     lower = client.scatter(lower)
+    assert "scaffold_index" in lower.columns
     # assert lower.index.name == "scaffold_index"
     func = delayed(dd.concat)([upper, lower])
     a = client.compute(func).result()
