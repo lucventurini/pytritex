@@ -46,7 +46,7 @@ def _remove_short_tips(links: dd.DataFrame,
     middle = client.scatter(middle)
     func = delayed(dd.merge)(degree, middle, left_index=True, right_index=True)
     a = client.compute(func).result()
-    add = a.query("(degree == 1) & (length <= @min_dist)").index.compute().values
+    add = a.loc[(a["degree"] == 1) & (a["length"] <= min_dist)].index.compute().values
     out = {"membership": membership, "info": None}
     if add.shape[0] > 0:
         excluded.update(set(add.tolist()))
