@@ -30,7 +30,7 @@ def _remove_bifurcations(links: dd.DataFrame,
     # m[x[type == T,.(super, bin0, bin=1)], on = c("super", "bin")],
     membership = client.scatter(membership)
     upper = client.scatter(bifurcated.loc[bifurcated.type, ["super", "bin0"]].assign(bin=1))
-    func = delayed(dd.merge)(membership, upper, on="key")
+    func = delayed(dd.merge)(membership, upper, on=key)
     upper = client.compute(func).result()
     upper = upper.persist()
     assert upper.index.name == "scaffold_index"
