@@ -133,17 +133,17 @@ def orient_scaffolds(info: str, res: str,
     # Now assign an "orientation" value to each (1 if + or unknown, -1 for -)
     # and an "oriented" value (strictly boolean)
     chunks = tuple(membership.map_partitions(len).compute().values.tolist())
-    orientation = membership[["orientation"]].compute()
+    orientation = membership["orientation"].compute()
     logger.warning("%s Got the orientation column", time.ctime())
     oriented = pd.Series([True] * orientation.shape[0], index=orientation.index,
                          dtype=bool)
     logger.warning("%s Created the oriented column", time.ctime())
-    idx1 = orientation.isna()
+    idx1 = orientation.isna().values
     logger.warning("%s Calculated the idx1 variable", time.ctime())
     oriented.loc[idx1] = False
     orientation.loc[idx1] = 1
     logger.warning("%s Creating the dask arrays", time.ctime())
-    orientation = da.from_array(orientation["orientation"], chunks=chunks)
+    orientation = da.from_array(orientation, chunks=chunks)
     oriented = da.from_array(oriented, chunks=chunks)
     membership["orientation"] = orientation
     membership["oriented"] = oriented
