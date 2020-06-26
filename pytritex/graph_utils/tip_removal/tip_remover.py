@@ -74,4 +74,4 @@ def remove_tips(links: str, excluded, out: dict, info: str,
     res_name = os.path.join(save_dir, "result")
     dd.to_parquet(out["info"], res_name, compute=True, compression="gzip", engine="pyarrow")
 
-    return membership, out["info"], excluded
+    return mem_name, res_name, excluded

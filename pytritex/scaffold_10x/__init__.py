@@ -53,7 +53,7 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
             links=links, excluded=excluded,
             out=out, info=info,
             client=client,
-            save_dir=os.path.join(save_dir, "tip_removal"),
+            save_dir=os.path.join(folder, "tip_removal"),
             ncores=ncores, verbose=verbose,
             min_dist=1e4)
         if popseq_dist > 0 and unanchored is True:
@@ -65,9 +65,10 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
                 save_dir=os.path.join(save_dir, "unanchored"), client=client,
                 ncores=1, verbose=False)
 
-    membership, result = orient_scaffolds(
+    membership, result = memory.cache(orient_scaffolds, ignore=["client"])(
         info=info, res=res, membership=membership,
         link_pos=link_pos, max_dist_orientation=max_dist_orientation,
-        save_dir=os.path.join(save_dir, "orientation"))
+        save_dir=os.path.join(save_dir, "orientation"),
+        client=client)
 
     return membership, result

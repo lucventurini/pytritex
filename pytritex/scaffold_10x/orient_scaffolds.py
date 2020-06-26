@@ -3,6 +3,8 @@ import numpy as np
 from .make_agp import make_agp
 import dask.dataframe as dd
 import dask.array as da
+from dask.distributed import Client
+from dask.delayed import delayed
 import os
 
 #  m[super_nbin > 1, .(scaffold1=scaffold, bin1=bin, super1=super)][link_pos, on="scaffold1", nomatch=0]->a
@@ -52,6 +54,7 @@ def chrom_percentage(group):
 def orient_scaffolds(info: str, res: str,
                      membership: str,
                      link_pos: str,
+                     client: Client,
                      max_dist_orientation: float,
                      save_dir: str):
 
@@ -62,16 +65,25 @@ def orient_scaffolds(info: str, res: str,
 
     # #  m[super_nbin > 1, .(scaffold1=scaffold, bin1=bin, super1=super)][link_pos, on="scaffold1", nomatch=0]->a
     m_greater_one = membership.query("super_nbin > 1")
-    assert m_greater_one.shape[0] > 0, membership.head()
-    left = m_greater_one.loc[:, ["scaffold_index", "bin", "super"]].add_suffix("1")
-    association = left.merge(link_pos, on="scaffold_index1", how="inner")
-    left = m_greater_one.loc[:, ["scaffold_index", "bin", "super"]].add_suffix("2")
-    association = left.merge(association, on="scaffold_index2", how="inner")
+    assert m_greater_one.shape[0].compute() > 0, membership.head()
+    left = m_greater_one[["bin", "super"]].rename(columns={"bin": "bin1", "super": "super1"})
+    left.index = left.index.rename("scaffold_index1")
+    left = client.scatter(left)
+    link_pos = client.scatter(link_pos)
+    func = delayed(dd.merge)(left, link_pos, on="scaffold_index1", how="inner")
+    association = client.scatter(client.compute(func).result())
+
+    left = m_greater_one[["bin", "super"]].rename(columns={"bin": "bin2", "super": "super2"})
+    left.index = left.index.rename("scaffold_index2")
+    left = client.scatter(left)
+    func = delayed(dd.merge)(left, association, on="scaffold_index2", how="inner")
+    association = client.compute(func).result()
+
     association = association.query("(super1 == super2) & (bin1 != bin2)")
     association = association.eval("d = abs(bin2 - bin1)")
     association = association[association["d"] <= max_dist_orientation]
     association = association.rename(columns={"scaffold_index1": "scaffold_index"})
-    assert association.shape[0] > 0
+    assert association.shape[0].compute() > 0
 
     grouped = association.groupby("scaffold_index")
     nxt = grouped.apply(
