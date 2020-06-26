@@ -167,5 +167,6 @@ def make_super(hl: dd.DataFrame,
         super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster")
         assert super_object["membership"].index.name == "cluster"
 
+    super_object["membership"] = super_object["membership"].drop("cidx", axis=1)
     logger.warning("%s Finished make_super run", time.ctime())
     return super_object

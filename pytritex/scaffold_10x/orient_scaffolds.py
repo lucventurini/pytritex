@@ -66,6 +66,7 @@ def orient_scaffolds(info: str, res: str,
     info = dd.read_parquet(info, infer_divisions=True)
     res = dd.read_parquet(res, infer_divisions=True)
 
+    membership = membership.drop_duplicates()
     # #  m[super_nbin > 1, .(scaffold1=scaffold, bin1=bin, super1=super)][link_pos, on="scaffold1", nomatch=0]->a
     logger.warning("%s Getting scaffolds in super-scaffolds", time.ctime())
     m_greater_one = membership.query("super_nbin > 1")
@@ -127,7 +128,7 @@ def orient_scaffolds(info: str, res: str,
     func = delayed(dd.merge)(client.scatter(membership),
                              client.scatter(final_association[["orientation"]]),
                              left_index=True, right_index=True, how="left")
-    membership = client.compute(func).result()
+    membership = client.compute(func).result().drop_duplicates()
     logger.warning("%s Merged the orientation variable back into membership", time.ctime())
 
     # Now assign an "orientation" value to each (1 if + or unknown, -1 for -)
@@ -152,7 +153,13 @@ def orient_scaffolds(info: str, res: str,
     # This position should be determined by bin and rank.
 
     logger.warning("%s Calculating the positions within super-scaffolds", time.ctime())
-    super_pos = membership.groupby("super").apply(super_position, meta=np.int).compute()
+    excluded = membership[(membership["excluded"] == True) | (membership.super_size == 1)]
+    excluded["super_pos"] = 1
+    # chunks = tuple(excluded.map_partitions(len).compute().values.tolist())
+    # excluded["super_pos"] = np.nan
+    non_excluded = membership[(membership["excluded"] == False) & (membership.super_size > 1)]
+    grouped = non_excluded.groupby("super")
+    super_pos = grouped.apply(super_position, meta=np.int).compute()
     super_pos = np.concatenate(super_pos.values)
     chunks = tuple(membership.map_partitions(len).compute().values.tolist())
     super_pos = da.from_array(super_pos, chunks=chunks)
