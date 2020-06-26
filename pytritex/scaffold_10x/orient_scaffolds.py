@@ -1,11 +1,11 @@
+import os
 import pandas as pd
 import numpy as np
-from .make_agp import make_agp
 import dask.dataframe as dd
 import dask.array as da
-from dask.distributed import Client
 from dask.delayed import delayed
-import os
+from dask.distributed import Client
+# from .make_agp import make_agp
 
 #  m[super_nbin > 1, .(scaffold1=scaffold, bin1=bin, super1=super)][link_pos, on="scaffold1", nomatch=0]->a
 #  m[super_nbin > 1, .(scaffold2=scaffold, bin2=bin, super2=super)][a, on="scaffold2", nomatch=0]->a
@@ -69,8 +69,7 @@ def orient_scaffolds(info: str, res: str,
     left = m_greater_one[["bin", "super"]].rename(columns={"bin": "bin1", "super": "super1"})
     left.index = left.index.rename("scaffold_index1")
     left = client.scatter(left)
-    link_pos = client.scatter(link_pos)
-    func = delayed(dd.merge)(left, link_pos, on="scaffold_index1", how="inner")
+    func = delayed(dd.merge)(left, client.scatter(link_pos), on="scaffold_index1", how="inner")
     association = client.scatter(client.compute(func).result())
 
     left = m_greater_one[["bin", "super"]].rename(columns={"bin": "bin2", "super": "super2"})
@@ -78,11 +77,13 @@ def orient_scaffolds(info: str, res: str,
     left = client.scatter(left)
     func = delayed(dd.merge)(left, association, on="scaffold_index2", how="inner")
     association = client.compute(func).result()
+    association = association.persist()
 
     association = association.query("(super1 == super2) & (bin1 != bin2)")
     association = association.eval("d = abs(bin2 - bin1)")
     association = association[association["d"] <= max_dist_orientation]
     association = association.rename(columns={"scaffold_index1": "scaffold_index"})
+    association = association.persist()
     assert association.shape[0].compute() > 0
 
     grouped = association.groupby("scaffold_index")
@@ -90,30 +91,35 @@ def orient_scaffolds(info: str, res: str,
         lambda group: group.loc[group.eval("bin2 > bin1"), "pos1"].mean(), meta=float).to_frame("nxt")
     prev = grouped.apply(
         lambda group: group.loc[group.eval("bin2 < bin1"), "pos1"].mean(), meta=float).to_frame("prv")
-    association = dd.concat([prev, nxt], axis=1)
+    final_association = dd.concat([prev, nxt], axis=1)
     # assert aa.shape[0].compute() > 0
-    association = info[["length"]].merge(
-        association, left_index=True, right_index=True).reset_index(drop=False)
-    assert association.shape[0].compute() > 0
+    final_association = info[["length"]].merge(
+        final_association, left_index=True, right_index=True)   # .reset_index(drop=False)
+    final_association = final_association.persist()
+    # assert final_association.shape[0].compute() > 0
     # "x != x" means: return the np.nan indices
-    idx1 = association.eval("(prv == prv) & (nxt == nxt)")
-    index = association.index.compute()
+    idx1 = final_association.eval("(prv == prv) & (nxt == nxt)")
+    index = final_association.index.compute()
     orientation = pd.Series([np.nan] * index.shape[0], index=index)
-    orientation.loc[idx1] = association.loc[idx1].eval("prv <= nxt").compute()
-    idx2 = association.eval("(prv != prv) & (nxt == nxt)")
-    orientation.loc[idx2] = association.loc[idx2].eval("length - nxt <= nxt").compute()
-    idx3 = association.eval("(prv == prv) & (nxt != nxt)")
-    orientation.loc[idx3] = association.loc[idx3].eval("prv < length - prv").compute()
+    orientation.loc[idx1.compute()] = final_association.loc[idx1].eval("prv <= nxt").compute()
+    idx2 = final_association.eval("(prv != prv) & (nxt == nxt)")
+    orientation.loc[idx2.compute()] = final_association.loc[idx2].eval("length - nxt <= nxt").compute()
+    idx3 = final_association.eval("(prv == prv) & (nxt != nxt)")
+    orientation.loc[idx3.compute()] = final_association.loc[idx3].eval("prv < length - prv").compute()
     orientation = orientation.map({True: 1, False: -1})
-    chunks = tuple(association.map_partitions(len).compute().values.tolist())
+    chunks = tuple(final_association.map_partitions(len).compute().values.tolist())
     orientation = da.from_array(orientation, chunks=chunks)
-    association["orientation"] = orientation
-    association = association.set_index("scaffold_index")
+    final_association["orientation"] = orientation
+    final_association = dd.from_pandas(final_association.compute(),
+                                       chunksize=10000)
+    # association = association.set_index("scaffold_index")
     # assert "scaffold_index" in membership.columns
-    assert "scaffold_index" == association.index.name == membership.index.name, (association.index.name,
-                                                                        membership.index.name)
-    membership = dd.merge(association[["orientation"]],
-                          membership, left_index=True, right_index=True)
+    # assert "scaffold_index" == final_association.index.name == membership.index.name, (association.index.name,
+    #                                                                     membership.index.name)
+    func = delayed(dd.merge)(client.scatter(membership),
+                             client.scatter(final_association[["orientation"]]),
+                             left_index=True, right_index=True, how="left")
+    membership = client.compute(func).result()
 
     # Now assign an "orientation" value to each (1 if + or unknown, -1 for -)
     # and an "oriented" value (strictly boolean)
