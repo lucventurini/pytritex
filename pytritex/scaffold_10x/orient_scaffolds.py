@@ -94,7 +94,7 @@ def orient_scaffolds(info: str, res: str,
     # assert aa.shape[0].compute() > 0
     association = info[["length"]].merge(
         association, left_index=True, right_index=True).reset_index(drop=False)
-    assert association.shape[0] > 0
+    assert association.shape[0].compute() > 0
     # "x != x" means: return the np.nan indices
     idx1 = association.eval("(prv == prv) & (nxt == nxt)")
     index = association.index.compute()
