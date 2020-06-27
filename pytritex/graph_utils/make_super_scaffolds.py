@@ -125,16 +125,8 @@ Concatenated: %s""", info_index.shape[0], indices.shape[0], _to_concatenate.shap
                      new_membership.shape[0].compute())
         import sys
         sys.exit(1)
-    elif sis.shape[0] < len(set(sis.values)):
-            logger.error("""This is not right. Investigate?
-    Original size: %s
-    Membership: %s
-    To add: %s
-    Concatenated: %s""", info_index.shape[0], indices.shape[0], _to_concatenate.shape[0].compute(),
-                         new_membership.shape[0].compute())
-            import sys
-            sys.exit(1)
 
+    new_membership = new_membership.persist()
     return new_membership
 
 
@@ -142,6 +134,7 @@ def add_statistics(membership, client):
     # m[,.(n=.N, nbin=max(bin), max_rank = max(rank), length = sum(length)), key = super]->res
     # res[,.(super, super_size=n, super_nbin=nbin)][m, on = "super"]->m
 
+    # Note that membership has *no index* here.
     mem_sup_group = membership.groupby("super")
     res_size = mem_sup_group.size().to_frame("n")
     res_cols = mem_sup_group.agg(
@@ -155,8 +148,8 @@ def add_statistics(membership, client):
     func = delayed(dd.merge)(left, membership, left_index=True, right_on="super",
                              how="right")
     membership = client.compute(func).result()
-    mem_copy_iname = membership.index.name
-    membership = membership.reset_index(drop=False).set_index(mem_copy_iname)
+    assert "scaffold_index" in membership.columns
+    membership = membership.set_index("scaffold_index")
     return membership, res
 
 
