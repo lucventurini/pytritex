@@ -78,44 +78,50 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
     assert membership.index.name == "scaffold_index"
     # TODO: this part of the code is probably causing the double counting
     info_index = info.index.values.compute()
-    bait_index = ~np.in1d(info_index, indices)
-    bait = info_index[bait_index]
-    # Now of course the sum of bait and indices should be equal to info_index.
-    if bait.shape[0] + indices.shape[0] != info_index.shape[0]:
-        if bait.shape[0] + indices.shape[0] > info_index.shape[0]:
-            logger.error("Something went wrong in getting the bait, we have duplicated indices.")
-        else:
-            logger.error("Something went wrong in getting the bait, we have missing indices.")
-        import sys
-        sys.exit(1)
+    bait_index = sorted(set.difference(set(info_index), set(indices)))
+    # bait = info_index[bait_index]
+    # # Now of course the sum of bait and indices should be equal to info_index.
+    # if bait.shape[0] + indices.shape[0] != info_index.shape[0]:
+    #     if bait.shape[0] + indices.shape[0] > info_index.shape[0]:
+    #         logger.error("Something went wrong in getting the bait, we have duplicated indices.")
+    #     else:
+    #         logger.error("Something went wrong in getting the bait, we have missing indices.")
+    #     import sys
+    #     sys.exit(1)
 
-    _to_concatenate = info.loc[bait, ["popseq_chr", "popseq_cM", "length"]].rename(
+    _to_concatenate = info.loc[bait_index, ["popseq_chr", "popseq_cM", "length"]].rename(
         columns={"popseq_chr": "chr", "popseq_cM": "cM"})
-    assert _to_concatenate.shape[0].compute() == bait.shape[0]
+    assert _to_concatenate.shape[0].compute() == len(bait_index)
 
     chunks = client.compute(delayed(
         lambda df: df.map_partitions(len))(client.scatter(_to_concatenate))).result()
     chunks = tuple(chunks.compute().values.tolist())
 
     sup_column = da.from_array(
-        maxidx + pd.Series(range(1, info.loc[bait].shape[0].compute() + 1)), chunks=chunks)
-    excl_column = da.from_array(np.in1d(bait, excluded_scaffolds), chunks=chunks)
+        maxidx + pd.Series(range(1, len(bait_index) + 1)), chunks=chunks)
+
+    excl_vector = np.in1d(bait_index, excluded_scaffolds)
+    if excl_vector.shape[0] != len(bait_index):
+        logger.error("Wrong length of excl_vector")
+        import sys
+        sys.exit(1)
+    excl_column = da.from_array(excl_vector, chunks=chunks)
 
     _to_concatenate = _to_concatenate.assign(
         bin=1, rank=0, backbone=True,
         excluded=excl_column,
         super=sup_column)
     func = delayed(dd.concat)([client.scatter(membership), client.scatter(_to_concatenate)])
-    membership = client.compute(func).result()
-    membership = membership.reset_index(drop=False)
-    assert "scaffold_index" in membership.columns
-    sis = membership["scaffold_index"].compute()
+    new_membership = client.compute(func).result()
+    new_membership = new_membership.reset_index(drop=False)
+    assert "scaffold_index" in new_membership.columns
+    sis = new_membership["scaffold_index"].compute()
     if sis.shape[0] == len(set(sis.values)):
         logger.error("Duplicated indices after concatenating")
         import sys
         sys.exit(1)
 
-    return membership
+    return new_membership
 
 
 def add_statistics(membership, client):
