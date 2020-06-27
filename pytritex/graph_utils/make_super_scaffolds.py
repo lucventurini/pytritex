@@ -116,10 +116,24 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
     new_membership = new_membership.reset_index(drop=False)
     assert "scaffold_index" in new_membership.columns
     sis = new_membership["scaffold_index"].compute()
-    if sis.shape[0] == len(set(sis.values)):
-        logger.error("Duplicated indices after concatenating")
+    if sis.shape[0] > len(set(sis.values)):
+        logger.error("""Duplicated indices after concatenating.
+Original size: %s
+Membership: %s
+To add: %s
+Concatenated: %s""", info_index.shape[0], indices.shape[0], _to_concatenate.shape[0].compute(),
+                     new_membership.shape[0].compute())
         import sys
         sys.exit(1)
+    elif sis.shape[0] < len(set(sis.values)):
+            logger.error("""This is not right. Investigate?
+    Original size: %s
+    Membership: %s
+    To add: %s
+    Concatenated: %s""", info_index.shape[0], indices.shape[0], _to_concatenate.shape[0].compute(),
+                         new_membership.shape[0].compute())
+            import sys
+            sys.exit(1)
 
     return new_membership
 
