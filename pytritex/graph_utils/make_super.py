@@ -99,6 +99,10 @@ def make_super(hl: dd.DataFrame,
         cidx_list.extend(comp)
         ssuper.extend([idx] * len(comp))
 
+    if len(cidx_list) > len(set(cidx_list)):
+        logger.error("The clustering into components is NOT unique.")
+        import sys
+        sys.exit(1)
     # Create a dataframe of cluster/super-scaffolds relationship
     raw_membership = pd.DataFrame().assign(cidx=cidx_list, super=ssuper).set_index("cidx")
     raw_membership = raw_membership.merge(

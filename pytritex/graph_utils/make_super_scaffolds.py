@@ -105,9 +105,15 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
         bin=1, rank=0, backbone=True,
         excluded=excl_column,
         super=sup_column)
-    func = delayed(dd.concat)([client.scatter(membership),
-                               client.scatter(_to_concatenate)])
+    func = delayed(dd.concat)([client.scatter(membership), client.scatter(_to_concatenate)])
     membership = client.compute(func).result()
+    membership = membership.reset_index(drop=False)
+    assert "scaffold_index" in membership.columns
+    sis = membership["scaffold_index"].compute()
+    if sis.shape[0] == len(set(sis.values)):
+        logger.error("Duplicated indices after concatenating")
+        import sys
+        sys.exit(1)
 
     return membership
 
