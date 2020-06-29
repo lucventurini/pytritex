@@ -30,15 +30,14 @@ def iteration(counter, membership, excluded, links, save_dir, client, info, ncor
     if add.shape[0].compute() == 0:
         run = False
     else:
-        previous = len(excluded)
-        excluded.update(set(add.index.values.compute().tolist()))
-        if previous == len(excluded):
-            # Nothing more to remove
-            run = False
-        assert excluded is not None
-        logger.warning("%s Run %s excluding %s", time.ctime(), counter, len(excluded))
+        # Drop all the links between the backbone of the "fuzzy" scaffolds and the spikes.
+        links = links[
+            (links["scaffold_index1"].isin(add) & (links["scaffold_index2"].isin(add))) |
+            (~links["scaffold_index1"].isin(add) & (~links["scaffold_index2"].isin(add)))
+        ]
+        links = links.persist()
     logger.warning("Finished run %s", counter)
-    return out, excluded, run
+    return out, links, run
 
 
 def _initial_branch_remover(client: Client,
@@ -56,19 +55,19 @@ def _initial_branch_remover(client: Client,
     info_to_use = info.loc[scaffolds_to_use].persist()
 
     _iterator = partial(iteration,
-                        links=links, save_dir=save_dir,
+                        excluded=excluded,
+                        save_dir=save_dir,
                         client=client,
-                        info=info_to_use, ncores=ncores)
+                        info=info_to_use,
+                        ncores=ncores)
     counter = 1
-    out, excluded, run = _iterator(counter=counter,
-                                   membership=None,
-                                   excluded=excluded)
+    out, links, run = _iterator(counter=counter, membership=None, excluded=excluded)
     membership = out["membership"]
     while run is True:
         counter += 1
         out, excluded, run = _iterator(counter=counter,
                                        membership=membership,
-                                       excluded=excluded)
+                                       links=links)
         membership = out["membership"]
 
     # Now we need to rejoin things

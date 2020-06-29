@@ -26,93 +26,33 @@ def _scaffold_unanchored(links: str,
     membership = dd.read_parquet(membership, infer_divisions=True)
     info = dd.read_parquet(info, infer_divisions=True)
 
-    bait1 = sample_count["popseq_chr1"].isna()
-    bait2 = sample_count["popseq_chr2"].isna()
+    left_linkage = sample_count[sample_count["popseq_chr1"].isna()][["scaffold_index1", "length1", "scaffold_index2"]]
+    left_linkage = left_linkage.rename(
+        columns={"scaffold_index1": "scaffold_link",
+                 "length1": "link_length1",
+                 "scaffold_index2": "scaffold_index1"})
+    right_linkage = sample_count[sample_count["popseq_chr1"].isna()][
+        ["scaffold_index1", "scaffold_index2"]].rename(
+        columns={"scaffold_index1": "scaffold_link"})
+    linkages = dd.merge(left_linkage, right_linkage, on="scaffold_link")
 
-    unanchored = sample_count.loc[(bait1 & ~bait2) | (bait2 & ~bait1)][
-        ["scaffold_index1", "length1", "scaffold_index2"]].copy()
+    distances = membership[["super", "chr", "cM", "super_nbin", "bin"]]
+    distances["d"] = da.from_array(
+        np.minimum(distances["bin"].compute() - 1, (distances["super_nbin"] - distances["bin"]).compute()),
+        chunks=tuple(distances.map_partitions(len).compute().values.tolist()))
+    left1 = distances.copy().rename(columns=dict((col, col + "1") for col in distances.columns))
+    left1.index = left1.index.rename(distances.index.name + "1")
+    linkages = dd.merge(linkages.set_index("scaffold_index1"), left1, on="scaffold_index1")
+    left2 = distances.copy().rename(columns=dict((col, col + "2") for col in distances.columns))
+    left2.index = left2.index.rename(distances.index.name + "2")
+    linkages = dd.merge(linkages.reset_index(drop=False).set_index(
+        "scaffold_index2"), left2, on="scaffold_index2").reset_index(drop=False)
 
-    left_side = unanchored.copy()
-    left_side.columns = ["scaffold_link", "link_length", "scaffold_index1"]
-    left_side = left_side.set_index("scaffold_link")
-    right_side = unanchored.copy()[["scaffold_index1", "scaffold_index2"]]
-    right_side.columns = ["scaffold_link", "scaffold_index2"]
-    right_side = right_side.set_index("scaffold_link")
-    left_side = client.scatter(left_side)
-    right_side = client.scatter(right_side)
-    func = delayed(dd.merge)(left_side, right_side, on="scaffold_link", how="outer")
-    linkages = client.compute(func).result().query(
-        "scaffold_index1 != scaffold_index2").reset_index(drop=False)
-    if linkages.shape[0].compute() == 0 and unanchored.shape[0].compute() > 0:
-        raise ValueError("No remaining unanchored scaffolds!")
-    # m[, .(scaffold1=scaffold, super1=super, chr1=chr, cM1=cM, size1=super_nbin,
-    # d1 = pmin(bin - 1, super_nbin - bin))][xy, on="scaffold1"]->xy
-    distances = membership[["super", "chr", "cM", "super_nbin", "bin"]].copy()
-    chunks = tuple(distances.map_partitions(len).compute().values.tolist())
+    linkages = linkages.query(
+        "super2 != super1 & d1 == 0 & d2 == 0 & super_nbin1 > 1 & super_nbin2 > 1 & chr1 == chr2").persist()
+    # Only keep unambiguous links
+    linkages = linkages.merge(
+        linkages.query("scaffold_index1 < scaffold_index2").groupby("scaffold_link").size().to_frame("nscl"),
+        on="scaffold_link").query("nscl == 1")
 
-    distances["d"] = da.from_array(np.minimum(distances.eval("bin - 1").compute(),
-                                              distances.eval("super_nbin - bin").compute()),
-                                   chunks=chunks)
-    distances = distances.loc[:, ["super", "chr", "cM", "super_nbin", "d"]]
-    distances.columns = ["super", "chr", "cM", "size", "d"]
-    left_side = distances.copy()
-    left_side.columns = ["{}1".format(col) for col in left_side.columns]
-    left_side.index = left_side.index.rename("scaffold_index1")
-    left_side = client.scatter(left_side)
-    linkages = client.scatter(linkages.set_index("scaffold_index1"))
-    func = delayed(dd.merge)(left_side, linkages, left_index=True, right_index=True, how="right")
-    linkages = client.compute(func).result().reset_index(drop=False)
 
-    left_side = distances.copy()
-    left_side.columns = ["{}2".format(col) for col in left_side.columns]
-    left_side.index = left_side.index.rename("scaffold_index2")
-    left_side = client.scatter(left_side)
-    linkages = client.scatter(linkages.set_index("scaffold_index2"))
-    func = delayed(dd.merge)(left_side, linkages, left_index=True, right_index=True, how="right")
-    linkages = client.compute(func).result().reset_index(drop=False)
-
-    new_linkages = linkages.loc[~((linkages["super2"].isna()) | (linkages["super1"].isna()))].query(
-        "(super2 != super1) & (d1 == d2 == 0) & (size1 > 1) & (size2 > 1) & (chr1 == chr2)")
-
-    # Now find and keep those scaffold links that are unambiguous. Use the index to remove the double counting.
-    nscl = new_linkages.drop_duplicates(
-        ["scaffold_index1", "scaffold_link", "scaffold_index2"]).query(
-        "scaffold_index1 < scaffold_index2").groupby(["scaffold_link"]).size().to_frame("nscl")
-    nscl = client.scatter(nscl)
-    func = delayed(dd.merge)(nscl, new_linkages, on="scaffold_link")
-    linkages = client.compute(func).result()
-    # xy[super1 < super2][, c("n", "g"):=list(.N, .GRP),
-    # by=.(super1, super2)][order(-link_length)][!duplicated(g)]->zz
-    keys = ["super1", "super2"]
-    grouped = linkages.query("super1 < super2").groupby(keys)
-    group_number = grouped.ngroup().to_frame("g").compute()
-    
-    link_count = linkages.eval("g = @group_number").merge(grouped.size().to_frame("n"), on=keys)
-    link_count = link_count.sort_values("link_length", ascending=False).drop_duplicates("g")
-    link_count = link_count.persist()
-    if "super1" not in link_count.columns:
-        # Reset the index
-        link_count = link_count.reset_index(drop=False)
-    _scaffold_link = link_count["scaffold_link"].values.compute().flatten()
-    _scaffold1 = link_count["scaffold_index1"].values.compute().flatten()
-    _scaffold2 = link_count["scaffold_index2"].values.compute().flatten()
-    sel = pd.DataFrame().assign(
-        scaffold_index1=np.concatenate([_scaffold_link, _scaffold_link, _scaffold1, _scaffold2]),
-        scaffold_index2=np.concatenate([_scaffold1, _scaffold2, _scaffold_link, _scaffold_link]))
-    func = delayed(dd.merge)(client.scatter(sample_count),
-                             sel, how="right", on=["scaffold_index1", "scaffold_index2"])
-    lower = client.compute(func).result()
-    # print(sel.head())
-    # print(sel.shape)
-    # print(lower.head())
-    # print(lower.shape)
-    links2 = dd.concat([links, lower]).reset_index(drop=False)
-    links2.drop("index", axis=1, inplace=True, errors="ignore")
-    links2.drop("cidx", axis=1, inplace=True, errors="ignore")
-    links2 = links2.persist()
-
-    out = make_super_scaffolds(links=links2, save_dir=save_dir, info=info, excluded=excluded,
-                               ncores=ncores, client=client, membership=membership)
-    membership = out["membership"]
-    res = out["info"]
-    return membership, res

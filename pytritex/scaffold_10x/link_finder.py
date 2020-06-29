@@ -111,6 +111,30 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     os.makedirs(save_dir, exist_ok=True)
     info = dd.read_parquet(info, infer_divisions=True)
 
+    #  assembly$info -> info
+    #  assembly$molecules[npairs >= min_npairs] -> z
+    #  info[, .(scaffold, scaffold_length=length)][z, on="scaffold"]->z
+    #  z[end <= max_dist | scaffold_length - start <= max_dist]->z
+    #  z[, nsc := length(unique(scaffold)), key=.(barcode, sample)]
+    #  z[nsc >= 2]->z
+    #  z[, .(scaffold1=scaffold, npairs1=npairs, pos1=as.integer((start+end)/2), sample, barcode)]->x
+    #  z[, .(scaffold2=scaffold, npairs2=npairs, pos2=as.integer((start+end)/2), sample, barcode)]->y
+    #  y[x, on=.(sample, barcode), allow.cartesian=T][scaffold1 != scaffold2]->xy
+    #  xy -> link_pos
+    #  xy[, .(nmol=.N), key=.(scaffold1, scaffold2, sample)]->w
+    #  w[nmol >= min_nmol]->ww
+    #  ww[, .(nsample = length(unique(sample))), key=.(scaffold1, scaffold2)][nsample >= min_nsample]->ww2
+    #  info[, .(scaffold1=scaffold, popseq_chr1=popseq_chr, length1=length, popseq_pchr1=popseq_pchr, popseq_cM1=popseq_cM)][ww2, on="scaffold1"]->ww2
+    #  info[, .(scaffold2=scaffold, popseq_chr2=popseq_chr, length2=length, popseq_pchr2=popseq_pchr, popseq_cM2=popseq_cM)][ww2, on="scaffold2"]->ww2
+    #  ww2[, same_chr := popseq_chr2 == popseq_chr1]
+    #  ww2[, weight := -1 * log10((length1 + length2) / 1e9)]
+    #
+    #  if(popseq_dist > 0){
+    #   ww2[(popseq_chr2 == popseq_chr1 & abs(popseq_cM1 - popseq_cM2) <= popseq_dist)] -> links
+    #  } else {
+    #   ww2 -> links
+    #  }
+
     # Reload from disk
     link_pos_name = _calculate_link_pos(molecules, fai, save_dir, client, min_npairs,
                                         max_dist)

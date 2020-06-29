@@ -32,7 +32,7 @@ def dispatcher(assembly, save_dir, memory, client, row, ncores):
                           min_npairs=row.npairs,
                           max_dist=row.dist, popseq_dist=5, max_dist_orientation=5,
                           min_nsample=row.nsample,
-                          min_nmol=row.nmol, unanchored=True, ncores=ncores)
+                          min_nmol=row.nmol, unanchored=False, ncores=ncores)
     print("""Parameters: {row}\n
 Result: {res}\n""".format(row=row, res=n50(result["info"]["length"])))
     return result
