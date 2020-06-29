@@ -51,6 +51,8 @@ def find_previous_results(raw_membership, previous_membership) -> (set, list):
         ["scaffold_index", "bin", "rank", "backbone"]].drop_duplicates(subset=["scaffold_index"])
     assert previous["rank"].max() <= 1
     assert scaffolds_to_skip == set(previous["scaffold_index"].values)
+    logger.warning("Retaining %s groups, with %s scaffolds, from the previous iteration",
+                   len(to_skip), len(scaffolds_to_skip))
     previous = previous.values
     return to_skip, [previous]
 
@@ -166,10 +168,12 @@ def make_super(hl: dd.DataFrame,
         for row in order.itertuples(name=None):
             index, ssuper, popseq_chr = row
             if ssuper in to_skip:
+                logger.warning("%s Using cached result for super %s on chromosome %s",
+                               time.ctime(), ssuper, popseq_chr)
                 continue
             indices = grouped_membership.get_group(ssuper).index
-            logger.warning("%s Analysing %s super %s on chromosome %s",
-                           time.ctime(), index, ssuper, popseq_chr)
+            logger.warning("%s Analysing super %s on chromosome %s",
+                           time.ctime(), ssuper, popseq_chr)
             edge_indices = grouped_edges.get_group(ssuper).index
             my_edges = client.scatter(edge_list.loc[edge_indices])
             my_membership = client.scatter(cms.loc[indices])
