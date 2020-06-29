@@ -38,14 +38,14 @@ def find_previous_results(raw_membership, previous_membership) -> (set, list):
     ).to_frame("key").reset_index(drop=False).set_index("key")
     _previous = _previous.rename(columns={"super": "previous_super"})
 
-    _raw = raw_membership.reset_index(drop=False).set_index("super")
-    _raw = _raw.groupby(level=0).apply(
+    _raw_mem = raw_membership.reset_index(drop=False).set_index("super")
+    _raw = _raw_mem.groupby(level=0).apply(
         lambda group: tuple(sorted(group["cluster"].values.tolist()))
     ).to_frame("key").reset_index(drop=False).set_index("key")
 
     merged = _previous.merge(_raw, left_index=True, right_index=True, how="inner")
     to_skip = set(merged["super"].values.tolist())
-    scaffolds_to_skip = set(raw_membership.loc[to_skip]["cluster"].values)
+    scaffolds_to_skip = set(_raw_mem.loc[to_skip]["cluster"].values)
     previous = previous_membership.loc[
         set(merged["previous_super"].values.tolist()),
         ["scaffold_index", "bin", "rank", "backbone"]].drop_duplicates(subset=["scaffold_index"])
