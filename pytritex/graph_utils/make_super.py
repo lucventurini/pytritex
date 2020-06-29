@@ -43,7 +43,7 @@ def find_previous_results(raw_membership, previous_membership) -> (set, list):
         lambda group: tuple(sorted(group["cluster"].values.tolist()))
     ).to_frame("key").reset_index(drop=False).set_index("key")
 
-    merged = _previous.merge(_raw, left_index=True, right_index=True, how="left")
+    merged = _previous.merge(_raw, left_index=True, right_index=True, how="inner")
     to_skip = set(merged["super"].values.tolist())
     scaffolds_to_skip = set(raw_membership.loc[to_skip]["cluster"].values)
     previous = previous_membership.loc[
