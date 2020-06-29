@@ -135,6 +135,7 @@ def add_statistics(membership, client):
     # res[,.(super, super_size=n, super_nbin=nbin)][m, on = "super"]->m
 
     # Note that membership has *no index* here.
+    membership = membership.drop(["super_size", "super_nbin"], axis=1, errors="ignore")
     mem_sup_group = membership.groupby("super")
     res_size = mem_sup_group.size().to_frame("n")
     res_cols = mem_sup_group.agg(

@@ -24,7 +24,7 @@ logger = logging.getLogger("distributed.comm.tcp")
 logger.setLevel(logging.ERROR)
 
 
-def dispatcher(assembly, save_dir, memory, client, row):
+def dispatcher(assembly, save_dir, memory, client, row, ncores):
     result = scaffold_10x(assembly,
                           memory=memory,
                           save_dir=save_dir,
@@ -32,7 +32,7 @@ def dispatcher(assembly, save_dir, memory, client, row):
                           min_npairs=row.npairs,
                           max_dist=row.dist, popseq_dist=5, max_dist_orientation=5,
                           min_nsample=row.nsample,
-                          min_nmol=row.nmol, unanchored=False, ncores=1)
+                          min_nmol=row.nmol, unanchored=True, ncores=ncores)
     print("""Parameters: {row}\n
 Result: {res}\n""".format(row=row, res=n50(result["info"]["length"])))
     return result
@@ -49,9 +49,9 @@ def grid_evaluation(assembly, args, client, memory):
     # pool = mp.Pool(processes=args.procs)
     # results = pool.starmap(dispatcher, [(assembly, row) for index, row in grid.iterrows()])
     _index, row = next(grid.iterrows())
-    result = memory.cache(dispatcher, ignore=["memory", "client"])(
+    result = memory.cache(dispatcher, ignore=["memory", "client", "ncores"])(
         assembly, save_dir=args.save_prefix,
-        memory=memory, row=row, client=client)
+        memory=memory, row=row, client=client, ncores=args.procs)
     return result
 
 

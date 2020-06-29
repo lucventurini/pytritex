@@ -108,7 +108,7 @@ def _scaffold_unanchored(links: str,
     links2.drop("cidx", axis=1, inplace=True, errors="ignore")
 
     out = make_super_scaffolds(links=links2, save_dir=save_dir, info=info, excluded=excluded,
-                               ncores=ncores, client=client)
+                               ncores=ncores, client=client, membership=membership)
     membership = out["membership"]
     res = out["info"]
     return membership, res

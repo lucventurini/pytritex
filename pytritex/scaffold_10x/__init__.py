@@ -57,12 +57,13 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
             ncores=ncores, verbose=verbose,
             min_dist=1e4)
         if popseq_dist > 0 and unanchored is True:
+
             membership, res = memory.cache(_scaffold_unanchored,
                                            ignore=["client", "ncores", "verbose"])(
                 links,
                 excluded, membership, info,
                 sample_count,
-                save_dir=os.path.join(save_dir, "unanchored"), client=client,
+                save_dir=os.path.join(folder, "unanchored"), client=client,
                 ncores=1, verbose=False)
 
     membership, result = memory.cache(orient_scaffolds, ignore=["client"])(
