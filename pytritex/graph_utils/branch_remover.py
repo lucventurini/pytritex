@@ -31,9 +31,10 @@ def iteration(counter, membership, excluded, links, save_dir, client, info, ncor
         run = False
     else:
         # Drop all the links between the backbone of the "fuzzy" scaffolds and the spikes.
+        backbone = add.index.values.compute()
         links = links[
-            (links["scaffold_index1"].isin(add) & (links["scaffold_index2"].isin(add))) |
-            (~links["scaffold_index1"].isin(add) & (~links["scaffold_index2"].isin(add)))
+            (links["scaffold_index1"].isin(backbone) & (links["scaffold_index2"].isin(backbone))) |
+            (~links["scaffold_index1"].isin(backbone) & (~links["scaffold_index2"].isin(backbone)))
         ]
         links = links.persist()
     logger.warning("Finished run %s", counter)
