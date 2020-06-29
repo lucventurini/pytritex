@@ -43,7 +43,7 @@ def _scaffold_unanchored(links: str,
     func = delayed(dd.merge)(left_side, right_side, on="scaffold_link", how="outer")
     linkages = client.compute(func).result().query(
         "scaffold_index1 != scaffold_index2").reset_index(drop=False)
-    if linkages.shape[0] == 0 and unanchored.shape[0] > 0:
+    if linkages.shape[0].compute() == 0 and unanchored.shape[0].compute() > 0:
         raise ValueError("No remaining unanchored scaffolds!")
     # m[, .(scaffold1=scaffold, super1=super, chr1=chr, cM1=cM, size1=super_nbin,
     # d1 = pmin(bin - 1, super_nbin - bin))][xy, on="scaffold1"]->xy
@@ -89,23 +89,27 @@ def _scaffold_unanchored(links: str,
     
     link_count = linkages.eval("g = @group_number").merge(grouped.size().to_frame("n"), on=keys)
     link_count = link_count.sort_values("link_length", ascending=False).drop_duplicates("g")
+    link_count = link_count.persist()
     if "super1" not in link_count.columns:
         # Reset the index
         link_count = link_count.reset_index(drop=False)
-    _scaffold_link = link_count["scaffold_link"].values.flatten()
-    _scaffold1 = link_count["scaffold_index1"].values.flatten()
-    _scaffold2 = link_count["scaffold_index2"].values.flatten()
+    _scaffold_link = link_count["scaffold_link"].values.compute().flatten()
+    _scaffold1 = link_count["scaffold_index1"].values.compute().flatten()
+    _scaffold2 = link_count["scaffold_index2"].values.compute().flatten()
     sel = pd.DataFrame().assign(
         scaffold_index1=np.concatenate([_scaffold_link, _scaffold_link, _scaffold1, _scaffold2]),
         scaffold_index2=np.concatenate([_scaffold1, _scaffold2, _scaffold_link, _scaffold_link]))
-    lower = sample_count.merge(sel, how="right", on=["scaffold_index1", "scaffold_index2"])
-    print(sel.head())
-    print(sel.shape)
-    print(lower.head())
-    print(lower.shape)
-    links2 = pd.concat([links, lower]).reset_index(drop=False)
+    func = delayed(dd.merge)(client.scatter(sample_count),
+                             sel, how="right", on=["scaffold_index1", "scaffold_index2"])
+    lower = client.compute(func).result()
+    # print(sel.head())
+    # print(sel.shape)
+    # print(lower.head())
+    # print(lower.shape)
+    links2 = dd.concat([links, lower]).reset_index(drop=False)
     links2.drop("index", axis=1, inplace=True, errors="ignore")
     links2.drop("cidx", axis=1, inplace=True, errors="ignore")
+    links2 = links2.persist()
 
     out = make_super_scaffolds(links=links2, save_dir=save_dir, info=info, excluded=excluded,
                                ncores=ncores, client=client, membership=membership)
