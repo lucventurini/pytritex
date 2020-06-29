@@ -32,6 +32,7 @@ def find_previous_results(raw_membership, previous_membership) -> (set, list):
         return {}, []
 
     previous_membership = previous_membership.reset_index(drop=False).set_index("super")
+    assert previous_membership.scaffold_index.unique().shape[0] == previous_membership.shape[0]
     _previous = previous_membership.groupby(level=0).apply(
         lambda group: tuple(sorted(group["scaffold_index"].values.tolist()))
     ).to_frame("key").reset_index(drop=False).set_index("key")
@@ -44,9 +45,12 @@ def find_previous_results(raw_membership, previous_membership) -> (set, list):
 
     merged = _previous.merge(_raw, left_index=True, right_index=True, how="left")
     to_skip = set(merged["super"].values.tolist())
-    previous = previous_membership.loc[set(merged["previous_super"].values.tolist()),
-                                       ["scaffold_index", "bin", "rank", "backbone"]]
+    scaffolds_to_skip = set(raw_membership.loc[to_skip]["cluster"].values)
+    previous = previous_membership.loc[
+        set(merged["previous_super"].values.tolist()),
+        ["scaffold_index", "bin", "rank", "backbone"]].drop_duplicates(subset=["scaffold_index"])
     assert previous["rank"].max() <= 1
+    assert scaffolds_to_skip == set(previous["scaffold_index"].values)
     previous = previous.values
     return to_skip, [previous]
 
@@ -104,12 +108,21 @@ def make_super(hl: dd.DataFrame,
         import sys
         sys.exit(1)
     # Create a dataframe of cluster/super-scaffolds relationship
+    length = len(cidx_list)
     raw_membership = pd.DataFrame().assign(cidx=cidx_list, super=ssuper).set_index("cidx")
     raw_membership = raw_membership.merge(
         cidx.reset_index(drop=False), on=["cidx"], how="outer").set_index("cluster")
+    if raw_membership.shape[0] != length:
+        logger.error("Duplicated indices after merging")
+        import sys
+        sys.exit(1)
     membership = cluster_info.merge(raw_membership, left_index=True,
                                     right_index=True, how="right")
     membership = membership.persist()
+    if membership.shape[0].compute() != length:
+        logger.error("Duplicated indices after merging with cluster_info")
+        import sys
+        sys.exit(1)
 
     # Where is each super-scaffold located?
     grouped = membership.groupby("super")
@@ -167,6 +180,7 @@ def make_super(hl: dd.DataFrame,
         results = np.vstack(results + previous_results)
         results = pd.DataFrame().assign(
             cluster=results[:, 0], bin=results[:, 1], rank=results[:, 2], backbone=results[:, 3])
+        assert results.cluster.unique().shape[0] == results.shape[0]
         results = results.set_index("cluster")
         super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster")
         assert super_object["membership"].index.name == "cluster"
