@@ -67,7 +67,7 @@ def _initial_branch_remover(client: Client,
                         info=info_to_use,
                         ncores=ncores)
     counter = 1
-    out, links, add, run = _iterator(counter=counter, membership=None, links=links)
+    out, excluded, add, run = _iterator(counter=counter, membership=None, links=links)
     if add.shape[0].compute() > 0:
         max_add_super = add["super"].max().compute()
     else:
