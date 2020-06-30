@@ -27,7 +27,7 @@ logger.setLevel(logging.ERROR)
 
 
 def dispatcher(assembly, save_dir, memory, client, row, ncores):
-    result = scaffold_10x(assembly,
+    membership, result = scaffold_10x(assembly,
                           memory=memory,
                           save_dir=save_dir,
                           client=client,
@@ -37,8 +37,8 @@ def dispatcher(assembly, save_dir, memory, client, row, ncores):
                           min_nmol=row.nmol, unanchored=False, ncores=ncores)
 
     print("""Parameters: {row}\n
-Result: {res}\n""".format(row=row, res=dd.read_parquet(n50(result["info"])["length"].values.compute())))
-    return result
+Result: {res}\n""".format(row=row, res=dd.read_parquet(n50(result)["length"].values.compute())))
+    return membership, result
 
 
 def grid_evaluation(assembly, args, client, memory):
