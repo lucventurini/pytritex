@@ -37,6 +37,12 @@ def iteration(counter, membership, excluded, links, save_dir, client, info, ncor
             (~links["scaffold_index1"].isin(backbone) & (~links["scaffold_index2"].isin(backbone)))
         ]
         links = links.persist()
+        logger.error("Removing the links of %s scaffolds with rank > 0",
+                     a[a["rank"] > 0].shape[0].compute())
+        membership = membership[~(
+                (membership["super"].isin(add["super"])) & (membership["rank"] > 0)
+        )]
+        out["membership"] = membership
     logger.warning("Finished run %s", counter)
     return out, links, run
 
