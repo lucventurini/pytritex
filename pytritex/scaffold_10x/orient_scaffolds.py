@@ -49,10 +49,10 @@ def super_position(group):
     vals = (group["length"].shift(1, fill_value=0).cumsum() + 1).astype(np.int)
     s = vals.shape[0]
     vals = vals[indexer]
-    assert s == vals.shape[0]
-    vals.index = orig_index
-    assert s == vals.shape[0]
-    return vals.values
+    # assert s == vals.shape[0]
+    # vals.index = orig_index
+    vals = np.vstack([group["scaffold_index"], vals])
+    return vals
 
 
 def chrom_percentage(group):
@@ -160,11 +160,14 @@ def orient_scaffolds(info: str, res: str,
     # excluded["super_pos"] = 1
     # chunks = tuple(excluded.map_partitions(len).compute().values.tolist())
     # excluded["super_pos"] = np.nan
-    non_excluded = membership[(membership["excluded"] == False) & (membership.super_size > 1)].reset_index(drop=False)
-    grouped = non_excluded.groupby("super")
+    non_excluded = membership[(membership["excluded"] == False) & (membership.super_size > 1)]
+    grouped = non_excluded.reset_index(drop=False).groupby("super")
     super_pos = grouped.apply(super_position, meta=np.int).compute().explode().to_frame("super_pos")
+    indices = np.concatenate([_[0, :] for _ in super_pos.values])
+    pos = np.concatenate([_[1, :] for _ in super_pos.values])
+    super_pos = pd.DataFrame().assign(scaffold_index=indices, super_pos=pos).set_index("scaffold_index")
     membership = dd.merge(membership.reset_index(drop=False),
-                          super_pos, on="super").set_index("scaffold_index")
+                          super_pos, on="scaffold_index")
     membership["super_pos"] = membership["super_pos"].fillna(1)
     membership = membership.persist()
     logger.warning("%s Added the super_pos columns", time.ctime())
@@ -184,7 +187,7 @@ def orient_scaffolds(info: str, res: str,
     logger.warning("%s Merging into nchr_with_cms", time.ctime())
     func = delayed(dd.merge)(client.scatter(membership[~membership["cM"].isna()].reset_index(drop=False)),
                              client.scatter(nchr), on=["chr", "super"])
-    nchr_with_cms = client.submit(func).result().persist()
+    nchr_with_cms = client.compute(func).result().persist()
     logger.warning("%s Merged into nchr_with_cms", time.ctime())
     grouped_nchr_with_cms = nchr_with_cms.groupby("super")
     logger.warning("%s Calculating the nchr_with_cms stats", time.ctime())
