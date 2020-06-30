@@ -24,26 +24,27 @@ def iteration(counter, membership, excluded, links, save_dir, client, info, ncor
     # rank > 1.
     # Ie: remove the backbones so that the branches can be reassigned to somewhere else.
     a = membership.merge(
-        membership.loc[membership["rank"] > 1, ["super", "bin"]].drop_duplicates(),
+        membership.loc[membership["rank"] > 1, ["super", "bin"]].reset_index(drop=False).drop_duplicates(),
         how="inner", on=["super", "bin"])
+    assert "scaffold_index" in a.columns
     add = a.loc[a["rank"] == 0, :]
     if add.shape[0].compute() == 0:
         run = False
     else:
         # Drop all the links between the backbone of the "fuzzy" scaffolds and the spikes.
         previous = len(excluded)
-        excluded.update(set(add.index.values.compute().tolist()))
+        excluded.update(set(add["scaffold_index"].values.compute().tolist()))
         if previous == len(excluded):
             run = False
         assert len(excluded) > 0
         logger.warning("%s Run %s excluding %s", time.ctime(), counter, len(excluded))
         # Now let's save the core of the fuzzy super-scaffolds
-        add = add.copy()
-        sups = dict((ssup, idx + 1) for idx, ssup in enumerate(sorted(add["super"].unique().values.compute())))
-        add["super"] = add["super"].map(sups)
+        # add = add.copy()
+        # sups = dict((ssup, idx + 1) for idx, ssup in enumerate(sorted(add["super"].unique().values.compute())))
+        # add["super"] = add["super"].map(sups)
 
     logger.warning("Finished run %s", counter)
-    return out, excluded, add, run
+    return out, excluded, run
 
 
 def _initial_branch_remover(client: Client,
@@ -67,26 +68,22 @@ def _initial_branch_remover(client: Client,
                         info=info_to_use,
                         ncores=ncores)
     counter = 1
-    out, excluded, add, run = _iterator(counter=counter, membership=None, excluded=excluded)
-    if add.shape[0].compute() > 0:
-        max_add_super = add["super"].max().compute()
-    else:
-        max_add_super = 0
+    out, excluded, run = _iterator(counter=counter, membership=None, excluded=excluded)
     membership = out["membership"]
     while run is True:
         counter += 1
-        out, excluded, new_add, run = _iterator(counter=counter,
+        out, excluded, run = _iterator(counter=counter,
                                                 membership=membership,
                                                 excluded=excluded)
-        new_add["super"] = new_add["super"] + max_add_super
-        add = dd.concat([add, new_add]).persist()
-        max_add_super = add["super"].max().compute()
+        # new_add["super"] = new_add["super"] + max_add_super
+        # add = dd.concat([add, new_add]).persist()
+        # max_add_super = add["super"].max().compute()
         membership = out["membership"]
 
     # Now we need to rejoin things
     maxidx = out["membership"]["super"].max().compute()
-    add["super"] = add["super"] + maxidx
-    out["membership"] = dd.concat([out["membership"], add]).persist()
+    # add["super"] = add["super"] + maxidx
+    # out["membership"] = dd.concat([out["membership"], add]).persist()
     out["membership"] = add_missing_scaffolds(info, out["membership"],
                                               maxidx, excluded, client)
     out["membership"], out["info"] = add_statistics(out["membership"], client)
