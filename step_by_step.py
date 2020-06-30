@@ -2,6 +2,8 @@ import pandas as pd
 import argparse
 import multiprocessing as mp
 import os
+import dask
+dask.config.set({'distributed.worker.multiprocessing-method': 'spawn'})
 from pytritex.initialisation import initial
 from pytritex.anchoring.anchor_scaffolds import anchor_scaffolds
 from pytritex.sequencing_coverage.add_molecule_cov import add_molecule_cov
@@ -36,8 +38,9 @@ def dispatcher(assembly, save_dir, memory, client, row, ncores):
                           min_nsample=row.nsample,
                           min_nmol=row.nmol, unanchored=False, ncores=ncores)
 
-    print("""Parameters: {row}\n
-Result: {res}\n""".format(row=row, res=n50(dd.read_parquet(result)["length"].values.compute())
+    logger.warning("""{ctime} Parameters: {row}\n
+Result: {res}\n""".format(ctime=time.ctime(),
+                          row=row, res=n50(dd.read_parquet(result)["length"].values.compute())
                           ))
     return {"membership": membership, "result": result, "info": assembly["info"],
             "row": row}
@@ -52,12 +55,18 @@ def grid_evaluation(assembly, args, client, memory):
                                                              range(6 * 10**4, 10**5, 10**4)))))))
     print("Starting grid evaluation")
     results = []
+    client.close()
     for _index, row in grid.iterrows():
+        worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
+        client = Client(set_as_default=True, timeout=60, direct_to_workers=True, memory_limit=worker_mem,
+                        nanny=False)
+        client.cluster.scale(n=args.procs)
         result = memory.cache(dispatcher, ignore=["memory", "client", "ncores"])(
             assembly, save_dir=args.save_prefix,
             memory=memory, row=row, client=client, ncores=args.procs)
         results.append(result)
         logger.warning("%s Finished row %s (%s)", time.ctime(), _index, row)
+        client.close()
     return results
 
 
