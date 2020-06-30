@@ -166,9 +166,8 @@ def orient_scaffolds(info: str, res: str,
     indices = np.concatenate([_[0, :] for _ in super_pos.values])
     pos = np.concatenate([_[1, :] for _ in super_pos.values])
     super_pos = pd.DataFrame().assign(scaffold_index=indices, super_pos=pos).set_index("scaffold_index")
-    super_pos = dd.from_pandas(super_pos, npartitions=10)
-    membership = dd.merge(membership.reset_index(drop=False),
-                          super_pos, on="scaffold_index")
+    super_pos = dd.from_pandas(super_pos, npartitions=min(10, super_pos.shape[0]))
+    membership = dd.merge(membership, super_pos, on="scaffold_index")
     membership["super_pos"] = membership["super_pos"].fillna(1)
     membership = membership.persist()
     logger.warning("%s Added the super_pos columns", time.ctime())
