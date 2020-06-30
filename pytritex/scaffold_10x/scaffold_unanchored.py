@@ -29,7 +29,7 @@ def _scaffold_unanchored(links: str,
     left_linkage = sample_count[sample_count["popseq_chr1"].isna()][["scaffold_index1", "length1", "scaffold_index2"]]
     left_linkage = left_linkage.rename(
         columns={"scaffold_index1": "scaffold_link",
-                 "length1": "link_length1",
+                 "length1": "link_length",
                  "scaffold_index2": "scaffold_index1"})
     right_linkage = sample_count[sample_count["popseq_chr1"].isna()][
         ["scaffold_index1", "scaffold_index2"]].rename(
@@ -54,5 +54,15 @@ def _scaffold_unanchored(links: str,
     linkages = linkages.merge(
         linkages.query("scaffold_index1 < scaffold_index2").groupby("scaffold_link").size().to_frame("nscl"),
         on="scaffold_link").query("nscl == 1")
+
+    # xy[super1 < super2][, c("n", "g"):=list(.N, .GRP), by=.(super1, super2)][order(-link_length)][!duplicated(g)]->zz
+    #
+    #         sel <- zz[, .(scaffold1=c(scaffold_link, scaffold_link, scaffold1, scaffold2),
+    #      	  scaffold2=c(scaffold1, scaffold2, scaffold_link, scaffold_link))]
+    #         rbind(links, ww2[sel, on=c("scaffold1", "scaffold2")])->links2
+    nr_linkages = linkages.query("super1 < super2").compute()
+    grouped = nr_linkages.groupby(["super1", "super2"])
+    ngroups = grouped.ngroups
+
 
 

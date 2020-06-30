@@ -73,8 +73,8 @@ def _initial_branch_remover(client: Client,
     while run is True:
         counter += 1
         out, excluded, run = _iterator(counter=counter,
-                                                membership=membership,
-                                                excluded=excluded)
+                                       membership=membership,
+                                       excluded=excluded)
         # new_add["super"] = new_add["super"] + max_add_super
         # add = dd.concat([add, new_add]).persist()
         # max_add_super = add["super"].max().compute()
