@@ -45,17 +45,27 @@ def prepare_tables(links, info, membership, excluded):
     else:
         assert isinstance(info, dd.DataFrame)
     membership = get_previous_groups(membership)
-    info2 = info.loc[:, ["popseq_chr", "popseq_cM", "length"]].rename(
+    cluster_info = info.loc[:, ["popseq_chr", "popseq_cM", "length"]].rename(
         columns={"popseq_chr": "chr", "popseq_cM": "cM"})
-    assert "popseq_chr" not in info2.columns and "chr" in info2.columns
-    assert "popseq_cM" not in info2.columns and "cM" in info2.columns
+    assert "popseq_chr" not in cluster_info.columns and "chr" in cluster_info.columns
+    assert "popseq_cM" not in cluster_info.columns and "cM" in cluster_info.columns
     if excluded is not None:
         excluded_scaffolds = pd.Series(list(excluded), name="scaffold_index")
     else:
         excluded = pd.Series([], name="scaffold_index")
         excluded_scaffolds = excluded.copy()
-    cluster_info = info2.assign(excluded=info.index.isin(excluded_scaffolds))
+    iindex = cluster_info.index.values.compute()
+    assert len(set(iindex)) == iindex.shape[0]
+    if not len(set.difference(set(iindex), set(excluded_scaffolds))) == 0:
+        logger.error("Some excluded scaffolds do not have a match! ERROR!")
+        import sys
+        sys.exit(1)
+    excl_column = da.from_array(np.in1d(iindex, excluded_scaffolds, assume_unique=True),
+                                chunks=tuple(cluster_info.map_partitions(len).compute().values.tolist()))
+    cluster_info["excluded"] = excl_column
     cluster_info.index = cluster_info.index.rename("cluster")
+    cluster_info = cluster_info.persist()
+    assert cluster_info[cluster_info.excluded == True].shape[0].compute() == len(excluded)
     hl = links.copy().rename(columns={"scaffold_index1": "cluster1", "scaffold_index2": "cluster2"})
     return links, info, membership, excluded_scaffolds, cluster_info, hl
 
