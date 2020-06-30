@@ -14,12 +14,14 @@ from pytritex.utils import n50
 from joblib import Memory, dump, load
 import numexpr as ne
 import dask
-# import dask.dataframe as dd
+import dask.dataframe as dd
 import logging
 from dask.distributed import Client, SpecCluster
 # from dask.distributed import Scheduler, Worker, Nanny
 from pytritex.utils import return_size, parse_size
 import logging
+import joblib
+import time
 logger = logging.getLogger("distributed.comm.tcp")
 logger.setLevel(logging.ERROR)
 
@@ -33,8 +35,9 @@ def dispatcher(assembly, save_dir, memory, client, row, ncores):
                           max_dist=row.dist, popseq_dist=5, max_dist_orientation=5,
                           min_nsample=row.nsample,
                           min_nmol=row.nmol, unanchored=False, ncores=ncores)
+
     print("""Parameters: {row}\n
-Result: {res}\n""".format(row=row, res=n50(result["info"]["length"])))
+Result: {res}\n""".format(row=row, res=dd.read_parquet(n50(result["info"])["length"].values.compute())))
     return result
 
 
@@ -46,13 +49,14 @@ def grid_evaluation(assembly, args, client, memory):
                                                              (1, 2),
                                                              range(6 * 10**4, 10**5, 10**4)))))))
     print("Starting grid evaluation")
-    # pool = mp.Pool(processes=args.procs)
-    # results = pool.starmap(dispatcher, [(assembly, row) for index, row in grid.iterrows()])
-    _index, row = next(grid.iterrows())
-    result = memory.cache(dispatcher, ignore=["memory", "client", "ncores"])(
-        assembly, save_dir=args.save_prefix,
-        memory=memory, row=row, client=client, ncores=args.procs)
-    return result
+    results = []
+    for _index, row in grid.iterrows():
+        result = memory.cache(dispatcher, ignore=["memory", "client", "ncores"])(
+            assembly, save_dir=args.save_prefix,
+            memory=memory, row=row, client=client, ncores=args.procs)
+        results.append(result)
+        logger.warning("%s Finished row %s (%s)", time.ctime(), _index, row)
+    return results
 
 
 def main():
@@ -99,7 +103,9 @@ def main():
         assembly, memory=memory, client=client,
         ratio=-3, interval=5e4, minNbin=20, dist=2e3, save_dir=args.save_prefix,
         slop=2e2, species="wheat", intermediate=False, cores=args.procs)["assembly"]
-    grid_evaluation(assembly_v1, args, client=client, memory=memory)
+    results = grid_evaluation(assembly_v1, args, client=client, memory=memory)
+    results_name = os.path.join(args.save_prefix, "joblib", "pytritex", "scaffold_10x", "results.pkl")
+    joblib.dump(results, results_name, compress=("gzip", 6))
     client.close()
     print("Broken chimeras")
     return
