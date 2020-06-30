@@ -37,8 +37,10 @@ def dispatcher(assembly, save_dir, memory, client, row, ncores):
                           min_nmol=row.nmol, unanchored=False, ncores=ncores)
 
     print("""Parameters: {row}\n
-Result: {res}\n""".format(row=row, res=dd.read_parquet(n50(result)["length"].values.compute())))
-    return membership, result
+Result: {res}\n""".format(row=row, res=n50(dd.read_parquet(result)["length"].values.compute())
+                          ))
+    return {"membership": membership, "result": result, "info": assembly["info"],
+            "row": row}
 
 
 def grid_evaluation(assembly, args, client, memory):

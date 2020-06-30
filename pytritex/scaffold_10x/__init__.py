@@ -69,7 +69,7 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
     membership, result = memory.cache(orient_scaffolds, ignore=["client"])(
         info=info, res=res, membership=membership,
         link_pos=link_pos, max_dist_orientation=max_dist_orientation,
-        save_dir=os.path.join(save_dir, "orientation"),
+        save_dir=os.path.join(folder, "orientation"),
         client=client)
 
     return membership, result

@@ -186,6 +186,7 @@ def orient_scaffolds(info: str, res: str,
     nchr["max_nchr"] = nchr.groupby("super")["nchr"].transform("max", meta=np.int).values
     logger.warning("%s Dropping max_nchr duplicates", time.ctime())
     nchr = nchr.query("nchr == max_nchr").drop_duplicates(subset="super").drop("max_nchr", axis=1)
+    # chr, super, nchr, pchr - no index
     nchr = nchr.persist()
     logger.warning("%s Merging into nchr_with_cms", time.ctime())
     func = delayed(dd.merge)(client.scatter(membership[~membership["cM"].isna()].reset_index(drop=False)),
@@ -194,21 +195,24 @@ def orient_scaffolds(info: str, res: str,
     logger.warning("%s Merged into nchr_with_cms", time.ctime())
     grouped_nchr_with_cms = nchr_with_cms.groupby("super")
     logger.warning("%s Calculating the nchr_with_cms stats", time.ctime())
-    min_cM = grouped_nchr_with_cms["cM"].transform("min", meta=np.float).values.compute()
-    max_cM = grouped_nchr_with_cms["cM"].transform("max", meta=np.float).values.compute()
-    mean_cM = grouped_nchr_with_cms["cM"].transform("mean", meta=np.float).values.compute()
-    chunks = tuple(nchr_with_cms.map_partitions(len).compute().values.tolist())
-    nchr_with_cms["min_cM"] = da.from_array(min_cM, chunks=chunks)
-    nchr_with_cms["max_cM"] = da.from_array(max_cM, chunks=chunks)
-    nchr_with_cms["cM"] = da.from_array(mean_cM, chunks=chunks)
-    nchr_with_cms = nchr_with_cms.persist()
+    # m[!is.na(chr), .(nchr=.N), key=.(chr, super)][,
+    # pchr := nchr/sum(nchr), by=super][order(-nchr)][!duplicated(super)]->y
+    #  m[!is.na(cM)][y, on=c("chr", "super")]->yy
+    #  y[res, on="super"]->res
+    #  yy[, .(cM=mean(cM), min_cM=min(cM), max_cM=max(cM)), key=super][res, on='super']->res
+    #  setorder(res, -length)
+    min_cM = grouped_nchr_with_cms["cM"].apply(min, meta=np.float).to_frame("min_cM").compute()
+    max_cM = grouped_nchr_with_cms["cM"].apply(max, meta=np.float).to_frame("max_cM").compute()
+    mean_cM = grouped_nchr_with_cms["cM"].apply(np.mean, meta=np.float).to_frame("cM").compute()
+    nchr_with_cms = pd.merge(mean_cM, pd.merge(min_cM, max_cM, on="super"), on="super")
     logger.warning("%s Calculated the nchr_with_cms stats", time.ctime())
-    func = delayed(dd.merge)(client.scatter(nchr), client.scatter(res), on=["super"])
+    if res.index.name is None:
+        res = res.set_index("super")
+    nchr = nchr.set_index("super")
+    func = delayed(dd.merge)(client.scatter(nchr), client.scatter(res), on="super")
     res = client.compute(func).result()
     res = res.persist()
-    assert "super" in res.columns
-    func = delayed(dd.merge)(client.scatter(nchr_with_cms),
-                             client.scatter(res), on="super")
+    func = delayed(dd.merge)(nchr_with_cms, client.scatter(res), on="super")
     res = client.compute(func).result()
     logger.warning("%s Merged everything into res, saving", time.ctime())
     res_name = os.path.join(save_dir, "res")
