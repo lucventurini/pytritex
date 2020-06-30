@@ -56,7 +56,7 @@ def prepare_tables(links, info, membership, excluded):
         excluded_scaffolds = excluded.copy()
     iindex = cluster_info.index.values.compute()
     assert len(set(iindex)) == iindex.shape[0]
-    if not len(set.difference(set(iindex), set(excluded_scaffolds))) == 0:
+    if not len(set.difference(set(excluded_scaffolds), set(iindex))) == 0:
         logger.error("Some excluded scaffolds do not have a match! ERROR!")
         import sys
         sys.exit(1)
