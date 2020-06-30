@@ -79,15 +79,6 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
     # TODO: this part of the code is probably causing the double counting
     info_index = info.index.values.compute()
     bait_index = sorted(set.difference(set(info_index), set(indices)))
-    # bait = info_index[bait_index]
-    # # Now of course the sum of bait and indices should be equal to info_index.
-    # if bait.shape[0] + indices.shape[0] != info_index.shape[0]:
-    #     if bait.shape[0] + indices.shape[0] > info_index.shape[0]:
-    #         logger.error("Something went wrong in getting the bait, we have duplicated indices.")
-    #     else:
-    #         logger.error("Something went wrong in getting the bait, we have missing indices.")
-    #     import sys
-    #     sys.exit(1)
 
     _to_concatenate = info.loc[bait_index, ["popseq_chr", "popseq_cM", "length"]].rename(
         columns={"popseq_chr": "chr", "popseq_cM": "cM"})

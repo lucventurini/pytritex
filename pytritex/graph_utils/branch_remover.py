@@ -35,7 +35,7 @@ def iteration(counter, membership, excluded, links, save_dir, client, info, ncor
         excluded.update(set(add.index.values.compute().tolist()))
         if previous == len(excluded):
             run = False
-        assert excluded is not None
+        assert len(excluded) > 0
         logger.warning("%s Run %s excluding %s", time.ctime(), counter, len(excluded))
         # Now let's save the core of the fuzzy super-scaffolds
         add = add.copy()

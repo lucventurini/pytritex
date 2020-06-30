@@ -67,9 +67,9 @@ def make_super(hl: dd.DataFrame,
     #  hl[cluster1 %in% cluster_info[excluded == F]$cluster & cluster2 %in% cluster_info[excluded == F]$cluster]->hl
     hl = hl.copy()
     non_excluded = cluster_info.loc[cluster_info["excluded"] == False].index.values.compute()
-    logger.info("Retaining %s scaffolds out of %s",
-                non_excluded.shape[0],
-                cluster_info.shape[0].compute())
+    logger.warning("Retaining %s scaffolds out of %s",
+                   non_excluded.shape[0],
+                   cluster_info.shape[0].compute())
     bait1 = hl["cluster1"].isin(non_excluded)
     bait2 = hl["cluster2"].isin(non_excluded)
     hl = hl.loc[bait1 & bait2, :]
