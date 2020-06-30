@@ -61,13 +61,13 @@ def _initial_branch_remover(client: Client,
     info_to_use = info.loc[scaffolds_to_use].persist()
 
     _iterator = partial(iteration,
-                        excluded=excluded,
+                        links=links,
                         save_dir=save_dir,
                         client=client,
                         info=info_to_use,
                         ncores=ncores)
     counter = 1
-    out, excluded, add, run = _iterator(counter=counter, membership=None, links=links)
+    out, excluded, add, run = _iterator(counter=counter, membership=None, excluded=excluded)
     if add.shape[0].compute() > 0:
         max_add_super = add["super"].max().compute()
     else:
@@ -76,8 +76,8 @@ def _initial_branch_remover(client: Client,
     while run is True:
         counter += 1
         out, excluded, new_add, run = _iterator(counter=counter,
-                                       membership=membership,
-                                       links=links)
+                                                membership=membership,
+                                                excluded=excluded)
         new_add["super"] = new_add["super"] + max_add_super
         add = dd.concat([add, new_add]).persist()
         max_add_super = add["super"].max().compute()
