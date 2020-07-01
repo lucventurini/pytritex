@@ -8,7 +8,7 @@ import networkit as nk
 import dask.dataframe as dd
 from pytritex.graph_utils.make_super_path import make_super_path
 from dask.distributed import Client
-from dask.delayed import delayed
+from ..utils import _rebalance_ddf
 import logging
 logger = logging.getLogger("distributed.worker")
 
@@ -141,6 +141,7 @@ def make_super(hl: dd.DataFrame,
     edge_list.index = edge_list.index.rename("cluster1")
 
     edge_list = edge_list.merge(hl, on="cluster1", how="right")
+    edge_list = _rebalance_ddf(edge_list, npartitions=100)
 
     super_object = {"super_info": info,
                     "membership": membership, "graph": graph, "edges": edge_list}
@@ -148,6 +149,7 @@ def make_super(hl: dd.DataFrame,
     if paths is True:
         cms = membership.loc[:, ["super", "cM"]
               ].reset_index(drop=False).drop_duplicates().set_index("cluster")
+        cms = _rebalance_ddf(cms, npartitions=100)
         if path_max > 0:
             idx = np.unique(super_object["super_info"][["super", "length"]].compute().sort_values(
                 "length", ascending=False).head(path_max).index.values)
