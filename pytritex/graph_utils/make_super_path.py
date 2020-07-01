@@ -109,6 +109,7 @@ def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound, n
         changed = True
         rounds = 0
         while changed:
+            internal_rounds = 0
             while changed:
                 prev = path[:]
                 path = tsp_2_opt(mst.toarray(), path, ncores)
@@ -120,6 +121,9 @@ def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound, n
                 current_upper_bound = sum(
                     edges[path[index], path[index + 1]] for index in np.arange(path.shape[0] - 1,
                                                                                     dtype=np.int))
+                internal_rounds += 1
+                if internal_rounds >= maxiter:
+                    break
             path, changed, current_upper_bound = node_relocation(edges, path, current_upper_bound)
             rounds += 1
             if rounds >= maxiter:
