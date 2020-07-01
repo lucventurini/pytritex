@@ -72,7 +72,7 @@ def make_super(hl: dd.DataFrame,
                    cluster_info.shape[0].compute())
     bait1 = hl["cluster1"].isin(non_excluded)
     bait2 = hl["cluster2"].isin(non_excluded)
-    hl = hl.loc[bait1 & bait2, :]
+    hl = hl.loc[bait1 & bait2, :].persist()
     # hl = hl.loc[(hl["cluster1"].isin(
     #     cluster_info.loc[~cluster_info["excluded"]].index.values))
     #     & (hl["cluster2"].isin(cluster_info.loc[~cluster_info["excluded"]].index.values))]
@@ -131,7 +131,7 @@ def make_super(hl: dd.DataFrame,
     info = grouped.agg(
         {"super": "size",
          "cM": "mean"}
-    )
+    ).rename(columns={"super": "size"}).persist()
     # print(info.head(npartitions=-1, n=5))
     info["chr"] = grouped["chr"].unique().apply(lambda s: [_ for _ in s if not np.isnan(_)][0],
                                                 meta=np.float)
@@ -149,16 +149,16 @@ def make_super(hl: dd.DataFrame,
         cms = membership.loc[:, ["super", "cM"]
               ].reset_index(drop=False).drop_duplicates().set_index("cluster")
         if path_max > 0:
-            idx = super_object["super_info"].sort_values(
-                "length", ascending=False).head(path_max)["super"].unique()
+            idx = np.unique(super_object["super_info"][["super", "length"]].compute().sort_values(
+                "length", ascending=False).head(path_max).index.values)
         else:
-            idx = super_object["super_info"]["super"].unique()
-        idx = idx.compute()
+            idx = np.unique(super_object["super_info"].index.values.compute())
         grouped_edges = super_object["edges"].groupby("super")
         grouped_membership = cms.groupby("super")
         order = membership
+        # Removing the useless index (=cluster)
         order = order.loc[order["super"].isin(idx),
-                          ["super", "chr"]].drop_duplicates().compute().sort_values(["chr"])
+                          ["super", "chr"]].drop_duplicates().compute().sort_values(["chr"]).reset_index(drop=True)
         print(time.ctime(), "Starting super, with", idx.shape[0], "positions to analyse.")
         results = []
         to_skip, previous_results = find_previous_results(raw_membership, previous_membership)
