@@ -165,22 +165,40 @@ def make_super(hl: dd.DataFrame,
         # First thing: let's check whether we have previous hits. We will consider these separately.
         # pool = mp.Pool(cores)
         # membership = client.scatter(membership)
-        for row in order.itertuples(name=None):
-            index, ssuper, popseq_chr = row
-            if ssuper in to_skip:
-                logger.warning("%s Using cached result for super %s on chromosome %s",
-                               time.ctime(), ssuper, popseq_chr)
-                continue
-            indices = grouped_membership.get_group(ssuper).index
-            logger.warning("%s Analysing super %s on chromosome %s",
-                           time.ctime(), ssuper, popseq_chr)
-            edge_indices = grouped_edges.get_group(ssuper).index
-            my_edges = client.scatter(edge_list.loc[edge_indices])
-            my_membership = client.scatter(cms.loc[indices])
-            results.append(client.submit(_concatenator,
-                            my_edges, my_membership, known_ends, maxiter, verbose))
+        total = order.shape[0]
+        analysed, cached = 0, 0
+        for chrom in sorted(np.unique(order["chr"].values)):
+            chrom_analysed, chrom_cached = 0, 0
+            chrom_results = []
+            subset = order[order["chr"] == chrom]
+            chrom_total = subset.shape[0]
+            logger.warning("%s Starting chromosome %s", time.ctime(), chrom)
+            for row in subset.itertuples(name=None):
+                index, ssuper, popseq_chr = row
+                if ssuper in to_skip:
+                    logger.debug("%s Using cached result for super %s on chromosome %s",
+                                 time.ctime(), ssuper, popseq_chr)
+                    chrom_cached += 1
+                    continue
+                chrom_analysed += 1
+                indices = grouped_membership.get_group(ssuper).index
+                logger.debug("%s Analysing super %s on chromosome %s", time.ctime(), ssuper, popseq_chr)
+                edge_indices = grouped_edges.get_group(ssuper).index
+                my_edges = client.scatter(edge_list.loc[edge_indices])
+                my_membership = client.scatter(cms.loc[indices])
+                chrom_results.append(client.submit(_concatenator,
+                                                   my_edges, my_membership, known_ends, maxiter, verbose))
+            logger.warning("%s Finished chr. %s (%s, %s%%), analysed %s, cached %s",
+                           time.ctime(), chrom, chrom_total,
+                           round(100 * chrom_total / total, 2),
+                           chrom_analysed, chrom_cached
+                           )
+            analysed += chrom_analysed
+            cached += chrom_cached
+            chrom_results = client.gather(chrom_results)
+            results.extend(chrom_results)
 
-        results = client.gather(results)
+        logger.warning("%s Finished make_super_scaffolds", time.ctime())
         results = np.vstack(results + previous_results)
         results = pd.DataFrame().assign(
             cluster=results[:, 0], bin=results[:, 1], rank=results[:, 2], backbone=results[:, 3])
