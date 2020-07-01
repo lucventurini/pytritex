@@ -187,7 +187,8 @@ def make_super_scaffolds(links: Union[str, dd.DataFrame],
     membership = super_scaffolds["membership"]
     assert membership.index.name == "cluster"
     membership.index = membership.index.rename("scaffold_index")
-    maxidx = super_scaffolds["super_info"]["super"].max().compute()
+    assert super_scaffolds["super_info"].index.name == "super"
+    maxidx = super_scaffolds["super_info"].index.values.max().compute()
     membership = add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client)
     membership, res = add_statistics(membership, client)
     # mem_copy = dd.from_pandas(mem_copy, chunksize=1000)
