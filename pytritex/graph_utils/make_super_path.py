@@ -124,7 +124,7 @@ def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound, n
                 internal_rounds += 1
                 if internal_rounds >= maxiter:
                     break
-            path, changed, current_upper_bound = node_relocation(edges, path, current_upper_bound)
+            path, changed, current_upper_bound = node_relocation(edges, path, current_upper_bound, maxiter)
             rounds += 1
             if rounds >= maxiter:
                 break

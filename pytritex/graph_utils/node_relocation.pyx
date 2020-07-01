@@ -96,7 +96,8 @@ cdef (double, long)  _get_insertion_cost(double[:, :]& edges,
 @cython.wraparound(False)
 def node_relocation(np.ndarray[DTYPE_f, ndim=2, mode="c"] edges,
                     np.ndarray[DTYPE_i, ndim=1, mode="c"] path,
-                    double current_upper_bound):
+                    double current_upper_bound,
+                    long maxiter):
 
     # Edges is a SPARSE matrix where each non-found edge has a weight of 0
     # Path is a 1D numpy array with the positions.
@@ -118,6 +119,7 @@ def node_relocation(np.ndarray[DTYPE_f, ndim=2, mode="c"] edges,
         long opt_pos
         long previous, following
         long new_following
+        long iteration
 
     path_view = path[:]
     edge_view = edges[:]
@@ -135,8 +137,10 @@ def node_relocation(np.ndarray[DTYPE_f, ndim=2, mode="c"] edges,
             pairs[node].second = path[position + 1]
 
     header = path[0]
-    while changed:
+    iteration = 0
+    while changed and iteration <= maxiter:
         changed = False
+        iteration += 1
         for pos in range(path_view.shape[0]):
             # The *splicing* cost (given previous, node, next) is equal to:
             # weight[previous, next] - weight[node, next] - weight[previous, node]
