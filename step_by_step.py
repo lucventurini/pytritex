@@ -60,7 +60,9 @@ def grid_evaluation(assembly, args, client, memory):
         worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
         client = Client(set_as_default=True, timeout=60, direct_to_workers=True, memory_limit=worker_mem,
                         nanny=False)
-        client.cluster.scale(n=args.procs)
+        client.cluster.scale(args.procs)
+        # DO IT TWICE, sometimes the first time is not enough.
+        client.cluster.scale(args.procs)
         result = memory.cache(dispatcher, ignore=["memory", "client", "ncores"])(
             assembly, save_dir=args.save_prefix,
             memory=memory, row=row, client=client, ncores=args.procs)
@@ -95,7 +97,9 @@ def main():
     worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
     client = Client(set_as_default=True, timeout=60, direct_to_workers=True, memory_limit=worker_mem,
                     nanny=False)
-    client.cluster.scale(n=args.procs)
+    client.cluster.scale(args.procs)
+    # DO IT TWICE, sometimes the first time is not enough.
+    client.cluster.scale(args.procs)
 
     # Initial assembly
     memory = Memory(os.path.join(".", args.save_prefix), compress=("zlib", 6), verbose=1)
