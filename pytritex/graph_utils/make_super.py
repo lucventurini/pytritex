@@ -192,7 +192,7 @@ def make_super(hl: dd.DataFrame,
                 my_edges = client.scatter(edges.loc[ssuper])
                 my_membership = client.scatter(cms.loc[ssuper])
                 func = delayed(_concatenator)(my_edges, my_membership, known_ends, maxiter, verbose)
-                chrom_results.append(client.submit(func))
+                chrom_results.append(client.compute(func))
 
             logger.warning("%s Finished chr. %s (%s, %s%%), analysed %s, cached %s",
                            time.ctime(), chrom, chrom_total,
@@ -202,6 +202,7 @@ def make_super(hl: dd.DataFrame,
             analysed += chrom_analysed
             cached += chrom_cached
             chrom_results = client.gather(chrom_results)
+            assert isinstance(chrom_results[0], np.ndarray)
             results.extend(chrom_results)
 
         logger.warning("%s Finished make_super_scaffolds", time.ctime())
