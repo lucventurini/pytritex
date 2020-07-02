@@ -18,7 +18,7 @@ def get_previous_groups(membership):
 
     if membership is not None:
         if isinstance(membership, str):
-            membership = dd.read_parquet(membership, infer_divisions=True)
+            membership = dd.read_parquet(membership, infer_divisions=True, engine="pyarrow")
         else:
             assert isinstance(membership, dd.DataFrame)
         membership = membership.loc[
@@ -33,7 +33,7 @@ def get_previous_groups(membership):
 
 def prepare_tables(links, info, membership, excluded):
     if isinstance(links, str):
-        links = dd.read_parquet(links, infer_divisions=True)
+        links = dd.read_parquet(links, infer_divisions=True, engine="pyarrow")
     else:
         assert isinstance(links, dd.DataFrame)
     if excluded is None:
@@ -41,7 +41,7 @@ def prepare_tables(links, info, membership, excluded):
     else:
         logger.warning("No. of excluded scaffolds: %s", len(excluded))
     if isinstance(info, str):
-        info = dd.read_parquet(info, infer_divisions=True)
+        info = dd.read_parquet(info, infer_divisions=True, engine="pyarrow")
     else:
         assert isinstance(info, dd.DataFrame)
     membership = get_previous_groups(membership)

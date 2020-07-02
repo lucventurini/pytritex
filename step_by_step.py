@@ -3,6 +3,8 @@ import argparse
 import multiprocessing as mp
 import os
 import dask
+import matplotlib
+matplotlib.use("agg")  # Avoid pesky Gdk error messages
 dask.config.set({'distributed.worker.multiprocessing-method': 'spawn'})
 from pytritex.initialisation import initial
 from pytritex.anchoring.anchor_scaffolds import anchor_scaffolds
@@ -29,7 +31,7 @@ logger.setLevel(logging.ERROR)
 
 
 def dispatcher(assembly, save_dir, memory, client, row, ncores):
-    membership, result = scaffold_10x(assembly,
+    membership, result = memory.cache(scaffold_10x, ignore=["client", "memory", "ncores"])(assembly,
                           memory=memory,
                           save_dir=save_dir,
                           client=client,
@@ -55,20 +57,15 @@ def grid_evaluation(assembly, args, client, memory):
                                                              range(6 * 10**4, 10**5, 10**4)))))))
     print("Starting grid evaluation")
     results = []
-    client.close()
     for _index, row in grid.iterrows():
         worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
-        client = Client(set_as_default=True, timeout=60, direct_to_workers=False, memory_limit=worker_mem,
-                        nanny=False)
-        client.cluster.scale(args.procs)
         # DO IT TWICE, sometimes the first time is not enough.
         client.cluster.scale(args.procs)
-        result = memory.cache(dispatcher, ignore=["memory", "client", "ncores"])(
+        result = dispatcher(
             assembly, save_dir=args.save_prefix,
             memory=memory, row=row, client=client, ncores=args.procs)
         results.append(result)
         logger.warning("%s Finished row %s (%s)", time.ctime(), _index, row)
-        client.close()
     return results
 
 
@@ -96,7 +93,7 @@ def main():
     ne.set_num_threads(args.procs)
     worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
     client = Client(set_as_default=True, timeout=60, direct_to_workers=False, memory_limit=worker_mem,
-                    nanny=False)
+                    nanny=False, dashboard_address=None)
     client.cluster.scale(args.procs)
     # DO IT TWICE, sometimes the first time is not enough.
     client.cluster.scale(args.procs)

@@ -56,8 +56,8 @@ def _initial_branch_remover(client: Client,
     if excluded is None:
         excluded = set()
 
-    links = dd.read_parquet(links, infer_divisions=True)
-    info = dd.read_parquet(info, infer_divisions=True)
+    links = dd.read_parquet(links, infer_divisions=True, engine="pyarrow")
+    info = dd.read_parquet(info, infer_divisions=True, engine="pyarrow")
     scaffolds_to_use = np.unique(links[["scaffold_index1", "scaffold_index2"]].values.compute().flatten())
     info_to_use = info.loc[scaffolds_to_use].persist()
 
@@ -88,9 +88,9 @@ def _initial_branch_remover(client: Client,
                                               maxidx, excluded, client)
     out["membership"], out["info"] = add_statistics(out["membership"], client)
 
-    dd.to_parquet(out["membership"], os.path.join(save_dir, "membership"))
+    dd.to_parquet(out["membership"], os.path.join(save_dir, "membership"), compute=True, compression="gzip", engine="pyarrow")
     # res = dd.from_pandas(res, chunksize=1000)
-    dd.to_parquet(out["info"], os.path.join(save_dir, "result"))
+    dd.to_parquet(out["info"], os.path.join(save_dir, "result"), compute=True, compression="gzip", engine="pyarrow")
     out = {"membership": os.path.join(save_dir, "membership"),
            "info": os.path.join(save_dir, "result")}
 

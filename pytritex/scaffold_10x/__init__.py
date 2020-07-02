@@ -8,8 +8,10 @@ from joblib import Memory
 import os
 import hashlib
 from dask.distributed import Client
-
+import logging
+logger = logging.getLogger("dask")
 sha = hashlib.sha256()
+import json
 
 
 def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
@@ -26,7 +28,18 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
 
     params = (min_npairs, max_dist, min_nmol, min_nsample, popseq_dist, max_dist_orientation, raw)
     sha.update(str(params).encode())
-    folder = os.path.join(save_dir, "joblib", "pytritex", "scaffold_10x", sha.hexdigest())
+    hash_string = sha.hexdigest()
+    logger.warning("%s Starting parameters %s, digest folder %s",
+                                      time.ctime(), params, hash_string)
+    folder = os.path.join(save_dir, "joblib", "pytritex", "scaffold_10x", hash_string)
+    os.makedirs(folder, exist_ok=True)
+    # Dump the parameters
+    params_dict = {"min_npairs": int(min_npairs), "max_dist": int(max_dist), "min_nmol": int(min_nmol),
+                   "min_nsample": int(min_nsample), "popseq_dist": float(popseq_dist), "max_dist_orientation": int(max_dist_orientation),
+                   "raw": bool(raw), "info": str(info), "molecules": str(molecules), "fai": str(fai), "unanchored": bool(unanchored)}
+    with open(os.path.join(folder, "meta.json"), "wt") as meta_out:
+        json.dump(params_dict, meta_out)
+    
     sample_count, links, link_pos = memory.cache(_initial_link_finder,
                                                  ignore=["client"])(
         info=info, molecules=molecules,
