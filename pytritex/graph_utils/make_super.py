@@ -149,15 +149,16 @@ def make_super(hl: dd.DataFrame,
 
     if paths is True:
         cms = membership.loc[:, ["super", "cM"]
-              ].reset_index(drop=False).drop_duplicates().set_index("super").persist()
-        cms = cms.repartition(npartitions=num_supers)
+              ].copyt().reset_index(drop=False).drop_duplicates().set_index("super").persist()
+
         # cms = _rebalance_ddf(cms, npartitions=100)
         if path_max > 0:
             idx = np.unique(super_object["super_info"][["super", "length"]].compute().sort_values(
                 "length", ascending=False).head(path_max).index.values)
         else:
             idx = np.unique(super_object["super_info"].index.values.compute())
-        edges = super_object["edges"].set_index("super").repartition(npartitions=num_supers)
+        edges = super_object["edges"].set_index("super").persist()
+
         # grouped_edges = super_object["edges"].groupby("super")
         # grouped_membership = cms.groupby("super")
         order = membership
