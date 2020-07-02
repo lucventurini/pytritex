@@ -3,6 +3,7 @@ import numpy as np
 # import graph_tool
 # import graph_tool as gt
 # import graph_tool.clustering
+from dask.delayed import delayed
 import time
 import networkit as nk
 import dask.dataframe as dd
@@ -149,7 +150,7 @@ def make_super(hl: dd.DataFrame,
 
     if paths is True:
         cms = membership.loc[:, ["super", "cM"]
-              ].copyt().reset_index(drop=False).drop_duplicates().set_index("super").persist()
+              ].copy().reset_index(drop=False).drop_duplicates().set_index("super").persist()
 
         # cms = _rebalance_ddf(cms, npartitions=100)
         if path_max > 0:
@@ -190,8 +191,9 @@ def make_super(hl: dd.DataFrame,
                 logger.debug("%s Analysing super %s on chromosome %s", time.ctime(), ssuper, popseq_chr)
                 my_edges = client.scatter(edges.loc[ssuper])
                 my_membership = client.scatter(cms.loc[ssuper])
-                chrom_results.append(client.submit(_concatenator,
-                                                   my_edges, my_membership, known_ends, maxiter, verbose))
+                func = delayed(_concatenator)(my_edges, my_membership, known_ends, maxiter, verbose)
+                chrom_results.append(client.submit(func))
+
             logger.warning("%s Finished chr. %s (%s, %s%%), analysed %s, cached %s",
                            time.ctime(), chrom, chrom_total,
                            round(100 * chrom_total / total, 2),
