@@ -201,6 +201,7 @@ def make_super_path(origin_edge_list, cms, start=None, end=None, maxiter=100, ve
          ranks[:, [1, 2, 3]]])
 
     try:
+        cms = cms.reset_index(drop=True).set_index("cluster")
         cms = cms.reindex(ranks[:, 0])["cM"].values
         index = np.where(~np.isnan(cms))[0]
         if index.shape[0] > 1:

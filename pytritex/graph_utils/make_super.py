@@ -110,6 +110,7 @@ def make_super(hl: dd.DataFrame,
         import sys
         sys.exit(1)
     # Create a dataframe of cluster/super-scaffolds relationship
+    num_supers = len(ssuper)
     length = len(cidx_list)
     raw_membership = pd.DataFrame().assign(cidx=cidx_list, super=ssuper).set_index("cidx")
     raw_membership = raw_membership.merge(
@@ -148,15 +149,17 @@ def make_super(hl: dd.DataFrame,
 
     if paths is True:
         cms = membership.loc[:, ["super", "cM"]
-              ].reset_index(drop=False).drop_duplicates().set_index("cluster")
-        cms = _rebalance_ddf(cms, npartitions=100)
+              ].reset_index(drop=False).drop_duplicates().set_index("super").persist()
+        cms = cms.repartition(npartitions=num_supers)
+        # cms = _rebalance_ddf(cms, npartitions=100)
         if path_max > 0:
             idx = np.unique(super_object["super_info"][["super", "length"]].compute().sort_values(
                 "length", ascending=False).head(path_max).index.values)
         else:
             idx = np.unique(super_object["super_info"].index.values.compute())
-        grouped_edges = super_object["edges"].groupby("super")
-        grouped_membership = cms.groupby("super")
+        edges = super_object["edges"].set_index("super").repartition(npartitions=num_supers)
+        # grouped_edges = super_object["edges"].groupby("super")
+        # grouped_membership = cms.groupby("super")
         order = membership
         # Removing the useless index (=cluster)
         order = order.loc[order["super"].isin(idx),
@@ -183,11 +186,9 @@ def make_super(hl: dd.DataFrame,
                     chrom_cached += 1
                     continue
                 chrom_analysed += 1
-                indices = grouped_membership.get_group(ssuper).index
                 logger.debug("%s Analysing super %s on chromosome %s", time.ctime(), ssuper, popseq_chr)
-                edge_indices = grouped_edges.get_group(ssuper).index
-                my_edges = client.scatter(edge_list.loc[edge_indices])
-                my_membership = client.scatter(cms.loc[indices])
+                my_edges = client.scatter(edges.loc[ssuper])
+                my_membership = client.scatter(cms.loc[ssuper])
                 chrom_results.append(client.submit(_concatenator,
                                                    my_edges, my_membership, known_ends, maxiter, verbose))
             logger.warning("%s Finished chr. %s (%s, %s%%), analysed %s, cached %s",
