@@ -58,7 +58,7 @@ def grid_evaluation(assembly, args, client, memory):
     client.close()
     for _index, row in grid.iterrows():
         worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
-        client = Client(set_as_default=True, timeout=60, direct_to_workers=True, memory_limit=worker_mem,
+        client = Client(set_as_default=True, timeout=60, direct_to_workers=False, memory_limit=worker_mem,
                         nanny=False)
         client.cluster.scale(args.procs)
         # DO IT TWICE, sometimes the first time is not enough.
