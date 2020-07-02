@@ -95,7 +95,7 @@ def main():
     # dask.config.global_config.update({"distributed.comm.timeouts.tcp": "300s"})
     ne.set_num_threads(args.procs)
     worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
-    client = Client(set_as_default=True, timeout=60, direct_to_workers=True, memory_limit=worker_mem,
+    client = Client(set_as_default=True, timeout=60, direct_to_workers=False, memory_limit=worker_mem,
                     nanny=False)
     client.cluster.scale(args.procs)
     # DO IT TWICE, sometimes the first time is not enough.

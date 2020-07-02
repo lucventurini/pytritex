@@ -19,7 +19,7 @@ def _concatenator(edges, membership, known_ends=False, maxiter=100, verbose=Fals
     if known_ends:
         x = membership.query("cM == cM").sort_values("cM").index
         start, end = x.head(1), x.tail(1)
-    final = make_super_path(edges.compute(), membership.compute(),
+    final = make_super_path(edges, membership,
                             start=start, end=end,
                             maxiter=maxiter, verbose=verbose)
     return final
@@ -150,8 +150,13 @@ def make_super(hl: dd.DataFrame,
 
     if paths is True:
         cms = membership.loc[:, ["super", "cM"]
-              ].copy().reset_index(drop=False).drop_duplicates().set_index("super").persist()
-
+              ].copy().reset_index(drop=False).set_index("super").persist().rename(
+                  columns={"scaffold_index": "cluster"})
+        if "cluster" not in cms.columns:
+            logger.critical("\n\n%s\n\n", cms.head())
+            import sys
+            sys.exit(1)
+        assert "cluster" in cms.columns, cms.head()
         # cms = _rebalance_ddf(cms, npartitions=100)
         if path_max > 0:
             idx = np.unique(super_object["super_info"][["super", "length"]].compute().sort_values(
@@ -166,7 +171,6 @@ def make_super(hl: dd.DataFrame,
         # Removing the useless index (=cluster)
         order = order.loc[order["super"].isin(idx),
                           ["super", "chr"]].drop_duplicates().compute().sort_values(["chr"]).reset_index(drop=True)
-        print(time.ctime(), "Starting super, with", idx.shape[0], "positions to analyse.")
         results = []
         to_skip, previous_results = find_previous_results(raw_membership, previous_membership)
         # First thing: let's check whether we have previous hits. We will consider these separately.
@@ -189,10 +193,17 @@ def make_super(hl: dd.DataFrame,
                     continue
                 chrom_analysed += 1
                 logger.debug("%s Analysing super %s on chromosome %s", time.ctime(), ssuper, popseq_chr)
-                my_edges = client.scatter(edges.loc[ssuper])
-                my_membership = client.scatter(cms.loc[ssuper])
+                # my_edges = client.scatter(edges.loc[ssuper])
+                # my_membership = client.scatter(cms.loc[ssuper])
+                my_edges = edges.loc[ssuper]
+                my_membership = cms.loc[ssuper]
                 func = delayed(_concatenator)(my_edges, my_membership, known_ends, maxiter, verbose)
                 chrom_results.append(client.compute(func))
+                if len(chrom_results) > 100:
+                    chrom_results = client.gather(chrom_results)
+                    assert isinstance(chrom_results[0], np.ndarray)
+                    results.extend(chrom_results)
+                    chrom_results = []
 
             logger.warning("%s Finished chr. %s (%s, %s%%), analysed %s, cached %s",
                            time.ctime(), chrom, chrom_total,
@@ -202,8 +213,9 @@ def make_super(hl: dd.DataFrame,
             analysed += chrom_analysed
             cached += chrom_cached
             chrom_results = client.gather(chrom_results)
-            assert isinstance(chrom_results[0], np.ndarray)
-            results.extend(chrom_results)
+            if len(chrom_results) > 0:
+                assert isinstance(chrom_results[0], np.ndarray)
+                results.extend(chrom_results)
 
         logger.warning("%s Finished make_super_scaffolds", time.ctime())
         results = np.vstack(results + previous_results)
@@ -211,9 +223,9 @@ def make_super(hl: dd.DataFrame,
             cluster=results[:, 0], bin=results[:, 1], rank=results[:, 2], backbone=results[:, 3])
         assert results.cluster.unique().shape[0] == results.shape[0]
         results = results.set_index("cluster")
-        super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster")
+        super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster").persist()
         assert super_object["membership"].index.name == "cluster"
 
-    super_object["membership"] = super_object["membership"].drop("cidx", axis=1)
+    super_object["membership"] = super_object["membership"].drop("cidx", axis=1).persist()
     logger.warning("%s Finished make_super run", time.ctime())
     return super_object

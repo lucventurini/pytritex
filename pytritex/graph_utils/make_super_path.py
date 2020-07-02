@@ -200,25 +200,20 @@ def make_super_path(origin_edge_list, cms, start=None, end=None, maxiter=100, ve
         [convert_array(cidx[1, :], cidx[0, :], ranks[:, 0]).reshape(ranks.shape[0], 1),
          ranks[:, [1, 2, 3]]])
 
-    try:
-        cms = cms.reset_index(drop=True).set_index("cluster")
-        cms = cms.reindex(ranks[:, 0])["cM"].values
-        index = np.where(~np.isnan(cms))[0]
-        if index.shape[0] > 1:
-            _cms = cms[index]
-            _bins = ranks[index, 1].reshape(index.shape[0])
-            assert _cms.shape[0] == _bins.shape[0], (_cms, _bins)
-            if np.unique(_cms).shape[0] < 2:
-                flip = np.nan
-            else:
-                flip = scipy.stats.pearsonr(_bins, _cms)[0]
-        else:
+    assert "cluster" in cms.columns
+    cms = cms.reset_index(drop=True).set_index("cluster")
+    cms = cms.reindex(ranks[:, 0])["cM"].values
+    index = np.where(~np.isnan(cms))[0]
+    if index.shape[0] > 1:
+        _cms = cms[index]
+        _bins = ranks[index, 1].reshape(index.shape[0])
+        assert _cms.shape[0] == _bins.shape[0], (_cms, _bins)
+        if np.unique(_cms).shape[0] < 2:
             flip = np.nan
-    except KeyError as exc:
-        print(cms.index)
-        print(ranks[:, 0])
-        print(cidx)
-        raise KeyError(exc)
+        else:
+            flip = scipy.stats.pearsonr(_bins, _cms)[0]
+    else:
+        flip = np.nan
 
     if not np.isnan(flip) and flip < 0:
         # Flip the order
