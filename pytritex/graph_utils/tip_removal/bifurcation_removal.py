@@ -29,6 +29,16 @@ def _remove_bifurcations(links: dd.DataFrame,
     #     out$membership -> m
     #    }
 
+    if isinstance(membership, str):
+        membership = dd.read_parquet(membership, infer_divisions=True)
+    else:
+        assert isinstance(membership, dd.DataFrame)
+
+    if isinstance(info, str):
+        info = dd.read_parquet(info, infer_divisions=True)
+    else:
+        assert isinstance(info, dd.DataFrame)
+
     if membership.shape[0].compute() == 0:
         return membership, info, excluded
     keys = ["super", "super_nbin", "length", "bin"]

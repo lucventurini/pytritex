@@ -11,6 +11,11 @@ def _remove_bulges(links: dd.DataFrame,
                    save_dir: str,
                    info: dd.DataFrame, min_dist=minimum_distance, ncores=1):
 
+    if isinstance(membership, str):
+        membership = dd.read_parquet(membership, infer_divisions=True)
+    else:
+        assert isinstance(membership, dd.DataFrame)
+
     add = membership[(membership["rank"] == 1) & (membership["length"] <= min_dist)].index.compute().values
     if add.shape[0] > 0:
         excluded.update(add.tolist())

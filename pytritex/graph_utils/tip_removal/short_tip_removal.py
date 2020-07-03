@@ -34,6 +34,11 @@ def _remove_short_tips(links: dd.DataFrame,
     # #    out$m -> m
     # #   }
 
+    if isinstance(membership, str):
+        membership = dd.read_parquet(membership, infer_divisions=True)
+    else:
+        assert isinstance(membership, dd.DataFrame)
+
     inner = membership.loc[membership["rank"] == 1, ["super", "bin"]].values.compute()
     inner0 = np.tile(inner[:, 0], 3)
     inner1 = np.tile(inner[:, 1], 3).reshape(3, inner.shape[0]) + np.array([0, -1, 1]).reshape(3, 1)

@@ -41,6 +41,16 @@ def remove_tips(links: str, excluded, out: dict, info: str,
                                                      client=client, save_dir=save_dir,
                                                      min_dist=min_dist, ncores=ncores)
 
+    if isinstance(membership, str):
+        membership = dd.read_parquet(membership, infer_divisions=True)
+    else:
+        assert isinstance(membership, dd.DataFrame)
+
+    if isinstance(res, str):
+        res = dd.read_parquet(res, infer_divisions=True)
+    else:
+        assert isinstance(res, dd.DataFrame) or res is None
+
     if membership.head(npartitions=-1).shape[0] == 0:
         print("This set of parameters leads to lose everything.")
         return membership, info, excluded
@@ -60,6 +70,11 @@ def remove_tips(links: str, excluded, out: dict, info: str,
                                    ncores=ncores,
                                    client=client, save_dir=save_dir,
                                    to_parquet=False)
+        membership = out["membership"]
+        if isinstance(membership, str):
+            membership = dd.read_parquet(membership, infer_divisions=True)
+        else:
+            assert isinstance(membership, str)
 
     add = membership.query("rank > 0").index.compute().values
     if add.shape[0] > 0:

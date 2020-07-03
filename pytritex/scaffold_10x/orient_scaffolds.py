@@ -141,10 +141,10 @@ def orient_scaffolds(info: str, res: str,
                      max_dist_orientation: float,
                      save_dir: str):
 
-    membership = dd.read_parquet(membership, infer_divisions=True, engine="pyarrow")
-    link_pos = dd.read_parquet(link_pos, infer_divisions=True, engine="pyarrow")
-    info = dd.read_parquet(info, infer_divisions=True, engine="pyarrow")
-    res = dd.read_parquet(res, infer_divisions=True, engine="pyarrow")
+    membership = dd.read_parquet(membership, infer_divisions=True, engine="auto")
+    link_pos = dd.read_parquet(link_pos, infer_divisions=True, engine="auto")
+    info = dd.read_parquet(info, infer_divisions=True, engine="auto")
+    res = dd.read_parquet(res, infer_divisions=True, engine="auto")
 
     membership = membership.drop_duplicates()
     # #  m[super_nbin > 1, .(scaffold1=scaffold, bin1=bin, super1=super)][link_pos, on="scaffold1", nomatch=0]->a
