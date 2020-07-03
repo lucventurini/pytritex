@@ -108,7 +108,9 @@ def _calculate_orientation_column(membership, final_association, client):
     final_association["orientation"] = orientation
     assert isinstance(final_association, dd.DataFrame), type(final_association)
     logger.warning("%s Merging the orientation variable back into membership", time.ctime())
-    func = delayed(dd.merge)(client.scatter(membership), client.scatter(final_association[["orientation"]]), left_index=True, right_index=True, how="left")
+    func = delayed(dd.merge)(client.scatter(membership),
+                             client.scatter(final_association[["orientation"]]),
+                             left_index=True, right_index=True, how="left")
     membership = client.compute(func).result().drop_duplicates()
     logger.warning("%s Merged the orientation variable back into membership", time.ctime())
     return membership
@@ -174,7 +176,7 @@ def orient_scaffolds(info: str, res: str,
     super_pos = dd.from_pandas(super_pos, npartitions=min(10, super_pos.shape[0]))
     assert membership.index.name == "scaffold_index", (membership.index.name,)
     membership = membership.reset_index(drop=False).astype({"scaffold_index": np.int}).set_index("scaffold_index")
-    membership = dd.merge(membership, super_pos, on="scaffold_index")
+    membership = dd.merge(membership, super_pos, on="scaffold_index", how="left")
     membership["super_pos"] = membership["super_pos"].fillna(1)
     # Now add back missing scaffolds
     excluded_scaffolds = membership[membership["excluded"] == True].index.values.compute()
