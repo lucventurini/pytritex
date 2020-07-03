@@ -148,11 +148,14 @@ def orient_scaffolds(info: str, res: str,
     res = dd.read_parquet(res, infer_divisions=True, engine="auto")
 
     membership = membership.drop_duplicates()
+    assert membership.shape[0].compute() > 0
+    maxidx = membership["super"].values.max().compute()
     # #  m[super_nbin > 1, .(scaffold1=scaffold, bin1=bin, super1=super)][link_pos, on="scaffold1", nomatch=0]->a
 
     final_association = _create_association(membership, info, link_pos, client, max_dist_orientation)
     membership = _calculate_orientation_column(membership, final_association, client)
     membership = _calculate_oriented_column(membership)
+
     # Next step: assign to each scaffold a base-pair position in the super-scaffold, "super_pos"
     # This position should be determined by bin and rank.
 
@@ -174,7 +177,6 @@ def orient_scaffolds(info: str, res: str,
     membership = dd.merge(membership, super_pos, on="scaffold_index")
     membership["super_pos"] = membership["super_pos"].fillna(1)
     # Now add back missing scaffolds
-    maxidx = membership["super"].values.max().compute()
     excluded_scaffolds = membership[membership["excluded"] == True].index.values.compute()
     membership = add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client)
     membership = membership.persist()
