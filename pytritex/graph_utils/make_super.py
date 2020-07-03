@@ -183,7 +183,7 @@ def make_super(hl: dd.DataFrame,
             chrom_results = []
             subset = order[order["chr"] == chrom]
             chrom_total = subset.shape[0]
-            logger.warning("%s Starting chromosome %s", time.ctime(), chrom)
+            logger.debug("%s Starting chromosome %s", time.ctime(), chrom)
             for row in subset.itertuples(name=None):
                 index, ssuper, popseq_chr = row
                 if ssuper in to_skip:
@@ -205,7 +205,7 @@ def make_super(hl: dd.DataFrame,
                     results.extend(chrom_results)
                     chrom_results = []
 
-            logger.warning("%s Finished chr. %s (%s, %s%%), analysed %s, cached %s",
+            logger.debug("%s Finished chr. %s (%s, %s%%), analysed %s, cached %s",
                            time.ctime(), chrom, chrom_total,
                            round(100 * chrom_total / total, 2),
                            chrom_analysed, chrom_cached
