@@ -31,7 +31,7 @@ logger.setLevel(logging.ERROR)
 
 
 def dispatcher(assembly, save_dir, memory, client, row, ncores):
-    membership, result = memory.cache(scaffold_10x, ignore=["client", "memory", "ncores"])(assembly,
+    membership, result = scaffold_10x(assembly,
                           memory=memory,
                           save_dir=save_dir,
                           client=client,
