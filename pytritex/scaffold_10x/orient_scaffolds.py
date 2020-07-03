@@ -8,6 +8,7 @@ from dask.distributed import Client
 import logging
 logger = logging.getLogger("distributed.worker")
 import time
+from ..graph_utils.make_super_scaffolds import add_missing_scaffolds, add_statistics
 # from .make_agp import make_agp
 
 #  m[super_nbin > 1, .(scaffold1=scaffold, bin1=bin, super1=super)][link_pos, on="scaffold1", nomatch=0]->a
@@ -172,6 +173,10 @@ def orient_scaffolds(info: str, res: str,
     membership = membership.reset_index(drop=False).astype({"scaffold_index": np.int}).set_index("scaffold_index")
     membership = dd.merge(membership, super_pos, on="scaffold_index")
     membership["super_pos"] = membership["super_pos"].fillna(1)
+    # Now add back missing scaffolds
+    maxidx = membership["super"].values.max().compute()
+    excluded_scaffolds = membership[membership["excluded"] == True].index.values.compute()
+    membership = add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client)
     membership = membership.persist()
     logger.warning("%s Added the super_pos columns", time.ctime())
 
@@ -209,11 +214,12 @@ def orient_scaffolds(info: str, res: str,
     if res.index.name is None:
         res = res.set_index("super")
     nchr = nchr.set_index("super")
-    func = delayed(dd.merge)(client.scatter(nchr), client.scatter(res), on="super")
+    func = delayed(dd.merge)(client.scatter(nchr), client.scatter(res), on="super", how="right")
     res = client.compute(func).result()
     res = res.persist()
-    func = delayed(dd.merge)(nchr_with_cms, client.scatter(res), on="super")
+    func = delayed(dd.merge)(nchr_with_cms, client.scatter(res), on="super", how="right")
     res = client.compute(func).result()
+
     logger.warning("%s Merged everything into res, saving", time.ctime())
     res_name = os.path.join(save_dir, "res")
     dd.to_parquet(res, res_name, compression="gzip", compute=True, engine="pyarrow")
