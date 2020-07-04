@@ -57,6 +57,7 @@ def _remove_bifurcations(links: dd.DataFrame,
     func = delayed(dd.merge)(left, upper, on=key)
     upper = client.compute(func).result()
     upper = upper.persist()
+    upper_size = upper.shape[0].compute()
     assert "scaffold_index" in upper.columns
     upper = client.scatter(upper)
     # m[x[type == F,.(super, bin0, bin=super_nbin)], on = c("super", "bin")]
@@ -65,10 +66,14 @@ def _remove_bifurcations(links: dd.DataFrame,
     func = delayed(dd.merge)(left, lower, on=key)
     lower = client.compute(func).result()
     lower.persist()
+    lower_size = lower.shape[0].compute()
+    assert max(lower_size, upper_size) > 0
     assert "scaffold_index" in lower.columns
     lower = client.scatter(lower)
     func = delayed(dd.concat)([upper, lower])
     a = client.compute(func).result()
+    assert isinstance(a, dd.DataFrame)
+    # assert a.shape[0].compute() > 0
     a = a.drop_duplicates().rename(columns={"length": "length2", "scaffold_index": "scaffold_index2"})
     a = client.scatter(a)
     # Now merge with "x" to find places to exclude

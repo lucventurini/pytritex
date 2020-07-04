@@ -9,6 +9,7 @@ from dask.delayed import delayed
 import logging
 from typing import Union
 logger = logging.getLogger("distributed.worker")
+import time
 
 
 def get_previous_groups(membership):
@@ -92,6 +93,7 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
 
     _to_concatenate = info.loc[bait_index, ["popseq_chr", "popseq_cM", "length"]].rename(
         columns={"popseq_chr": "chr", "popseq_cM": "cM"})
+    _to_concatenate = _to_concatenate.persist()
     assert _to_concatenate.shape[0].compute() == len(bait_index)
 
     chunks = client.compute(delayed(
@@ -108,10 +110,20 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
         sys.exit(1)
     excl_column = da.from_array(excl_vector, chunks=chunks)
 
+    _to_concatenate = _to_concatenate.persist()
     _to_concatenate = _to_concatenate.assign(
         bin=1, rank=0, backbone=True,
         excluded=excl_column,
         super=sup_column)
+    _to_concatenate = _to_concatenate.persist()
+    assert _to_concatenate.index.name == membership.index.name
+    if _to_concatenate.index.dtype != membership.index.dtype:
+        assert membership.index.name is not None
+        name = membership.index.name
+        _to_concatenate = _to_concatenate.reset_index(drop=False)
+        _to_concatenate[name] = _to_concatenate[name].astype(membership.index.dtype)
+        _to_concatenate = _to_concatenate.set_index(name).persist()
+    assert _to_concatenate.index.dtype == membership.index.dtype
     func = delayed(dd.concat)([client.scatter(membership), client.scatter(_to_concatenate)])
     new_membership = client.compute(func).result()
     new_membership = new_membership.reset_index(drop=False)
@@ -145,6 +157,10 @@ def add_statistics(membership, client):
     res = dd.merge(res_size, res_cols, on="super")
     left = res.loc[:, ["n", "nbin"]].rename(
         columns={"n": "super_size", "nbin": "super_nbin"})
+    if left.index.dtype != membership.index.dtype:
+        left = left.reset_index(drop=False)
+        left["super"] = left["super"].astype(membership.index.dtype)
+        left = left.set_index("super").persist()
     left = client.scatter(left)
     membership = client.scatter(membership)
     func = delayed(dd.merge)(left, membership, left_index=True, right_on="super",
@@ -175,6 +191,7 @@ def make_super_scaffolds(links: Union[str, dd.DataFrame],
     links, info, membership, excluded_scaffolds, cluster_info, hl = prepare_tables(
         links, info, excluded=excluded, membership=membership)
 
+    logger.warning("%s Starting make_super", time.ctime())
     super_scaffolds = make_super(
         hl=hl,
         cluster_info=cluster_info,
@@ -182,6 +199,7 @@ def make_super_scaffolds(links: Union[str, dd.DataFrame],
         client=client,
         verbose=False, cores=ncores,
         paths=True, path_max=0, known_ends=False, maxiter=100)
+    logger.warning("%s Finished make_super", time.ctime())    
 
     # Take the membership table. Extract the scaffolds IDs which are *not* present in the table.
     membership = super_scaffolds["membership"]
@@ -189,13 +207,17 @@ def make_super_scaffolds(links: Union[str, dd.DataFrame],
     membership.index = membership.index.rename("scaffold_index")
     assert super_scaffolds["super_info"].index.name == "super"
     maxidx = super_scaffolds["super_info"].index.values.max().compute()
+    logger.warning("%s Starting add_missing_scaffolds", time.ctime())
     membership = add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client)
+    logger.warning("%s Finished add_missing_scaffolds, starting add_statistics", time.ctime())    
     membership, res = add_statistics(membership, client)
+    logger.warning("%s Finished add_statistics", time.ctime())        
     # mem_copy = dd.from_pandas(mem_copy, chunksize=1000)
     if to_parquet is True:
         dd.to_parquet(membership, os.path.join(save_dir, "membership"))
         # res = dd.from_pandas(res, chunksize=1000)
         dd.to_parquet(res, os.path.join(save_dir, "result"))
+        logger.warning("%s Finished saving the data to disk", time.ctime())
         return {"membership": os.path.join(save_dir, "membership"),
                 "info": os.path.join(save_dir, "result")}
     else:
