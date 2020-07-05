@@ -32,16 +32,9 @@ def iteration(counter, membership, excluded, links, save_dir, client, info, ncor
         run = False
     else:
         # Drop all the links between the backbone of the "fuzzy" scaffolds and the spikes.
-        previous = len(excluded)
         excluded.update(set(add["scaffold_index"].values.compute().tolist()))
-        if previous == len(excluded):
-            run = False
         assert len(excluded) > 0
         logger.warning("%s Run %s excluding %s", time.ctime(), counter, len(excluded))
-        # Now let's save the core of the fuzzy super-scaffolds
-        # add = add.copy()
-        # sups = dict((ssup, idx + 1) for idx, ssup in enumerate(sorted(add["super"].unique().values.compute())))
-        # add["super"] = add["super"].map(sups)
 
     logger.warning("Finished run %s", counter)
     return out, excluded, run
