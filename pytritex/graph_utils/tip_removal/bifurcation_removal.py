@@ -49,10 +49,11 @@ def _remove_bifurcations(links: dd.DataFrame,
     bifurcated = bifurcated.eval("type = (bin == 2)").rename(columns={"bin": "bin0"})
     bifurcated = bifurcated[["super", "super_nbin", "type", "length", "bin0"]]
     bifurcated = bifurcated.reset_index(drop=False).drop_duplicates()
+    bifurcated = bifurcated.astype({"super": np.int})
     key = ["super", "bin"]
     # indexed = dd_membership.set_index(key)
     # m[x[type == T,.(super, bin0, bin=1)], on = c("super", "bin")],
-    left = client.scatter(membership.reset_index(drop=False))
+    left = client.scatter(membership.reset_index(drop=False).astype({"super": np.int}))
     upper = client.scatter(bifurcated.loc[bifurcated.type, ["super", "bin0"]].assign(bin=1))
     func = delayed(dd.merge)(left, upper, on=key)
     upper = client.compute(func).result()
