@@ -50,11 +50,16 @@ Result: {res}\n""".format(ctime=time.ctime(),
 
 def grid_evaluation(assembly, args, client, memory):
 
+    npairs = list(range(args.npairs[0], args.npairs[1] + 1))
+    nmol = list(range(args.nmol[0], args.nmol[1] + 1))
+    nsamples = list(range(args.nsamples[0], args.nsamples[1] + 1))
+    dist = list(range(args.dist[0], args.dist[1] + args.dist[2],
+                      args.dist[2]))
     grid = pd.DataFrame(dict(zip(("npairs", "nmol", "nsample", "dist"),
-                                 list(zip(*itertools.product((2, 3),
-                                                             (2, 3),
-                                                             (1, 2),
-                                                             range(6 * 10**4, 10**5, 10**4)))))))
+                                 list(zip(*itertools.product(npairs,
+                                                             nmol,
+                                                             nsamples,
+                                                             dist))))))
     print("Starting grid evaluation")
     results = []
     for _index, row in grid.iterrows():
@@ -75,6 +80,15 @@ def main():
     parser.add_argument("-p", "--processes", dest="procs", default=mp.cpu_count(), type=int)
     parser.add_argument("-s", "--save-prefix", default="assembly")
     parser.add_argument("-dc", "--dask-cache", default="dask_data", type=str)
+    parser.add_argument("--nsamples", nargs=2, type=int, default=[1, 2],
+                        help="Inclusive range to investigate for the min_nsample parameter. Default: [2, 3]")
+    parser.add_argument("--nmol", nargs=2, type=int, default=[2, 3],
+                        help="Inclusive range to investigate for the min_nmol parameter. Default: [2, 3]")
+    parser.add_argument("--npairs", nargs=2, type=int, default=[2, 3],
+                        help="Inclusive range to investigate for the min_npairs parameter. Default: [2, 3]")
+    parser.add_argument("--dist", nargs=3, type=int, default=[6 * 10**4, 9 * 10**4, 10**4],
+                        help="Inclusive range to investigate for the dist parameter, with step size.\
+                        Default: [60,000, 90,000, 10,000]")
     # parser.add_argument("-umfs", "--use-memory_fs", default=False, action="store_true")
     parser.add_argument("--mem", default="20GB", type=str)
     parser.add_argument("--save", default=False, action="store_true")

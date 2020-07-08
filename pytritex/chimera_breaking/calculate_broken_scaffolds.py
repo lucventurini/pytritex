@@ -53,10 +53,11 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str,
 
     broken = breaks.copy()
     broken = dd.merge(fai, broken.drop("length", axis=1, errors="ignore"),
-                      on="scaffold_index", how="right").compute()
+                      on="scaffold_index", how="right")
     if broken.index.name == "scaffold_index":
         broken = broken.reset_index(drop=False)
-    assert broken.shape[0] == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0]
+    assert broken.shape[0].compute() == broken[
+        ["scaffold_index", "breakpoint"]].drop_duplicates().shape[0].compute()
     assert "scaffold_index" in broken.columns
 
     # Broken structure:

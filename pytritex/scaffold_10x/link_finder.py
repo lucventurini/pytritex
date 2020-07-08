@@ -79,18 +79,15 @@ def _calculate_link_pos(molecules: str, fai: str, save_dir: str,
 
 
 def mol_counter(link_pos, min_nmol):
-    mol_count = link_pos[
-        ["scaffold_index1", "scaffold_index2", "sample", "barcode_index"]].drop_duplicates()
+    mol_count = link_pos[["scaffold_index1", "scaffold_index2", "sample", "barcode_index"]].drop_duplicates()
     mol_count = mol_count.groupby(
         ["scaffold_index1", "scaffold_index2", "sample"])["barcode_index"].size().to_frame("nmol")
     mol_count = mol_count[mol_count["nmol"] >= min_nmol]
-    # Then count how many samples pass the filter, and keep track of it.
     return mol_count
 
 
 def sample_counter(mol_count, min_nsample):
-    sample_count = mol_count.reset_index(drop=False)[
-        ["scaffold_index1", "scaffold_index2", "sample"]].drop_duplicates().persist()
+    sample_count = mol_count.reset_index(drop=False)[["scaffold_index1", "scaffold_index2", "sample"]].drop_duplicates().persist()
     sample_count = sample_count.groupby(
         ["scaffold_index1", "scaffold_index2"])["sample"].size().rename("nsample").persist()
     sample_count = sample_count[sample_count >= min_nsample].to_frame("nsample")

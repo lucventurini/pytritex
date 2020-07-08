@@ -33,7 +33,7 @@ def break_10x(assembly: dict, memory, save_dir: str, client: Client,
     if intermediate is True:
         assemblies = {0: assembly}
 
-    while breaks.shape[0] > 0 and cycle <= maxcycle:
+    while breaks.shape[0].compute() > 0 and cycle <= maxcycle:
         cycle += 1
         assembly = break_scaffolds(breaks=breaks, save_dir=save_dir,
                                    memory=memory,
@@ -45,7 +45,8 @@ def break_10x(assembly: dict, memory, save_dir: str, client: Client,
         if breaks is None:
             break
         lbreaks[cycle] = breaks
-        if intermediate is False:
-            return {"assembly": assembly, "breaks": lbreaks}
-        else:
-            return {"assemblies": assemblies, "breaks": lbreaks}
+
+    if intermediate is False:
+        return {"assembly": assembly, "breaks": lbreaks}
+    else:
+        return {"assemblies": assemblies, "breaks": lbreaks}
