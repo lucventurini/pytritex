@@ -42,7 +42,7 @@ def _scaffold_breaker(group, slop):
     return df
 
 
-def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, slop: float) -> dict:
+def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, slop: float) -> dict:
 
     """
     This function will take the position of the breaks found by `find_10x_breaks` and
@@ -139,4 +139,6 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, slop: float) -> d
     assert fai.index.name == "scaffold_index", fai.head()
     fai = fai.persist()
     dask_logger.warning("%s Finished, returning the FAI", time.ctime())
-    return {"fai": fai}
+    fai_name = os.path.join(save_dir, "fai")
+    dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
+    return {"fai": fai_name}

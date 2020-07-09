@@ -5,13 +5,36 @@ import dask.dataframe as dd
 from dask.distributed import Client
 import numpy as np
 from ...utils import _rebalance_ddf
+import os
 
 
-def _transpose_hic_cov(new_assembly: dict, old_info: dd.DataFrame,
+def _transpose_hic_cov(new_assembly: dict,
+                       old_info: dd.DataFrame,
                        fai: dd.DataFrame,
+                       save_dir: str,
                        coverage: dd.DataFrame,
                        fpairs: dd.DataFrame,
                        client: Client, cores=1):
+
+    if fpairs is not None and isinstance(fpairs, str):
+        fpairs = dd.read_parquet(fpairs)
+    else:
+        assert isinstance(fpairs, dd.DataFrame) or fpairs is None
+
+    if coverage is not None and isinstance(coverage, str):
+        coverage = dd.read_parquet(coverage)
+    else:
+        assert isinstance(coverage, dd.DataFrame) or coverage is None
+
+    if isinstance(fai, str):
+        fai = dd.read_parquet(fai)
+    else:
+        assert isinstance(fai, dd.DataFrame)
+
+    if isinstance(old_info, str):
+        old_info = dd.read_parquet(old_info)
+    else:
+        assert isinstance(old_info, dd.DataFrame)
 
     if coverage is not None and fpairs.shape[0].compute() > 0:
         binsize, minNbin, innerDist = new_assembly["binsize"], new_assembly["minNbin"], new_assembly["innerDist"]
@@ -21,7 +44,7 @@ def _transpose_hic_cov(new_assembly: dict, old_info: dd.DataFrame,
         new_coverage = add_hic_cov(
             new_assembly,
             scaffolds=scaffolds,
-            save_dir=None,
+            save_dir=save_dir,
             client=client, binsize=binsize, minNbin=minNbin, innerDist=innerDist, cores=cores)
 
         # First let's get the new coverage
@@ -45,13 +68,13 @@ def _transpose_hic_cov(new_assembly: dict, old_info: dd.DataFrame,
         old_info = old_info.loc[present].drop("mr_10x", axis=1, errors="ignore")
         new_assembly["info"] = dd.concat([
             old_info.reset_index(drop=False),
-            new_coverage["info"].compute().reset_index(drop=False)
+            dd.read_parquet(new_coverage["info"]).reset_index(drop=False)
         ]).set_index("scaffold_index")
 
     return new_assembly
 
 
-def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame):
+def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str):
     # if("fpairs" %in% names(assembly) && nrow(fpairs) > 0){
     #   cat("Transpose fpairs\n")
     #   assembly$fpairs[, .(orig_scaffold1, orig_scaffold2, orig_pos1, orig_pos2)]->z
@@ -132,5 +155,6 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame):
         fpairs = pd.DataFrame().assign(**dict((column, list()) for column in final_columns))
 
     fpairs = _rebalance_ddf(fpairs, target_memory=5 * 10**7).persist()
-
-    return fpairs
+    fpairs_name = os.path.join(save_dir, "anchored_hic_links")
+    dd.to_parquet(fpairs, fpairs_name, compute=True, engine="pyarrow", compression="gzip")
+    return fpairs_name

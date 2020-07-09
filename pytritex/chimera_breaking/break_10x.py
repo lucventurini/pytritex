@@ -7,9 +7,12 @@ import logging
 dask_logger = logging.getLogger("dask")
 import time
 import os
+from shutil import rmtree
+from joblib import Memory
 
 
 def break_10x(assembly: dict, save_dir: str, client: Client,
+              memory: Memory,
               species="wheat", ratio=-3, interval=5e4, minNbin=20,
               dist=2e3, slop=1e3, intermediate=False, cores=1, maxcycle=float("inf")):
     """Iteratively break scaffolds using 10X physical coverage. Proceed until no more breakpoints are found.
@@ -37,16 +40,21 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
     if intermediate is True:
         assemblies = {0: assembly}
 
-    for key in ['fai', 'cssaln', 'fpairs', 'molecules', 'info', 'molecule_cov', 'cov']:
-        assembly[key] = dd.read_parquet(assembly[key], infer_divisions=True)
+    # for key in ['fai', 'cssaln', 'fpairs', 'molecules', 'info', 'molecule_cov', 'cov']:
+    #     assembly[key] = dd.read_parquet(assembly[key], infer_divisions=True)
 
+    base = os.path.join(save_dir, "joblib", "pytritex", "chimera_breaking")
     while breaks.shape[0].compute() > 0 and cycle <= maxcycle:
         cycle += 1
+        save_dir = os.path.join(base, str(cycle))
         dask_logger.warning("%s Starting cycle %s of %s, with %s breaks",
                             time.ctime(), cycle, maxcycle, breaks.shape[0].compute())
-        assembly = break_scaffolds(breaks=breaks,
+        assembly = break_scaffolds(breaks=breaks, save_dir=save_dir,
                                    client=client,
+                                   memory=memory,
                                    assembly=assembly, slop=slop, cores=cores, species=species)
+        # for key in ['fai', 'cssaln', 'fpairs', 'molecules', 'info', 'molecule_cov', 'cov']:
+        #     assembly[key] = dd.read_parquet(assembly[key], infer_divisions=True)
         if intermediate is True:
             assemblies[cycle] = assembly
         breaks = break_finder(assembly.get("molecule_cov", None))
@@ -54,17 +62,23 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
             break
         lbreaks[cycle] = breaks
 
-    # Now save the various dataframes.
-    base = os.path.join(save_dir, "joblib", "pytritex", "chimera_breaking")
-    for key in ["fai", "cssaln", "molecules", "molecule_cov", "cov"]:
-        name = os.path.join(base, key)
-        dd.to_parquet(assembly[key], name,
-                      compute=True, compression="gzip", engine="pyarrow")
+    # for key in ["fai", "cssaln", "molecules", "molecule_cov", "cov"]:
+    #     name = os.path.join(base, key)
+    #     dd.to_parquet(assembly[key], name,
+    #                   compute=True, compression="gzip", engine="pyarrow")
+    #     assembly[key] = name
+    #
+    # info_name = os.path.join(base, "anchored_css")
+    # dd.to_parquet(assembly["info"], info_name, compute=True, compression="gzip")
+    # assembly["info"] = info_name
+    # fpairs_name = os.path.join(base, "anchored_hic_links")
+    # dd.to_parquet(assembly["fpairs"], fpairs_name, compute=True)
+    # assembly["fpairs"] = fpairs_name
 
-    info_name = os.path.join(base, "anchored_css")
-    dd.to_parquet(assembly["info"], info_name, compute=True, compression="gzip")
-    fpairs_name = os.path.join(base, "anchored_hic_links")
-    dd.to_parquet(assembly["fpairs"], fpairs_name, compute=True)
+    # Now delete the temp data
+    if cycle > 1:
+        for num in range(1, cycle):
+            rmtree(os.path.join(save_dir, str(cycle)))
 
     if intermediate is False:
         return {"assembly": assembly, "breaks": lbreaks}

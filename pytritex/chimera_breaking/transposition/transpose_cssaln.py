@@ -5,7 +5,7 @@ from ...utils import _rebalance_ddf
 import os
 
 
-def _transpose_cssaln(cssaln: str, fai: dd.DataFrame) -> dd.DataFrame:
+def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> dd.DataFrame:
     """Transpose the CSS alignment given the newly split scaffolds."""
 
     #  cat("Transpose cssaln\n")
@@ -68,4 +68,6 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame) -> dd.DataFrame:
     assert set(cols.values.tolist()) == set(cssaln.columns.values.tolist())
 
     cssaln = _rebalance_ddf(cssaln, target_memory=5 * 10**7)
-    return cssaln
+    cssaln_name = os.path.join(save_dir, "cssaln")
+    dd.to_parquet(cssaln, cssaln_name, engine="pyarrow", compression="gzip", compute=True)
+    return cssaln_name
