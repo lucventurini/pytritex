@@ -9,6 +9,8 @@ from .collapse_bins import collapse_bins as cbn
 from dask import delayed
 import time
 from ..utils import _rebalance_ddf
+import logging
+dask_logger = logging.getLogger("dask")
 
 
 def _group_analyser(group: pd.DataFrame, binsize, cores=1):
@@ -96,7 +98,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
 
     if shape > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
-        print(ctime(), "Merging on coverage DF (10X)")
+        dask_logger.warning("%s Merging on coverage DF (10X)", ctime())
         assert info.index.name == coverage_df.index.name
         coverage_df = client.scatter(coverage_df)
         info_length = client.scatter(info[["length"]])
@@ -106,7 +108,8 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         func = delayed(dd.merge)(info_length, coverage_df,
                                  left_index=True, right_index=True,
                                  how="right")
-        coverage_df = client.compute(func).result()
+        coverage_df = client.compute(func).result().persist()
+        dask_logger.warning("%s Merged on coverage DF (10X)", ctime())
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         arr = coverage_df[["bin", "length"]].to_dask_array(lengths=True)
         distance = dd.from_array(np.minimum(
@@ -118,11 +121,13 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         assert isinstance(nbins, dd.DataFrame), type(nbins)
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         coverage_df = dd.merge(coverage_df, nbins, how="left", left_index=True, right_index=True)
+        dask_logger.warning("%s Calculated the distance metric (10X)", ctime())
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         # Get the average coverage ACROSS ALL SCAFFOLDS by distance to the end of the bin.
         mn = coverage_df.groupby("d")["n"].mean().to_frame("mn")
         coverage_df = dd.merge(coverage_df.reset_index(drop=False), mn, on="d", how="left"
                                ).set_index("scaffold_index")
+        dask_logger.warning("%s Calculated the mean coverage by distance (10X)", ctime())
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         coverage_df = coverage_df.eval("r = log(n / mn) / log(2)")
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
@@ -130,10 +135,11 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
             coverage_df.index.name).transform("min", meta=coverage_df.r.dtype).to_dask_array()
         info_mr = dd.merge(coverage_df[["mr_10x"]].drop_duplicates(),
                            info, how="right", on="scaffold_index")
+        dask_logger.warning("%s Calculated the coverage ratio to the average (10X)", ctime())
         assert isinstance(info_mr, dd.DataFrame), type(info_mr)
         # assert isinstance(info_mr, dd.DataFrame), type(info_mr)
         info_mr = info_mr.drop("index", axis=1, errors="ignore").drop("scaffold", axis=1, errors="ignore")
-        print(ctime(), "Merged on coverage DF (10X)")
+        dask_logger.warning("%s Finished calculating the 10X coverage DF", ctime())
     else:
         info_mr = info.drop("mr_10x", axis=1, errors="ignore")
         # info_mr.drop("mr_10x", inplace=True, errors="ignore", axis=1)
@@ -146,16 +152,21 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         assembly["mol_binsize"] = binsize
         for key in ["info", "molecule_cov"]:
             print(time.ctime(), "Storing", key)
+            dask_logger.warning("%s Starting to rebalance %s", ctime(), key)
             assembly[key] = _rebalance_ddf(assembly[key],
                                            target_memory=5 * 10 ** 7)
+            dask_logger.warning("%s Finished rebalancing %s", ctime(), key)
             if save_dir is not None:
                 fname = os.path.join(save_dir, key + "_10x")
                 dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
                 assembly[key] = fname
-        print(time.ctime(), "Finished storing 10X coverage.")
+                dask_logger.warning("%s Saved %s", ctime(), key)
+
+        dask_logger.warning("%s Finished calculating 10X coverage", ctime())
         return assembly
     else:
         # TODO: this might need to be amended if we are going to checkpoint.
         info_mr = info_mr.drop("index", errors="ignore", axis=1)
         assembly = {"info": info_mr, "molecule_cov": coverage_df}
+        dask_logger.warning("%s Finished calculating 10X coverage", ctime())
         return assembly
