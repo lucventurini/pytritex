@@ -10,6 +10,8 @@ import os
 from .collapse_bins import collapse_bins as cbn
 from dask import delayed
 from ..utils import _rebalance_ddf
+import logging
+dask_logger = logging.getLogger("dask")
 
 
 def _group_analyser(group, binsize, cores=1):
@@ -114,12 +116,11 @@ Supplied values: {}, {}".format(binsize, binsize2))
         "bin2 - bin1 > 2 * @binsize").set_index("scaffold_index")
     # Create a greater bin group for each bin1, based on bin1 (default: 100x bin2).
     temp_frame.loc[:, "bin_group"] = temp_frame["bin1"] // binsize2
+    temp_frame = dd.from_pandas(temp_frame, npartitions=fpairs.npartitions)
     # pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
-    _gr = functools.partial(_group_analyser, binsize=binsize, cores=cores)
+    _gr = functools.partial(_group_analyser, binsize=binsize, cores=2)
     # Count how many pairs cover each smaller bin within the greater bin.
-    finalised = []
-    for group in iter(temp_frame.groupby(["scaffold_index", "bin_group"])):
-        finalised.append(_gr(group[1]))
+    finalised = temp_frame.groupby("scaffold_index").apply(_gr, meta=int).compute().values
     finalised = np.vstack(finalised)
     coverage_df = pd.DataFrame().assign(
         scaffold_index=finalised[:, 0],
