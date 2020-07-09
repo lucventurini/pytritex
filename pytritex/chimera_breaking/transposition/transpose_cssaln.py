@@ -19,7 +19,10 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame) -> dd.DataFrame:
     #  assembly_new$cssaln <- z
 
     # fai = dd.read_parquet(fai)
-    cssaln = dd.read_parquet(cssaln)
+    if isinstance(cssaln, str):
+        cssaln = dd.read_parquet(cssaln)
+    else:
+        assert isinstance(cssaln, dd.DataFrame)
     derived = fai[fai["derived_from_split"] == True]
     to_keep = fai[fai["derived_from_split"] == False]
     to_keep_index = to_keep.index.values.compute()

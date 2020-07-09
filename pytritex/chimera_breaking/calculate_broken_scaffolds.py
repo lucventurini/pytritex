@@ -133,5 +133,5 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, slop: float) -> d
     # assert fai[fai["derived_from_split"] == True].shape[0].compute() >= _broken.shape[0].compute()
     assert fai.index.name == "scaffold_index", fai.head()
     fai = fai.persist()
-    dask_logger.warning("%s Finished, returning the FAI (%s)", time.ctime())
+    dask_logger.warning("%s Finished, returning the FAI", time.ctime())
     return {"fai": fai}
