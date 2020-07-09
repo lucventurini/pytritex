@@ -82,7 +82,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
     # pool = mp.Pool(processes=cores)
     # pool.close()
     # results = deque()
-    finalised = temp_dataframe.groupby(level=0).apply(_gr, meta=int)
+    finalised = temp_dataframe.groupby(level=0).apply(_gr, meta=int).compute().values
     finalised = np.vstack(finalised)
     coverage_df = pd.DataFrame().assign(
         scaffold_index=finalised[:, 0],
