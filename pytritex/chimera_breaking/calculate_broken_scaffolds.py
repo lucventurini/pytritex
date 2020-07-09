@@ -95,7 +95,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, slop: float) -> d
         ["scaffold_index", "breakpoint"]].drop_duplicates().shape[0].compute()
     bait = (broken["derived_from_split"] == True)
     broken["breakpoint"] = broken["breakpoint"].mask(bait,
-                                                     broken["breakpoint"] - broken["orig_start"])
+                                                     broken["breakpoint"] + broken["orig_start"] - 1)
 
     # Now go back to the fai. We need to keep memory of the index we start with.
     # Also we need to *remove* from the FAI the scaffolds we are breaking further, I think?
