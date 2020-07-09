@@ -96,13 +96,10 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str,
     # Also we need to *remove* from the FAI the scaffolds we are breaking further, I think?
     right = fai[["scaffold"]].rename(columns={"scaffold": "orig_scaffold"})
     broken = dd.merge(broken.reset_index(drop=False), right,
-                      left_on="orig_scaffold_index", right_index=True).persist()
-    broken["scaffold"] = broken["scaffold"].mask(bait,
-                                                 broken["orig_scaffold"])
-    broken = broken.drop("orig_scaffold", axis=1)
-    assert broken.shape[0] == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0]
-    # to_remove = broken.loc[bait, "scaffold_index"].to_numpy()
-    # fai = fai.drop(to_remove, axis=0)
+                      left_on="orig_scaffold_index", right_index=True).persist().set_index("scaffold_index")
+    broken["scaffold"] = broken["scaffold"].mask(bait, broken["orig_scaffold"])
+    broken = broken.reset_index(drop=False).drop("orig_scaffold", axis=1)
+    broken["scaffold_index"] = broken.index
     broken["scaffold_index"] = broken.mask(bait, broken["orig_scaffold_index"])
     assert broken.shape[0] == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0]
     broken["derived_from_split"] = False
