@@ -41,6 +41,8 @@ def anchor_scaffolds(assembly: dict,
         hic = False
     else:
         fpairs = assembly["fpairs"]
+        if isinstance(fpairs, str):
+            fpairs = dd.read_parquet(fpairs, infer_divisions=True)
         hic = (fpairs.head(5).shape[0] > 0)
 
     anchored_css = assign_carma(cssaln, fai, wheatchr)
