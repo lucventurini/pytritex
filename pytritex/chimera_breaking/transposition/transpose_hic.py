@@ -9,24 +9,22 @@ import numpy as np
 from ...utils import _rebalance_ddf
 
 
-def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: str, fpairs: str,
-                       save_dir: str, memory: Memory, client:Client, cores=1):
-    if fpairs is not None:
-        fpairs = dd.read_parquet(fpairs)
-    if coverage is not None:
-        coverage = dd.read_parquet(coverage)
-    fai = dd.read_parquet(fai)
-    old_info = dd.read_parquet(old_info)
+def _transpose_hic_cov(new_assembly: dict, old_info: dd.DataFrame,
+                       fai: dd.DataFrame,
+                       coverage: dd.DataFrame,
+                       fpairs: dd.DataFrame,
+                       client: Client, cores=1):
 
     if coverage is not None and fpairs.shape[0].compute() > 0:
         binsize, minNbin, innerDist = new_assembly["binsize"], new_assembly["minNbin"], new_assembly["innerDist"]
         scaffolds = fai.loc[fai["derived_from_split"] == True].index.values.compute()
         old_to_keep = fai.loc[fai["derived_from_split"] == False].index.values.compute()
         # This returns a dictionary with "info" and "cov"
-        new_coverage = memory.cache(add_hic_cov, ignore=["cores", "client"])(
-            new_assembly, scaffolds=scaffolds,
-            client=client, save_dir=save_dir,
-            binsize=binsize, minNbin=minNbin, innerDist=innerDist, cores=cores)
+        new_coverage = add_hic_cov(
+            new_assembly,
+            scaffolds=scaffolds,
+            save_dir=None,
+            client=client, binsize=binsize, minNbin=minNbin, innerDist=innerDist, cores=cores)
 
         # First let's get the new coverage
         present = coverage.index.compute()
@@ -55,7 +53,7 @@ def _transpose_hic_cov(new_assembly: dict, old_info: str, fai: str, coverage: st
     return new_assembly
 
 
-def _transpose_fpairs(fpairs: str, fai: str, save_dir: str):
+def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame):
     # if("fpairs" %in% names(assembly) && nrow(fpairs) > 0){
     #   cat("Transpose fpairs\n")
     #   assembly$fpairs[, .(orig_scaffold1, orig_scaffold2, orig_pos1, orig_pos2)]->z
@@ -74,12 +72,9 @@ def _transpose_fpairs(fpairs: str, fai: str, save_dir: str):
     print("Transpose fpairs")
     final_columns = ['scaffold_index2', 'orig_scaffold_index2', 'scaffold_index1',
                      'orig_scaffold_index1', 'orig_pos1', 'orig_pos2', 'pos1', 'pos2']
-    if fpairs is not None:
-        fpairs = dd.read_parquet(fpairs)
 
     if fpairs is not None and fpairs.shape[0].compute() > 0:
         print("Starting transposition")
-        fai = dd.read_parquet(fai)
         derived = fai[fai["derived_from_split"] == True]
         # "Scaffold_index" is the index name
         left = derived[["orig_scaffold_index", "orig_start"]]
@@ -134,7 +129,5 @@ def _transpose_fpairs(fpairs: str, fai: str, save_dir: str):
         print("No transposition to be done")
         fpairs = pd.DataFrame().assign(**dict((column, list()) for column in final_columns))
 
-    fname = os.path.join(save_dir, "fpairs")
     fpairs = _rebalance_ddf(fpairs, target_memory=5 * 10**7)
-    dd.to_parquet(fpairs, fname, compression="gzip", engine="pyarrow")
-    return fname
+    return fpairs

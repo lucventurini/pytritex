@@ -10,11 +10,10 @@ import os
 
 
 def anchor_scaffolds(assembly: dict,
-                     save: str,
                      species=None,
                      sorted_percentile=95,
                      popseq_percentile=90,
-                     hic_percentile=98):
+                     hic_percentile=98) -> dict:
     if species is None:
         raise KeyError(
             "Parameter 'species' is NULL. Please set 'species' to one of "
@@ -25,8 +24,8 @@ def anchor_scaffolds(assembly: dict,
             "\"wheat\", \"barley\", \"oats\", \"lolium\", \"sharonensis\" or \"rye\".")
 
     wheatchr = chrNames(species=species)
-    fai = dd.read_parquet(assembly["fai"])
-    cssaln = dd.read_parquet(assembly["cssaln"])
+    fai = assembly["fai"]
+    cssaln = assembly["cssaln"]
     assert isinstance(cssaln, dd.DataFrame)
     popseq = dd.read_parquet(assembly["popseq"])
     assert isinstance(popseq, dd.DataFrame)
@@ -34,7 +33,7 @@ def anchor_scaffolds(assembly: dict,
         fpairs = None
         hic = False
     else:
-        fpairs = dd.read_parquet(assembly["fpairs"])
+        fpairs = assembly["fpairs"]
         hic = (fpairs.head(5).shape[0] > 0)
 
     anchored_css = assign_carma(cssaln, fai, wheatchr)
@@ -53,9 +52,8 @@ def anchor_scaffolds(assembly: dict,
     assert isinstance(anchored_css, dd.DataFrame), (type(anchored_css))
     # save_dir = os.path.join(save, "joblib", "pytritex", "anchoring")
     assert isinstance(anchored_css, dd.DataFrame)
-    dd.to_parquet(anchored_css, os.path.join(save, "anchored_css"), compute=True)
-    assembly["info"] = os.path.join(save, "anchored_css")
+
+    assembly["info"] = anchored_css
     if hic is True:
-        dd.to_parquet(anchored_hic_links, os.path.join(save, "anchored_hic_links"), compute=True)
-        assembly["fpairs"] = os.path.join(save, "anchored_hic_links")
+        assembly["fpairs"] = anchored_hic_links
     return assembly

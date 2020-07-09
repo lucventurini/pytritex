@@ -204,11 +204,12 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assembly["innerDist"] = innerDist
         for key in ["info", "cov"]:
             print(ctime(), "Storing", key, "for HiC")
-            fname = os.path.join(save_dir, key + "_hic")
             assembly[key] = _rebalance_ddf(assembly[key],
-                                           target_memory=5 * 10**7)
-            dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
-            assembly[key] = fname
+                                           target_memory=5 * 10 ** 7)
+            if save_dir is not None:
+                fname = os.path.join(save_dir, key + "_hic")
+                dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+                assembly[key] = fname
         print(ctime(), "Finished storing HiC")
         return assembly
     else:

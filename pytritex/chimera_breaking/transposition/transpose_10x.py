@@ -9,23 +9,19 @@ import numpy as np
 from ...utils import _rebalance_ddf
 
 
-def _transpose_molecule_cov(new_assembly, fai, assembly, save_dir: str, memory: Memory,
-                            client: Client, cores=1):
+def _transpose_molecule_cov(new_assembly, fai: dd.DataFrame, assembly, client: Client, cores=1):
 
     molecules = assembly.get("molecule_cov", None)
-    if molecules is not None:
-        molecules = dd.read_parquet(molecules)
-    fai = dd.read_parquet(fai)
     info = new_assembly["info"]
     assert isinstance(info, dd.DataFrame)
     if molecules is not None and molecules.shape[0].compute() > 0:
         scaffolds = fai[fai["derived_from_split"] == True].index.values.compute()
         old_to_keep = fai[fai["derived_from_split"] == False].index.values.compute()
         assert "mr_10x" not in info.columns
-        coverage = memory.cache(add_molecule_cov, ignore=["cores", "client"])(
-            new_assembly, save_dir=save_dir, client=client, scaffolds=scaffolds,
+        coverage = add_molecule_cov(
+            new_assembly, save_dir=None, client=client, scaffolds=scaffolds,
             binsize=assembly["mol_binsize"], cores=cores)
-        old_info = dd.read_parquet(assembly["info"], infer_divisions=True)
+        old_info = assembly["info"]
         assert old_info.index.name == "scaffold_index"
         _index = old_info.index.compute()
         present = np.unique(_index.values[_index.isin(old_to_keep)])
@@ -37,7 +33,7 @@ def _transpose_molecule_cov(new_assembly, fai, assembly, save_dir: str, memory: 
                                           ]).set_index("scaffold_index")
 
         new_assembly["mol_binsize"] = assembly["mol_binsize"]
-        old_coverage = dd.read_parquet(assembly["molecule_cov"], infer_divisions=True)
+        old_coverage = assembly["molecule_cov"]
         _index = old_coverage.index.compute()
         present = np.unique(_index.values[_index.isin(old_to_keep)])
         old_coverage = old_coverage.loc[present]
@@ -55,7 +51,7 @@ def _transpose_molecule_cov(new_assembly, fai, assembly, save_dir: str, memory: 
     return new_assembly
 
 
-def _transpose_molecules(molecules: str, fai: str, save_dir: str):
+def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame):
     # if("molecules" %in% names(assembly) && nrow(molecules) > 0){
     #   cat("Transpose molecules\n")
     #   copy(molecules) -> z
@@ -71,9 +67,7 @@ def _transpose_molecules(molecules: str, fai: str, save_dir: str):
     #   assembly_new$molecules <- data.table()
     #  }
 
-    fai = dd.read_parquet(fai)
     if molecules is not None:
-        molecules = dd.read_parquet(molecules)
         orig_shape = molecules.shape[0].compute()
     else:
         orig_shape = 0
@@ -109,8 +103,5 @@ def _transpose_molecules(molecules: str, fai: str, save_dir: str):
             npairs=[], sample=[], length=[], orig_start=[], orig_end=[], orig_scaffold_index=[])
         molecules = dd.from_pandas(molecules, npartitions=1)
 
-    fname = os.path.join(save_dir, "molecules")
-    print("", "###", fname, "###", "", sep="\n")
     molecules = _rebalance_ddf(molecules, target_memory=5*10**7)
-    dd.to_parquet(molecules, fname, engine="pyarrow", compression="gzip", compute=True)
-    return fname
+    return molecules

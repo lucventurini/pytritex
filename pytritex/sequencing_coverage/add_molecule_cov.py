@@ -38,12 +38,17 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
     if "mr_10x" in info.columns:
         raise KeyError("Assembly['info'] already has a mr_10x column; aborting")
 
+    if isinstance(assembly["molecules"], str):
+        molecules = dd.read_parquet(assembly["molecules"], infer_divisions=True)
+    elif isinstance(assembly["molecules"], (dd.DataFrame, pd.DataFrame)):
+        molecules = assembly["molecules"]
+    else:
+        raise TypeError(("molecules", type(assembly["molecules"])))
+
     if scaffolds is None:
-        molecules = dd.read_parquet(assembly["molecules"])
         null = True
     else:
         info = info.loc[scaffolds]
-        molecules = dd.read_parquet(assembly["molecules"], infer_divisions=True)
         assert molecules.index.name == "scaffold_index", molecules.head()
         try:
             idx = molecules.index.compute()
@@ -141,11 +146,12 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         assembly["mol_binsize"] = binsize
         for key in ["info", "molecule_cov"]:
             print(time.ctime(), "Storing", key)
-            fname = os.path.join(save_dir, key + "_10x")
             assembly[key] = _rebalance_ddf(assembly[key],
-                                           target_memory=5 * 10**7)
-            dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
-            assembly[key] = fname
+                                           target_memory=5 * 10 ** 7)
+            if save_dir is not None:
+                fname = os.path.join(save_dir, key + "_10x")
+                dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+                assembly[key] = fname
         print(time.ctime(), "Finished storing 10X coverage.")
         return assembly
     else:

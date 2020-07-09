@@ -6,9 +6,10 @@ from dask.distributed import Client
 import logging
 dask_logger = logging.getLogger("dask")
 import time
+import os
 
 
-def break_10x(assembly: dict, memory, save_dir: str, client: Client,
+def break_10x(assembly: dict, save_dir: str, client: Client,
               species="wheat", ratio=-3, interval=5e4, minNbin=20,
               dist=2e3, slop=1e3, intermediate=False, cores=1, maxcycle=float("inf")):
     """Iteratively break scaffolds using 10X physical coverage. Proceed until no more breakpoints are found.
@@ -36,12 +37,14 @@ def break_10x(assembly: dict, memory, save_dir: str, client: Client,
     if intermediate is True:
         assemblies = {0: assembly}
 
+    for key in ['fai', 'cssaln', 'fpairs', 'molecules', 'info', 'molecule_cov', 'cov']:
+        assembly[key] = dd.read_parquet(key, infer_divisions=True)
+
     while breaks.shape[0].compute() > 0 and cycle <= maxcycle:
         cycle += 1
         dask_logger.warning("%s Starting cycle %s of %s, with %s breaks",
                             time.ctime(), cycle, maxcycle, breaks.shape[0].compute())
-        assembly = break_scaffolds(breaks=breaks, save_dir=save_dir,
-                                   memory=memory,
+        assembly = break_scaffolds(breaks=breaks,
                                    client=client,
                                    assembly=assembly, slop=slop, cores=cores, species=species)
         if intermediate is True:
@@ -50,6 +53,18 @@ def break_10x(assembly: dict, memory, save_dir: str, client: Client,
         if breaks is None:
             break
         lbreaks[cycle] = breaks
+
+    # Now save the various dataframes.
+    base = os.path.join(save_dir, "joblib", "pytritex", "chimera_breaking")
+    for key in ["fai", "cssaln", "molecules", "molecule_cov", "cov"]:
+        name = os.path.join(base, key)
+        dd.to_parquet(assembly[key], name,
+                      compute=True, compression="gzip", engine="pyarrow")
+
+    info_name = os.path.join(base, "anchored_css")
+    dd.to_parquet(assembly["info"], info_name, compute=True, compression="gzip")
+    fpairs_name = os.path.join(base, "anchored_hic_links")
+    dd.to_parquet(assembly["fpairs"], fpairs_name, compute=True)
 
     if intermediate is False:
         return {"assembly": assembly, "breaks": lbreaks}
