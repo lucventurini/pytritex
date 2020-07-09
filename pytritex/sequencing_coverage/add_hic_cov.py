@@ -86,7 +86,11 @@ Supplied values: {}, {}".format(binsize, binsize2))
     assert isinstance(info, dd.DataFrame), type(info)
     if "mr" in info.columns or "mri" in info.columns:
         raise KeyError("Assembly[info] already has mr and/or mri columns; aborting.")
-    fpairs = dd.read_parquet(assembly["fpairs"])
+    if isinstance(assembly["fpairs"], str):
+        fpairs = dd.read_parquet(assembly["fpairs"])
+    else:
+        assert isinstance(assembly["fpairs"], dd.DataFrame)
+        fpairs = assembly["fpairs"]
 
     binsize = np.int(np.floor(binsize))
     if scaffolds is None:
