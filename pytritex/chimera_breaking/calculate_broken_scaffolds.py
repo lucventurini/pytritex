@@ -108,6 +108,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, slop: float) -> d
     broken.index = broken.index.rename("old_scaffold_index")
     broken["scaffold_index"] = broken["scaffold_index"].mask(bait, broken["orig_scaffold_index"])
     broken = broken.persist()
+    broken = broken.drop_duplicates(subset=["scaffold_index", "breakpoint"], keep="first").persist()
     assert broken.shape[0].compute() == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0].compute()
     broken["derived_from_split"] = False
     sloppy = partial(_scaffold_breaker, slop=slop)
