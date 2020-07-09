@@ -73,6 +73,8 @@ def add_hic_cov(assembly, save_dir, client: Client,
     #   stop("assembly$info already has mr and/or mri columns; aborting.")
     #  }
 
+    dask_logger.warning("%s Starting to add the HiC coverage", ctime())
+
     if binsize2 <= binsize * 3:
         raise ValueError("This function presumes that binsize is at least three times smaller than binsize2.\
 Supplied values: {}, {}".format(binsize, binsize2))
@@ -89,7 +91,9 @@ Supplied values: {}, {}".format(binsize, binsize2))
     binsize = np.int(np.floor(binsize))
     if scaffolds is None:
         null = True
+        dask_logger.warning("%s Removing duplicates from fpairs", ctime())
         fpairs = client.submit(column_switcher, fpairs).result()
+        dask_logger.warning("%s Removed duplicates from fpairs", ctime())
     else:
         info = info.loc[scaffolds]
         fpairs = fpairs[(fpairs.scaffold_index1.isin(scaffolds)) |
@@ -107,6 +111,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
     except ValueError:
         print(fpairs.head(npartitions=-1, n=5))
         raise ValueError(fpairs.head(npartitions=-1, n=5))
+    dask_logger.warning("%s Creating the temporary dataframe", ctime())
     temp_frame = pd.DataFrame(
         {"scaffold_index": temp_values[:, 0],
          "bin1": temp_values[:, 1] // binsize * binsize,
@@ -116,11 +121,13 @@ Supplied values: {}, {}".format(binsize, binsize2))
         "bin2 - bin1 > 2 * @binsize").set_index("scaffold_index")
     # Create a greater bin group for each bin1, based on bin1 (default: 100x bin2).
     temp_frame.loc[:, "bin_group"] = temp_frame["bin1"] // binsize2
+    dask_logger.warning("%s Created the temporary dataframe", ctime())
     temp_frame = dd.from_pandas(temp_frame, npartitions=fpairs.npartitions)
     # pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
     _gr = functools.partial(_group_analyser, binsize=binsize, cores=2)
     # Count how many pairs cover each smaller bin within the greater bin.
     finalised = temp_frame.groupby("scaffold_index").apply(_gr, meta=int).compute().values
+    dask_logger.warning("%s Calculated the coverage bins", ctime())
     finalised = np.vstack(finalised)
     coverage_df = pd.DataFrame().assign(
         scaffold_index=finalised[:, 0],
@@ -129,12 +136,13 @@ Supplied values: {}, {}".format(binsize, binsize2))
 
     if coverage_df.shape[0] > 0:
         original_info_size = info.shape[0].compute()
-        print(ctime(), "Merging on coverage DF (HiC)")
+        dask_logger.warning("%s Merging on coverage DF (HiC)", ctime())
         # Group by bin, count how covered is each bin, reset the index so it is only by scaffold_index
         coverage_df = coverage_df.groupby(["scaffold_index", "bin"]).agg(n=("n", "sum")).reset_index(level=1)
         coverage_df = dd.merge(info[["length"]], coverage_df, on="scaffold_index", how="right")
         assert isinstance(coverage_df, dd.DataFrame)
         # D is again the bin, but cutting it at the rightmost side
+        dask_logger.warning("%s Calculating the distance metric (HiC)", ctime())
         arr = coverage_df[["bin", "length"]].to_dask_array(lengths=True)
         distance = dd.from_array(np.minimum(
             arr[:, 0],
@@ -144,22 +152,24 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assert isinstance(coverage_df, dd.DataFrame)
         # Number of bins found in each scaffold. Take "n" as the column to count.
         _col = coverage_df.columns[0]
+        dask_logger.warning("%s Calculating the nbin metric (HiC)", ctime())
         coverage_df["nbin"] = coverage_df.groupby(
             coverage_df.index.name)[_col].transform("size", meta=int).to_dask_array(lengths=True)
         assert isinstance(coverage_df, dd.DataFrame)
         _ = coverage_df.head(npartitions=-1, n=5)
         # Mean number of pairs covering each bin (cut at the rightmost side)
+        dask_logger.warning("%s Calculating the mean mn metric (HiC)", ctime())
         mn = coverage_df.groupby("d")["n"].mean().to_frame("mn")
         idx = coverage_df.index
-        coverage_df = coverage_df.drop("mn", axis=1, errors="ignore").merge(mn, how="left", on="d")
+        coverage_df = coverage_df.drop("mn", axis=1, errors="ignore").merge(mn, how="left", on="d").persist()
         coverage_df.index = idx
-        _ = coverage_df.head(npartitions=-1, n=5)
         # Logarithm of number of pairs in bin divided by mean of number of pairs in bin?
         coverage_df = coverage_df.eval("r = log(n/mn) / log(2)")
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         assert "r" in coverage_df.columns
         # For each scaffold where the number of found bins is greater than minNbin,
         # calculate the minimum ratio (in log2) of the coverage per-bin divided by the mean coverage (in the scaffold)
+        dask_logger.warning("%s Calculating the min_ratio metric (HiC)", ctime())
         bait = coverage_df["nbin"] >= minNbin
         min_ratio = coverage_df.loc[bait, ["r"]].groupby(coverage_df.index.name).min().rename(
             columns={"r": "mr"}).drop_duplicates(ignore_index=False)
@@ -173,19 +183,17 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assert "r" in coverage_df.columns
         # For those scaffolds where we have at least one bin which is further away from the start than "innerDist",
         # calculate the minimum coverage *for those bins only*.
+        dask_logger.warning("%s Calculating the min internal ratio mri (HiC)", ctime())
         bait = (coverage_df["nbin"] > minNbin) & (coverage_df["d"] >= innerDist)
         min_internal_ratio = coverage_df.loc[bait, ["r"]].groupby(
             coverage_df.index.name).min().rename(columns={"r": "mri"}).drop_duplicates(ignore_index=False)
         assert coverage_df.index.name == "scaffold_index"
         assert min_internal_ratio.index.name == coverage_df.index.name, min_internal_ratio.index.name
         coverage_df = coverage_df.merge(min_internal_ratio, how="left",
-                                        left_index=True, right_index=True)
-        # Test
-        _ = coverage_df.head(npartitions=-1, n=5)
+                                        left_index=True, right_index=True).persist()
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         assert info.index.name == min_ratio.index.name == "scaffold_index"
-        info_mr = dd.merge(min_ratio, info, left_index=True,
-                           right_index=True, how="right")
+        info_mr = dd.merge(min_ratio, info, left_index=True, right_index=True, how="right")
         assert info_mr.index.name == min_internal_ratio.index.name == "scaffold_index"
         info_mr = dd.merge(min_internal_ratio, info_mr, left_index=True,
                            right_index=True, how="right")
@@ -193,7 +201,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
             info_mr = info_mr.drop("scaffold", axis=1)
         assert isinstance(info_mr, dd.DataFrame)
         assert info_mr.shape[0].compute() == original_info_size
-        print(ctime(), "Merged on coverage DF (HiC),", coverage_df.columns)
+        dask_logger.warning("%s Merged on coverage DF (HiC)", ctime())
     else:
         info_mr = info.assign(mri=np.nan, mr=np.nan)
 
@@ -204,14 +212,16 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assembly["minNbin"] = minNbin
         assembly["innerDist"] = innerDist
         for key in ["info", "cov"]:
-            print(ctime(), "Storing", key, "for HiC")
+            dask_logger.warning("%s Rebalancing %s for HiC", ctime(), key)
             assembly[key] = _rebalance_ddf(assembly[key],
                                            target_memory=5 * 10 ** 7)
+            dask_logger.warning("%s Rebalanced %s for HiC", ctime(), key)
             if save_dir is not None:
                 fname = os.path.join(save_dir, key + "_hic")
                 dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+                dask_logger.warning("%s Saved %s for HiC", ctime(), key)
                 assembly[key] = fname
-        print(ctime(), "Finished storing HiC")
+        dask_logger.warning("%s Finished storing HiC", ctime())
         return assembly
     else:
         info_mr = info_mr.drop("index", errors="ignore", axis=1)
