@@ -128,7 +128,8 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, slop: float) -> d
     dask_logger.warning("%s Merging with the original FAI", time.ctime())    
     try:
         fai = dd.concat([fai.reset_index(drop=False),
-                         _broken.reset_index(drop=False)]).set_index("scaffold_index")
+                         _broken.reset_index(drop=False)]).astype(
+            {"scaffold_index": np.int}).set_index("scaffold_index")
     except NotImplementedError:
         print(fai.head())
         print("###\n###")
