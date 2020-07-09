@@ -3,6 +3,7 @@ import numpy as np
 import dask.dataframe as dd
 import os
 from functools import partial
+import dask.array as da
 
 
 def _scaffold_breaker(group, slop):
@@ -56,6 +57,11 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str,
                       on="scaffold_index", how="right")
     if broken.index.name == "scaffold_index":
         broken = broken.reset_index(drop=False)
+    broken["idx"] = da.from_array(
+        np.arange(1, broken.shape[0].compute() + 1),
+        chunks=tuple(broken.map_partitions(len).compute().values.tolist()))
+
+    broken = broken.set_index("idx", sorted=True)
     assert broken.shape[0].compute() == broken[
         ["scaffold_index", "breakpoint"]].drop_duplicates().shape[0].compute()
     assert "scaffold_index" in broken.columns
@@ -70,25 +76,34 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str,
     # First step: find out if any breakpoint has to be removed.
     grouped = broken.groupby("scaffold_index")
     # Check whether any two breakpoints are at less than "slop" distance.
-    check = (grouped["breakpoint"].shift(0) - grouped["breakpoint"].shift(1)) < 2 * slop
+    check = (grouped["breakpoint"].apply(
+        lambda group: group.shift(0) - group.shift(1), meta=np.float) < 2 * slop).compute()
     while check.any():
-        broken = broken.loc[~check]
+        broken = broken.loc[broken.index.compute().values[~check]]
         grouped = broken.groupby("scaffold_index")
-        check = (grouped["breakpoint"].shift(0) - grouped["breakpoint"].shift(1)) < 2 * slop
+        check = (grouped["breakpoint"].apply(
+            lambda group: group.shift(0) - group.shift(1), meta=np.float) < 2 * slop).compute()
     # Now we are guaranteed that all the breaks are at the correct distance.
     # Next up: ensure that none of these breaks happened in non-original scaffolds.
     # If they do, we need to change the coordinates.
-    assert broken.shape[0] == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0]
+    assert broken.shape[0].compute() == broken[
+        ["scaffold_index", "breakpoint"]].drop_duplicates().shape[0].compute()
     bait = (broken["derived_from_split"] == True)
-    broken.loc[bait, "breakpoint"] = broken["orig_start"] + broken["breakpoint"]
+    broken["breakpoint"] = broken["breakpoint"].mask(bait,
+                                                     broken["breakpoint"] - broken["orig_start"])
+
     # Now go back to the fai. We need to keep memory of the index we start with.
     # Also we need to *remove* from the FAI the scaffolds we are breaking further, I think?
-    broken.loc[bait, "scaffold"] = fai.loc[broken.loc[bait, "orig_scaffold_index"].values,
-                                           "scaffold"].compute().to_numpy()
+    right = fai[["scaffold"]].rename(columns={"scaffold": "orig_scaffold"})
+    broken = dd.merge(broken.reset_index(drop=False), right,
+                      left_on="orig_scaffold_index", right_index=True).persist()
+    broken["scaffold"] = broken["scaffold"].mask(bait,
+                                                 broken["orig_scaffold"])
+    broken = broken.drop("orig_scaffold", axis=1)
     assert broken.shape[0] == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0]
     # to_remove = broken.loc[bait, "scaffold_index"].to_numpy()
     # fai = fai.drop(to_remove, axis=0)
-    broken.loc[bait, "scaffold_index"] = broken.loc[bait, "orig_scaffold_index"]
+    broken["scaffold_index"] = broken.mask(bait, broken["orig_scaffold_index"])
     assert broken.shape[0] == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0]
     broken["derived_from_split"] = False
     sloppy = partial(_scaffold_breaker, slop=slop)
@@ -96,8 +111,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str,
     # _broken = dd.from_pandas(broken, npartitions=100).groupby("scaffold_index").apply(sloppy).compute()
     assert (_broken["start"] == 1).all()
     maxid = fai.index.values.max()
-    _broken.loc[:, "scaffold_index"] = np.arange(maxid + 1, maxid + _broken.shape[0] + 1,
-                                                 dtype=np.int)
+    _broken["scaffold_index"] = np.arange(maxid + 1, maxid + _broken.shape[0] + 1, dtype=np.int)
     assert _broken.index.name is None
     _broken = _broken.reset_index(drop=True).set_index("scaffold_index")[fai.columns]
     assert _broken["derived_from_split"].all()

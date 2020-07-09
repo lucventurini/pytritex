@@ -32,6 +32,7 @@ def find_10x_breaks(cov: dd.DataFrame, scaffolds=None,
     bindex = np.unique(broken.index.compute()[bait])
     if bindex.shape[0] == 0:
         return dd.from_pandas(pd.DataFrame(), npartitions=1)
+
     broken = broken.loc[bindex, :].reset_index(drop=False).set_index("scaffold_index")
     # We exploit here the fact that each specific index is going to be in a different partition.
     broken = broken.map_partitions(
