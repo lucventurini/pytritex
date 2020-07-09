@@ -49,7 +49,7 @@ def break_scaffolds(breaks, client: Client,
     new_assembly["molecules"] = _transpose_molecules(assembly.get("molecules", None), trimmed_fai)
 
     dask_logger.warning("%s Anchoring the transposed data", ctime())
-    new_assembly = anchor_scaffolds(new_assembly, species=species)
+    new_assembly = anchor_scaffolds(new_assembly, save=None, species=species)
     # Now let's recalculate the coverage
     info = new_assembly["info"]
     info = info.drop("mr_10x", axis=1, errors="ignore")

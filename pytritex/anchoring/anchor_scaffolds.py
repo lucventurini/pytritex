@@ -4,12 +4,12 @@ from .assign_popseq_position import assign_popseq_position
 from .add_hic_statistics import add_hic_statistics
 from .find_wrong_assignment import find_wrong_assignments
 import dask.dataframe as dd
-from dask.distributed import Client
-from dask import delayed
+from typing import Union
 import os
 
 
 def anchor_scaffolds(assembly: dict,
+                     save: Union[str, None],
                      species=None,
                      sorted_percentile=95,
                      popseq_percentile=90,
@@ -24,8 +24,15 @@ def anchor_scaffolds(assembly: dict,
             "\"wheat\", \"barley\", \"oats\", \"lolium\", \"sharonensis\" or \"rye\".")
 
     wheatchr = chrNames(species=species)
-    fai = assembly["fai"]
-    cssaln = assembly["cssaln"]
+    if isinstance(assembly["fai"], str):
+        fai = dd.read_parquet(assembly["fai"], infer_divisions=True)
+    else:
+        fai = assembly["fai"]
+
+    if isinstance(assembly["cssaln"], str):
+        cssaln = dd.read_parquet(assembly["cssaln"], infer_divisions=True)
+    else:
+        cssaln = assembly["cssaln"]
     assert isinstance(cssaln, dd.DataFrame)
     popseq = dd.read_parquet(assembly["popseq"])
     assert isinstance(popseq, dd.DataFrame)
@@ -50,10 +57,17 @@ def anchor_scaffolds(assembly: dict,
         sorted_percentile=sorted_percentile, hic_percentile=hic_percentile,
         popseq_percentile=popseq_percentile, hic=hic)
     assert isinstance(anchored_css, dd.DataFrame), (type(anchored_css))
-    # save_dir = os.path.join(save, "joblib", "pytritex", "anchoring")
     assert isinstance(anchored_css, dd.DataFrame)
-
-    assembly["info"] = anchored_css
+    if save is not None:
+        dd.to_parquet(anchored_css, os.path.join(save, "anchored_css"), compute=True)
+        assembly["info"] = os.path.join(save, "anchored_css")
+    else:
+        assembly["info"] = anchored_css
     if hic is True:
-        assembly["fpairs"] = anchored_hic_links
+        if save is not None:
+            dd.to_parquet(anchored_hic_links, os.path.join(save, "anchored_hic_links"), compute=True)
+            assembly["fpairs"] = os.path.join(save, "anchored_hic_links")
+        else:
+            assembly["fpairs"] = anchored_hic_links
+
     return assembly
