@@ -38,7 +38,7 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
         assemblies = {0: assembly}
 
     for key in ['fai', 'cssaln', 'fpairs', 'molecules', 'info', 'molecule_cov', 'cov']:
-        assembly[key] = dd.read_parquet(key, infer_divisions=True)
+        assembly[key] = dd.read_parquet(assembly[key], infer_divisions=True)
 
     while breaks.shape[0].compute() > 0 and cycle <= maxcycle:
         cycle += 1
