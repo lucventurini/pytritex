@@ -4,11 +4,14 @@ import dask.dataframe as dd
 import os
 from functools import partial
 import dask.array as da
+import logging
+dask_logger = logging.getLogger("dask")
+import time
 
 
 def _scaffold_breaker(group, slop):
     breakpoints = group["breakpoint"].values
-    assert breakpoints.shape[0] == np.unique(breakpoints).shape[0], group
+    assert breakpoints.shape[0] == np.unique(breakpoints).shape[0], group[["scaffold_index", "breakpoint"]]
     # starts, ends = [1], [breakpoints[0] - slop]
     starts, ends = [], []
     cstart = 1
@@ -28,7 +31,7 @@ def _scaffold_breaker(group, slop):
         orig_end=ends,
         derived_from_split=True,
         scaffold=group["scaffold"].unique()[0],
-        orig_scaffold_index=group["scaffold_index"].unique()[0]
+        orig_scaffold_index=np.unique(group.index.values)[0]
     )
     df = df.eval("end=orig_end - orig_start + 1").eval("length=end")
     df["scaffold"] = df["scaffold"] + ":" + df["orig_start"].astype(str) + "-" + df["orig_end"].astype(str)
@@ -98,21 +101,28 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str,
     broken = dd.merge(broken.reset_index(drop=False), right,
                       left_on="orig_scaffold_index", right_index=True).persist().set_index("scaffold_index")
     broken["scaffold"] = broken["scaffold"].mask(bait, broken["orig_scaffold"])
-    broken = broken.reset_index(drop=False).drop("orig_scaffold", axis=1)
+    broken = broken.drop("orig_scaffold", axis=1)
     broken["scaffold_index"] = broken.index
-    broken["scaffold_index"] = broken.mask(bait, broken["orig_scaffold_index"])
-    assert broken.shape[0] == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0]
+    broken.index = broken.index.rename("old_scaffold_index")
+    broken["scaffold_index"] = broken["scaffold_index"].mask(bait, broken["orig_scaffold_index"])
+    broken = broken.persist()
+    assert broken.shape[0].compute() == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0].compute()
     broken["derived_from_split"] = False
     sloppy = partial(_scaffold_breaker, slop=slop)
-    _broken = broken.groupby("scaffold_index").apply(sloppy)
+    dask_logger.warning("%s Starting scaffold breaking", time.ctime())
+    _broken = broken.reset_index(drop=True).set_index("scaffold_index").groupby("scaffold_index").apply(sloppy).persist()
+    dask_logger.warning("%s Finished scaffold breaking", time.ctime())
     # _broken = dd.from_pandas(broken, npartitions=100).groupby("scaffold_index").apply(sloppy).compute()
-    assert (_broken["start"] == 1).all()
+    # assert (_broken["start"].compute() == 1).all()
+    # assert _broken["derived_from_split"].compute().all()
     maxid = fai.index.values.max()
-    _broken["scaffold_index"] = np.arange(maxid + 1, maxid + _broken.shape[0] + 1, dtype=np.int)
-    assert _broken.index.name is None
+    dask_logger.warning("%s Assigning the new scaffold index", time.ctime())
+    new_index = np.arange(maxid + 1, maxid + _broken.shape[0].compute() + 1, dtype=np.int)
+    _broken["scaffold_index"] = da.from_array(new_index,
+                                              chunks=tuple(_broken.map_partitions(len).compute().values.tolist()))
     _broken = _broken.reset_index(drop=True).set_index("scaffold_index")[fai.columns]
-    assert _broken["derived_from_split"].all()
-    assert (_broken["start"] == 1).all()
+    assert (_broken["start"].compute() == 1).all()
+    dask_logger.warning("%s Merging with the original FAI", time.ctime())    
     try:
         fai = dd.concat([fai.reset_index(drop=False),
                          _broken.reset_index(drop=False)]).set_index("scaffold_index")
@@ -121,10 +131,9 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str,
         print("###\n###")
         print(broken.head())
         raise
-    assert fai[fai["derived_from_split"] == True].shape[0].compute() >= _broken.shape[0]
+    # assert fai[fai["derived_from_split"] == True].shape[0].compute() >= _broken.shape[0].compute()
     assert fai.index.name == "scaffold_index", fai.head()
     fai_name = os.path.join(save_dir, "fai")
-    import joblib
-    joblib.dump(fai.compute(), "fai_test.pkl", compress=("gzip", 6))
+    dask_logger.warning("%s Saving the new FAI to disk (%s)", time.ctime(), fai_name)
     dd.to_parquet(fai, fai_name, compute=True, compression="gzip", engine="pyarrow")
     return {"fai": fai_name}

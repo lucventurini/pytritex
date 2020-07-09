@@ -3,6 +3,9 @@ from .find_10x_breaks import find_10x_breaks
 from functools import partial
 import dask.dataframe as dd
 from dask.distributed import Client
+import logging
+dask_logger = logging.getLogger("dask")
+import time
 
 
 def break_10x(assembly: dict, memory, save_dir: str, client: Client,
@@ -35,6 +38,8 @@ def break_10x(assembly: dict, memory, save_dir: str, client: Client,
 
     while breaks.shape[0].compute() > 0 and cycle <= maxcycle:
         cycle += 1
+        dask_logger.warning("%s Starting cycle %s of %s, with %s breaks",
+                            time.ctime(), cycle, maxcycle, breaks.shape[0].compute())
         assembly = break_scaffolds(breaks=breaks, save_dir=save_dir,
                                    memory=memory,
                                    client=client,
