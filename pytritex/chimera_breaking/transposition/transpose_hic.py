@@ -3,8 +3,6 @@ from ...utils.rolling_join import rolling_join
 from ...sequencing_coverage import add_hic_cov
 import dask.dataframe as dd
 from dask.distributed import Client
-from joblib import Memory
-import os
 import numpy as np
 from ...utils import _rebalance_ddf
 
@@ -125,9 +123,14 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame):
             unstable_pairs,
             unstable_1_stable_2,
             stable_1_unstable_2]).reset_index(drop=True)
+        fpairs = fpairs.astype(dict((_, np.int) for _ in
+                                    ["orig_scaffold_index1", "orig_scaffold_index2", "orig_pos1", "orig_pos2",
+                                     'scaffold_index1', 'pos1']))
+        fpairs = fpairs.persist()
     else:
         print("No transposition to be done")
         fpairs = pd.DataFrame().assign(**dict((column, list()) for column in final_columns))
 
-    fpairs = _rebalance_ddf(fpairs, target_memory=5 * 10**7)
+    fpairs = _rebalance_ddf(fpairs, target_memory=5 * 10**7).persist()
+
     return fpairs

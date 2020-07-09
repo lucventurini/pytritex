@@ -92,11 +92,16 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame):
         assert "scaffold_index" in molecules_down
         # assert molecules_up.index.name == "scaffold_index", molecules_up.compute().head()
         molecules = dd.concat([molecules_up.reset_index(drop=False),
-                               molecules_down]).set_index("scaffold_index")
+                               molecules_down])
         # assert molecules.index.values.compute().min() == min_idx
         molecules = molecules.drop("orig_pos", axis=1).drop("s_length", axis=1)
         # assert molecules.index.name == "scaffold_index", molecules.compute().head()
         # assert molecules.shape[0].compute() >= molecules_up.shape[0].compute()
+        molecules = molecules.astype(dict((key, np.int) for key in
+                                          ["start", "end", "length", "scaffold_index", "orig_scaffold_index",
+                                           "orig_start", "orig_end"]))
+        molecules = molecules.set_index("scaffold_index").persist()
+
     elif molecules is None:
         molecules = pd.DataFrame().assign(
             scaffold_index=[], barcode_index=[], start=[], end=[],
