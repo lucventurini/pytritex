@@ -51,7 +51,10 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, slop: float) -> d
     The slop parameter determines how much to keep around the breaking point.
     """
 
-    fai = dd.read_parquet(fai, infer_divisions=True)
+    if isinstance(fai, str):
+        fai = dd.read_parquet(fai, infer_divisions=True)
+    else:
+        assert isinstance(fai, dd.DataFrame)
     fai["derived_from_split"] = False
 
     broken = breaks.copy()
