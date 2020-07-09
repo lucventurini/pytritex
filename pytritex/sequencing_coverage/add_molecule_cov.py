@@ -27,6 +27,7 @@ def _group_analyser(group: pd.DataFrame, binsize, cores=1):
 
 def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, binsize=200, cores=1):
 
+    dask_logger.warning("%s Begin add molecule coverage (10X)", ctime())
     info = assembly["info"]
     if not isinstance(info, dd.DataFrame):
         info = dd.read_parquet(info, infer_divisions=True)
@@ -50,6 +51,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
     if scaffolds is None:
         null = True
     else:
+        dask_logger.warning("%s Extracting relevant scaffolds (10X)", ctime())
         info = info.loc[scaffolds]
         assert molecules.index.name == "scaffold_index", molecules.head()
         try:
@@ -62,6 +64,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
             raise
         molecules = molecules.loc[present]
         null = False
+        dask_logger.warning("%s Extracted relevant scaffolds (10X)", ctime())        
 
     if molecules.index.name == "scaffold_index":
         index = molecules.index.compute().values
@@ -70,24 +73,28 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
     else:
         raise KeyError("I cannot find the scaffold_index column in molecules!")
 
+    dask_logger.warning("%s Creating the temp dataframe (10X)", ctime())
     temp_dataframe = pd.DataFrame().assign(
         scaffold_index=index,
         bin1=molecules["start"].compute().to_numpy() // binsize * binsize,
         bin2=molecules["end"].compute().to_numpy() // binsize * binsize,
     ).set_index("scaffold_index")
     # temp_dataframe.index.name = "scaffold_index"
+    dask_logger.warning("%s Created the temp dataframe, querying (10X)", ctime())    
     temp_dataframe = temp_dataframe.query("bin2 - bin1 > 2 * @binsize")[:]
+    temp_dataframe = dd.from_pandas(temp_dataframe, npartitions=molecules.npartitions)
+    dask_logger.warning("%s Queried the temp dataframe (10X)", ctime())
     # Now let's persist the dataframe, and submit it to the Dask cluster
     _gr = functools.partial(_group_analyser, binsize=binsize, cores=2)
-    # pool = mp.Pool(processes=cores)
-    # pool.close()
-    # results = deque()
-    finalised = temp_dataframe.groupby(level=0).apply(_gr, meta=int).compute().values
+    dask_logger.warning("%s Calculating coverage per-group (10X)", ctime())    
+    finalised = temp_dataframe.groupby("scaffold_index").apply(_gr, meta=int).compute().values
+    dask_logger.warning("%s Calculated coverage per-group (10X)", ctime())        
     finalised = np.vstack(finalised)
     coverage_df = pd.DataFrame().assign(
         scaffold_index=finalised[:, 0],
         bin=finalised[:, 1],
         n=finalised[:, 2]).set_index("scaffold_index")
+    dask_logger.warning("%s Created the coverage per-group (10X)", ctime())
     shape = coverage_df.shape[0]
     coverage_df = dd.from_pandas(coverage_df, chunksize=100000)
 
