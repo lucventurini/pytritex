@@ -77,17 +77,12 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
     ).set_index("scaffold_index")
     # temp_dataframe.index.name = "scaffold_index"
     temp_dataframe = temp_dataframe.query("bin2 - bin1 > 2 * @binsize")[:]
-
     # Now let's persist the dataframe, and submit it to the Dask cluster
-    _gr = functools.partial(_group_analyser, binsize=binsize, cores=cores)
+    _gr = functools.partial(_group_analyser, binsize=binsize, cores=2)
     # pool = mp.Pool(processes=cores)
     # pool.close()
     # results = deque()
-    finalised = []
-    grouped = temp_dataframe.groupby(level=0)
-    for group in iter(grouped):
-        # finalised.append(_gr(group[1]))
-        finalised.append(_gr(group[1]))
+    finalised = temp_dataframe.groupby(level=0).apply(_gr, meta=int)
     finalised = np.vstack(finalised)
     coverage_df = pd.DataFrame().assign(
         scaffold_index=finalised[:, 0],
