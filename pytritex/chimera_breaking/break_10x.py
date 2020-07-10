@@ -32,9 +32,9 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
     dist = max(dist, 2 * slop + 1)
     break_finder = partial(find_10x_breaks, interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
     molecule_cov = assembly.get("molecule_cov", None)
-    if molecule_cov is not None:
-        molecule_cov = dd.read_parquet(molecule_cov)
-    breaks = break_finder(molecule_cov)
+    # if molecule_cov is not None:
+    #     molecule_cov = dd.read_parquet(molecule_cov)
+    breaks = memory.cache(break_finder)(molecule_cov)
     cycle = 0
     lbreaks = {0: breaks}  # TODO: what is this for?
     if intermediate is True:
@@ -57,7 +57,7 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
         #     assembly[key] = dd.read_parquet(assembly[key], infer_divisions=True)
         if intermediate is True:
             assemblies[cycle] = assembly
-        breaks = break_finder(assembly.get("molecule_cov", None))
+        breaks = memory.cache(break_finder)(assembly.get("molecule_cov", None))
         if breaks is None:
             break
         lbreaks[cycle] = breaks

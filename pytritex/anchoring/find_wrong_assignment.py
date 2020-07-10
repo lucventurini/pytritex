@@ -36,15 +36,16 @@ def find_wrong_assignments(anchored_css: dd.DataFrame, measure: list, sorted_per
     #  info[is.na(Nbad), Nbad := 0]
 
     # scaffold_index is the index
-    to_melt = anchored_css[measure].compute().reset_index(drop=False)
-    melted = pd.melt(to_melt, id_vars="scaffold_index",
-                     value_vars=measure, var_name="map", value_name="chr").dropna()
+    to_melt = anchored_css[measure].reset_index(drop=False)
+    melted = dd.melt(to_melt, id_vars="scaffold_index",
+                     value_vars=measure, var_name="map", value_name="chr").dropna().persist()
     #  w[, .N, key=.(scaffold, chr)]->w
-    melted = melted.groupby(["scaffold_index", "chr"]).size().to_frame("N").reset_index(drop=False)
+    melted = melted.groupby(["scaffold_index", "chr"]).size().to_frame("N").reset_index(drop=False).persist()
     # Nchr_ass: number of assignments for the scaffold.
     # Nchr_ass_uniq: number of unique assignments for the scaffold.
-    melted = melted.sort_values("N", ascending=False).groupby("scaffold_index").agg(
-        Nchr_ass=("N", "sum"), Nchr_ass_uniq=("N", "size"))
+    melted = melted.groupby("scaffold_index").agg({"N": ["sum", "size"]})
+    melted.columns = melted.columns.droplevel(0)
+    melted = melted.rename(columns={"sum": "Nchr_ass", "size": "Nchr_ass_uniq"})
     anchored_css = dd.merge(melted, anchored_css, on="scaffold_index", how="right")
     sorted_threshold = anchored_css.query("Ncss >= 30")["sorted_p12"].compute().quantile(
         (sorted_percentile + 1) / 100)
@@ -67,13 +68,13 @@ def find_wrong_assignments(anchored_css: dd.DataFrame, measure: list, sorted_per
 
     # Finally, let's count how many bad assignments we found for each scaffold. This can be between 0 and 3.
     # Melt only the columns we are interested in
-    to_melt = anchored_css[measure].compute().reset_index(drop=False)
-    melted = pd.melt(to_melt,
+    to_melt = anchored_css[measure].reset_index(drop=False).persist()
+    melted = dd.melt(to_melt,
                 id_vars=["scaffold_index"],
                 value_vars=measure,
                 value_name="bad",
-                var_name="map").dropna().query("bad == True")
-    melted = melted.groupby("scaffold_index").size().to_frame("Nbad")
+                var_name="map").dropna().query("bad == True").persist()
+    melted = melted.groupby("scaffold_index").size().to_frame("Nbad").persist()
     anchored_css = dd.merge(melted, anchored_css, on="scaffold_index", how="right")
     anchored_css = anchored_css.persist()
     return anchored_css

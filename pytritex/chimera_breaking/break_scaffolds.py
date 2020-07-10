@@ -41,7 +41,8 @@ def break_scaffolds(breaks, client: Client, save_dir: str, memory: Memory,
     # assert new_shape == old_shape, (new_shape, old_shape)
     # Remove broken scaffolds from CSS alignment, put correct ones
     dask_logger.warning("%s Transposing the CSS alignment", ctime())
-    new_assembly["cssaln"] = memory.cache(_transpose_cssaln)(assembly["cssaln"], trimmed_fai, save_dir)
+    new_assembly["cssaln"] = memory.cache(_transpose_cssaln)(
+        assembly["cssaln"], trimmed_fai, save_dir)
     # Do the same with HiC pairs
     dask_logger.warning("%s Transposing the HiC alignment", ctime())
     new_assembly["fpairs"] = memory.cache(_transpose_fpairs)(
