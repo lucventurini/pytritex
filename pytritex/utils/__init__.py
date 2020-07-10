@@ -51,26 +51,31 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
     if not isinstance(ddf, dd.DataFrame):
         return ddf
 
+    import logging
+    dask_logger = logging.getLogger("dask")
     orig_shape = ddf.shape[0].compute()
+    dask_logger.warning("Original shape: %s", orig_shape)
     if not ddf.known_divisions:  # e.g. for read_parquet(..., infer_divisions=False)
         mins = ddf.index.map_partitions(dask.utils.M.min, meta=ddf.index)
         maxes = ddf.index.map_partitions(dask.utils.M.max, meta=ddf.index)
         mins, maxes = compute(mins, maxes)
         is_sorted = not (sorted(mins) != list(mins) or sorted(maxes) != list(maxes)
                       or any(a > b for a, b in zip(mins, maxes)))
+        dask_logger.warning("Dataframe with unknown divisions; is_sorted %s", is_sorted)
         # print("IS SORTED:", is_sorted)
         if ddf.index.name is not None:
             ddf = ddf.reset_index().set_index(ddf.index.name, sorted=is_sorted)
         else:
             ddf = ddf.reset_index().set_index("index", sorted=is_sorted)
-
-    index_counts = ddf.map_partitions(lambda _df: _df.index.value_counts().sort_index(),
+    
+    index_counts = ddf.map_partitions(lambda _df: _df.index.value_counts(dropna=False).sort_index(),
                                       meta=int).compute()
+    dask_logger.warning("Index_counts: %s", sum(index_counts))
     index = np.repeat(index_counts.index, index_counts.values)
     if target_memory is not None:
         mem_usage = ddf.memory_usage(deep=True).sum().compute()
         npartitions = 1 + mem_usage // target_memory
-        print("Using", npartitions, "for storing", mem_usage, ", target:", target_memory)
+        dask_logger.warning("Using %s for storing %s, target: %s", npartitions, mem_usage, target_memory)
     elif npartitions is None:
         npartitions=ddf.npartitions
     divisions, _ = dd.io.io.sorted_division_locations(index, npartitions=npartitions)

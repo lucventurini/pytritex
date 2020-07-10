@@ -1,8 +1,10 @@
 from ...utils import rolling_join
 import dask.dataframe as dd
-# import pandas as pd
+import numpy as np
 from ...utils import _rebalance_ddf
 import os
+import logging
+dask_logger = logging.getLogger("dask")
 
 
 def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> dd.DataFrame:
@@ -20,9 +22,13 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> dd.DataF
 
     # fai = dd.read_parquet(fai)
     if isinstance(cssaln, str):
+        _cssaln_str = cssaln[:]
         cssaln = dd.read_parquet(cssaln)
     else:
+        _cssaln_str = None
         assert isinstance(cssaln, dd.DataFrame)
+
+    assert np.isnan(cssaln.orig_scaffold_index.values.compute()).any() == False, _cssaln_str
     derived = fai[fai["derived_from_split"] == True]
     to_keep = fai[fai["derived_from_split"] == False]
     to_keep_index = to_keep.index.values.compute()
@@ -40,8 +46,11 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> dd.DataF
     original_length = _cssaln_down.shape[0].compute()
     _cssaln_down = _cssaln_down.drop("length", axis=1).reset_index(
         drop=True).set_index("orig_scaffold_index")
+    assert np.isnan(_cssaln_down.index.values.compute()).any() == False
     assert "scaffold_index" in derived.columns or derived.index.name == "scaffold_index"
+    assert derived.scaffold_index.isna().any().compute() == False
     cssaln_down = rolling_join(derived, _cssaln_down, on="orig_scaffold_index", by="orig_pos")
+    assert np.isnan(_cssaln_down.index.values.compute()).any() == False
     assert cssaln_down.shape[0].compute() >= max(0, original_length), (cssaln_down.shape[0].compute(),
                                                                       original_length)
     assert "scaffold_index" in cssaln_down.columns or cssaln_down.index.name == "scaffold_index", (
@@ -52,6 +61,7 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> dd.DataF
         assert cssaln_down.shape[0].compute() > 0
     cssaln_down["pos"] = cssaln_down.eval("orig_pos - orig_start + 1")
     cssaln_down = cssaln_down.drop("orig_start", axis=1)
+    assert np.isnan(cssaln_down.scaffold_index.values.compute()).any() == False
     cssaln_down = cssaln_down.set_index("scaffold_index")
     assert sorted(cssaln_down.columns) == sorted(cssaln_up.columns)
     assert cssaln_down.index.name == cssaln_up.index.name
@@ -67,6 +77,8 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> dd.DataF
     cssaln = cssaln.set_index("scaffold_index")
     assert set(cols.values.tolist()) == set(cssaln.columns.values.tolist())
 
+    cssaln = cssaln.persist()
+    dask_logger.warning("%s, %s", cssaln.index.name, cssaln.shape[0].compute())
     cssaln = _rebalance_ddf(cssaln, target_memory=5 * 10**7)
     cssaln_name = os.path.join(save_dir, "cssaln")
     dd.to_parquet(cssaln, cssaln_name, engine="pyarrow", compression="gzip", compute=True)

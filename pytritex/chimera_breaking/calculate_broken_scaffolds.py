@@ -19,13 +19,13 @@ def _scaffold_breaker(group, slop):
     orig_ends = np.vstack([breakpoints - slop, breakpoints + slop]).T.flatten()
     orig_ends = np.concatenate([orig_ends, [length]])
     lengths = ends = orig_ends - orig_starts + 1
-    final = np.hstack([
+    final = np.vstack([
         np.repeat(1, orig_ends.shape[0]).T,  # start
         ends.T,  # end = length
         orig_starts.T,
         orig_ends.T,
         np.repeat(int(np.unique(group.index.values)[0]), orig_ends.shape[0]).T
-    ])
+    ]).T
     # df["scaffold"] = df["scaffold"] + ":" + df["orig_start"].astype(str) + "-" + df["orig_end"].astype(str)
 
     return final
@@ -122,8 +122,14 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
         derived_from_split=True,
         scaffold_index=np.arange(maxid + 1, maxid + _broken.shape[0] + 1, dtype=np.int)
     )
-    _broken = dd.merge(_broken, broken, how="left", on="orig_scaffold_index").persist()
-    _broken = _broken.reset_index(drop=True).set_index("scaffold_index")[fai.columns]
+    assert "scaffold_index" in _broken.columns
+    _broken = dd.merge(_broken, broken,
+                       how="left",
+                       suffixes=("", "_old"),
+                       on="orig_scaffold_index").persist()
+    assert "scaffold_index" in _broken.columns, (_broken.columns, broken.columns)
+    _broken = _broken.reset_index(drop=True).set_index("scaffold_index")
+    _broken = _broken[fai.columns]
     _broken["scaffold"] = (_broken["scaffold"] + ":" + _broken["orig_start"].astype(str) +
                            "-" + _broken["orig_end"].astype(str))
 
