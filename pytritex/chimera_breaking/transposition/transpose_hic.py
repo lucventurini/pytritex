@@ -94,6 +94,9 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str):
     final_columns = ['scaffold_index2', 'orig_scaffold_index2', 'scaffold_index1',
                      'orig_scaffold_index1', 'orig_pos1', 'orig_pos2', 'pos1', 'pos2']
 
+    if fpairs is not None and isinstance(fpairs, str):
+        fpairs = dd.read_parquet(fpairs, infer_divisions=True)
+
     if fpairs is not None and fpairs.shape[0].compute() > 0:
         print("Starting transposition")
         derived = fai[fai["derived_from_split"] == True]
@@ -151,8 +154,8 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str):
                                      'scaffold_index1', 'pos1']))
         fpairs = fpairs.persist()
     else:
-        print("No transposition to be done")
         fpairs = pd.DataFrame().assign(**dict((column, list()) for column in final_columns))
+        fpairs = dd.from_pandas(fpairs, chunksize=1)
 
     fpairs = _rebalance_ddf(fpairs, target_memory=5 * 10**7).persist()
     fpairs_name = os.path.join(save_dir, "anchored_hic_links")
