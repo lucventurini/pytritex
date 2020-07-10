@@ -103,12 +103,15 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     sloppy = partial(_scaffold_breaker, slop=slop)
     dask_logger.warning("%s Starting scaffold breaking", time.ctime())
     maxid = fai.index.values.max()
-    _broken = broken.reset_index(drop=True).set_index("scaffold_index").groupby("scaffold_index").apply(sloppy,
-                                                                                                        meta=np.int)
-    if isinstance(_broken, list):
-        _broken = np.vstack(_broken)
+    _broken = broken.reset_index(drop=True).set_index(
+        "scaffold_index").groupby("scaffold_index").apply(sloppy, meta=np.int).compute().values
+    _broken = np.vstack(_broken)
     # _broken is a numpy array list of the form
     # start, end, orig_start, orig_ends, orig_scaffold_index
+    if len(_broken.shape) != 2 or _broken.shape[1] != 5:
+        dask_logger.critical("Wrong number of columns in _broken")
+        dask_logger.critical(_broken)
+        raise AssertionError
     assert _broken.shape[1] == 5
     _broken = pd.DataFrame().assign(
         start=_broken[:, 0],
