@@ -47,21 +47,25 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> dd.DataF
     _cssaln_down = _cssaln_down.drop("length", axis=1).reset_index(
         drop=True).set_index("orig_scaffold_index")
     assert np.isnan(_cssaln_down.index.values.compute()).any() == False
-    assert "scaffold_index" in derived.columns or derived.index.name == "scaffold_index"
-    assert derived.scaffold_index.isna().any().compute() == False
+    if "scaffold_index" in derived.columns:
+        assert derived.scaffold_index.isna().any().compute() == False
+    elif derived.index.name == "scaffold_index":
+        assert derived.index.isna().any().compute() == False
+    else:
+        raise IndexError("scaffold_index not present in 'derived'")
+
     cssaln_down = rolling_join(derived, _cssaln_down, on="orig_scaffold_index", by="orig_pos")
-    assert np.isnan(_cssaln_down.index.values.compute()).any() == False
+    assert cssaln_down.orig_scaffold_index.isna().any().compute() == False
     assert cssaln_down.shape[0].compute() >= max(0, original_length), (cssaln_down.shape[0].compute(),
                                                                       original_length)
     assert "scaffold_index" in cssaln_down.columns or cssaln_down.index.name == "scaffold_index", (
         (derived.columns, cssaln_down.columns)
     )
-    cssaln_down["pos"] = cssaln_down["orig_pos"] - cssaln_down["orig_start"] + 1
-    if original_length > 0:
-        assert cssaln_down.shape[0].compute() > 0
+
     cssaln_down["pos"] = cssaln_down.eval("orig_pos - orig_start + 1")
     cssaln_down = cssaln_down.drop("orig_start", axis=1)
-    assert np.isnan(cssaln_down.scaffold_index.values.compute()).any() == False
+    assert cssaln_down.orig_scaffold_index.isna().any().compute() == False
+    assert cssaln_down.scaffold_index.isna().any().compute() == False
     cssaln_down = cssaln_down.set_index("scaffold_index")
     assert sorted(cssaln_down.columns) == sorted(cssaln_up.columns)
     assert cssaln_down.index.name == cssaln_up.index.name

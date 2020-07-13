@@ -4,12 +4,15 @@ from .assign_popseq_position import assign_popseq_position
 from .add_hic_statistics import add_hic_statistics
 from .find_wrong_assignment import find_wrong_assignments
 import dask.dataframe as dd
+from dask.distributed import Client
+from dask.delayed import delayed
 from typing import Union
 import os
 
 
 def anchor_scaffolds(assembly: dict,
                      save: Union[str, None],
+                     client: Client,
                      species=None,
                      sorted_percentile=95,
                      popseq_percentile=90,
@@ -43,19 +46,20 @@ def anchor_scaffolds(assembly: dict,
         fpairs = assembly["fpairs"]
         if isinstance(fpairs, str):
             fpairs = dd.read_parquet(fpairs, infer_divisions=True)
-        hic = (fpairs.head(5).shape[0] > 0)
+        hic = (fpairs.head(5, npartitions=-1).shape[0] > 0)
 
-    anchored_css = assign_carma(cssaln, fai, wheatchr)
+    anchored_css = assign_carma(cssaln, fai, wheatchr, client)
     anchored_css = assign_popseq_position(
-        cssaln=cssaln, popseq=popseq,
+        cssaln=cssaln, popseq=popseq, client=client,
         anchored_css=anchored_css, wheatchr=wheatchr)
     if hic is True:
-        anchored_css, anchored_hic_links = add_hic_statistics(anchored_css, fpairs)
+        anchored_css, anchored_hic_links = add_hic_statistics(anchored_css, fpairs, client=client)
         measure = ["popseq_chr", "hic_chr", "sorted_chr"]
     else:
         measure = ["popseq_chr", "sorted_chr"]
         anchored_hic_links = None
-    anchored_css = find_wrong_assignments(anchored_css, measure,
+    anchored_css = find_wrong_assignments(
+        anchored_css, measure, client=client,
         sorted_percentile=sorted_percentile, hic_percentile=hic_percentile,
         popseq_percentile=popseq_percentile, hic=hic)
     assert isinstance(anchored_css, dd.DataFrame), (type(anchored_css))
