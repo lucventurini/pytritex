@@ -24,10 +24,10 @@ def _scaffold_breaker(group, slop):
         ends.T,  # end = length
         orig_starts.T,
         orig_ends.T,
-        np.repeat(int(np.unique(group.index.values)[0]), orig_ends.shape[0]).T
+        np.repeat(int(np.unique(group.index.values)[0]), orig_ends.shape[0]).T,
     ]).T
+    final = np.unique(final, axis=0)
     # df["scaffold"] = df["scaffold"] + ":" + df["orig_start"].astype(str) + "-" + df["orig_end"].astype(str)
-
     return final
 
 
@@ -99,6 +99,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     broken = broken.persist()
     broken = broken.drop_duplicates(subset=["scaffold_index", "breakpoint"], keep="first").persist()
     assert broken.shape[0].compute() == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0].compute()
+    
     # broken["derived_from_split"] = False
     sloppy = partial(_scaffold_breaker, slop=slop)
     dask_logger.warning("%s Starting scaffold breaking", time.ctime())
@@ -115,18 +116,22 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     assert _broken.shape[1] == 5
     _broken = pd.DataFrame().assign(
         start=_broken[:, 0],
-        ends=_broken[:, 1],
+        end=_broken[:, 1],
+        length=_broken[:, 1],
         orig_start=_broken[:, 2],
         orig_end=_broken[:, 3],
         orig_scaffold_index=_broken[:, 4],
         derived_from_split=True,
         scaffold_index=np.arange(maxid + 1, maxid + _broken.shape[0] + 1, dtype=np.int)
     )
+    orig_shape = _broken.shape[0]
     assert "scaffold_index" in _broken.columns
-    _broken = dd.merge(_broken, broken,
+    _broken = dd.merge(_broken,
+                       broken[["orig_scaffold_index", "scaffold"]].reset_index(drop=True).drop_duplicates(),
                        how="left",
-                       suffixes=("", "_old"),
                        on="orig_scaffold_index").persist()
+    new_shape = _broken.shape[0].compute()
+    assert new_shape == orig_shape, (orig_shape, new_shape)
     assert "scaffold_index" in _broken.columns, (_broken.columns, broken.columns)
     _broken = _broken.reset_index(drop=True).set_index("scaffold_index")
     _broken = _broken[fai.columns]
