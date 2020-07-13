@@ -1,5 +1,5 @@
 import pandas as pd
-from ..utils import first, second
+from ..utils import first, second_agg
 import numpy as np
 import dask.dataframe as dd
 from dask.distributed import Client
@@ -35,10 +35,11 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
 
     # Now assign first, second
     combined_stats = combined_stats.groupby("scaffold_index").agg(
-        {"N": [first, second],
-         "sorted_alphachr": [first, second]}
+        {"N": ["first", second_agg],
+         "sorted_alphachr": ["first", second_agg]}
     )
     combined_stats.columns = ["sorted_Ncss1", "sorted_Ncss2", "sorted_alphachr", "sorted_alphachr2"]
+    combined_stats["sorted_alphachr2"] = combined_stats["sorted_alphachr2"].astype(object)
     combined_stats = dd.merge(combined_stats, nsum, on="scaffold_index").persist()
 
     combined_stats["sorted_pchr"] = combined_stats["sorted_Ncss1"].div(combined_stats["Ncss"], fill_value=0)
@@ -60,19 +61,17 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
     #  z[sorted_arm == "L", sorted_parm := NL/sorted_Ncss1]
 
     short_arm_counts = anchored_css.query("(sorted_arm == 'S')").groupby(
-            ["scaffold_index", "sorted_alphachr"])["sorted_arm"].size().to_frame("NS")
+            ["scaffold_index", "sorted_alphachr"])["sorted_arm"].size().to_frame("NS").reset_index(drop=False)
 
     long_arm_counts = anchored_css.query("(sorted_arm == 'L')").groupby(
-        ["scaffold_index", "sorted_alphachr"])["sorted_arm"].size().to_frame("NL")
+        ["scaffold_index", "sorted_alphachr"])["sorted_arm"].size().to_frame("NL").reset_index(drop=False)
 
-    combined_stats = client.scatter(combined_stats)
-    func = delayed(dd.merge)(combined_stats, long_arm_counts, on=["scaffold_index", "sorted_alphachr"],
+    func = delayed(dd.merge)(client.scatter(combined_stats),
+                             long_arm_counts, on=["scaffold_index", "sorted_alphachr"],
                              how="left")
-    combined_stats = client.submit(func).result()
-    func = delayed(dd.merge)(combined_stats, short_arm_counts, on=["scaffold_index", "sorted_alphachr"],
+    func2 = delayed(dd.merge)(func, short_arm_counts, on=["scaffold_index", "sorted_alphachr"],
                              how="left")
-    combined_stats = client.submit(func).result()
-    combined_stats = client.gather(combined_stats)
+    combined_stats = client.compute(func2).result()
 
     # combined_stats = short_arm_counts.merge(
     #     long_arm_counts.merge(
@@ -101,20 +100,24 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
     #  info[is.na(sorted_Ncss2), sorted_Ncss2 := 0]
 
     combined_stats = combined_stats.persist()
-    combined_stats = client.scatter(combined_stats)
-    wheatchr1 = wheatchr.copy().rename(columns={"chr": "sorted_chr", "alphachr": "sorted_alphachr"})
-    # combined_stats.loc[:, "sorted_alphachr"] = pd.Categorical(combined_stats["sorted_alphachr"])
-    combined_stats = client.scatter(combined_stats)
-    func = delayed(dd.merge)(wheatchr1, combined_stats, how="right", on="sorted_alphachr")
-    combined_stats = client.submit(func).result()
-    wheatchr2 = wheatchr.copy().rename(columns={"chr": "sorted_chr2", "alphachr": "sorted_alphachr2"})
-    # combined_stats.loc[:, "sorted_alphachr2"] = pd.Categorical(combined_stats["sorted_alphachr2"])
-    func = delayed(dd.merge)(wheatchr2, combined_stats, how="right", on="sorted_alphachr2")
-    combined_stats = client.compute(func).result()
-    combined_stats = combined_stats.set_index("scaffold_index")
-    combined_stats = client.scatter(combined_stats)
-    fai = client.scatter(fai)
-    func = delayed(dd.merge)(combined_stats, fai, on="scaffold_index", how="right")
-    info = client.compute(func).result().drop("scaffold", axis=1)
+    assert "sorted_alphachr" in combined_stats.columns
+    assert "sorted_alphachr2" in combined_stats.columns
+
+    info1 = delayed(dd.merge)(
+        client.scatter(combined_stats),
+        wheatchr.copy().rename(columns={"chr": "sorted_chr", "alphachr": "sorted_alphachr"}),
+        how="left", on="sorted_alphachr")
+
+    info2 = delayed(dd.merge)(info1,
+        wheatchr.copy().rename(columns={"chr": "sorted_chr2", "alphachr": "sorted_alphachr2"}),
+        how="left", on="sorted_alphachr2")
+
+    info3 = delayed(dd.merge)(
+        info2,
+        client.scatter(fai), on="scaffold_index", how="right")
+    info = client.compute(info3).result().drop("scaffold", axis=1).persist()
+    if info.index.name != "scaffold_index":
+        info = info.set_index("scaffold_index").persist()
+
     info = info.persist()
     return info

@@ -1,9 +1,11 @@
 import pandas as pd
 import numpy as np
 import dask.dataframe as dd
+from dask.distributed import Client
 
 
-def find_wrong_assignments(anchored_css: dd.DataFrame, measure: list, sorted_percentile, popseq_percentile,
+def find_wrong_assignments(anchored_css: dd.DataFrame, measure: list, client: Client,
+                           sorted_percentile, popseq_percentile,
                            hic_percentile, hic=False):
 
     """This function will find those scaffolds for which the assignment smells "fishy", ie

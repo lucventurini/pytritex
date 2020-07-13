@@ -5,6 +5,7 @@ import re
 import dask.dataframe as dd
 import dask.utils
 from dask.base import compute
+import itertools as it
 
 
 def n50(array: np.array, p=0.5):
@@ -21,6 +22,21 @@ def second(series: pd.Series):
         return np.nan
     else:
         return series.iloc[1]
+
+
+def _agg_second(grouped):
+    def internal(c):
+        if (c != c).all():
+            return [np.nan]
+        f = [_ for _ in c if _ == _]
+        f = [_ if isinstance(_, list) else [_] for _ in f]
+        return list(it.chain.from_iterable(f))
+    g = grouped.apply(internal)
+    g = g.apply(lambda s: np.nan if len(s) == 1 else s[1])
+    return g
+
+
+second_agg = dd.Aggregation("second", lambda s: s.apply(list), _agg_second)
 
 
 def unique_count(series: pd.Series):

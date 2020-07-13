@@ -117,8 +117,8 @@ def main():
     assembly = memory.cache(initial, ignore=["cores", "client", "memory", "ram"])(
         args.popseq, args.fasta, args.css, args.tenx, args.hic, args.save_prefix, client=client, memory=memory,
         ram=args.mem)
-    assembly = memory.cache(anchor_scaffolds)(
-        assembly, os.path.join(args.save_prefix, "joblib", "pytritex", "anchoring"), species="wheat")
+    assembly = memory.cache(anchor_scaffolds, ignore=["client"])(
+        assembly, os.path.join(args.save_prefix, "joblib", "pytritex", "anchoring"), species="wheat", client=client)
     cov_base = os.path.join(args.save_prefix, "joblib", "pytritex", "sequencing_coverage")
     assembly = memory.cache(add_molecule_cov, ignore=["cores", "client"])(
         assembly, cores=args.procs, client=client, binsize=200, save_dir=cov_base)

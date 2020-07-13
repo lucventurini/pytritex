@@ -2,9 +2,10 @@ import pandas as pd
 import numpy as np
 from ..utils import first, second
 import dask.dataframe as dd
+from dask.distributed import Client
 
 
-def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, verbose=False):
+def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, client: Client, verbose=False):
     """This function will add the HiC statistics to the anchored dataframe."""
 
     # info[!(popseq_chr != sorted_chr)][, .(scaffold, chr=popseq_chr)]->info0
