@@ -53,9 +53,11 @@ def break_scaffolds(breaks, client: Client, save_dir: str, memory: Memory,
         assembly.get("molecules", None), trimmed_fai, save_dir)
 
     dask_logger.warning("%s Anchoring the transposed data", ctime())
-    new_assembly = memory.cache(anchor_scaffolds)(new_assembly, save=save_dir, species=species)
+    new_assembly = anchor_scaffolds(new_assembly, save=save_dir, species=species, client=client)
     # Now let's recalculate the coverage
     info = new_assembly["info"]
+    if isinstance(info, str):
+        info = dd.read_parquet(info)
     info = info.drop("mr_10x", axis=1, errors="ignore")
     info = info.drop("mr", axis=1, errors="ignore")
     info = info.drop("mri", axis=1, errors="ignore")

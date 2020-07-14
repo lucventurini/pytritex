@@ -31,6 +31,20 @@ def fai_reader(fasta, save_dir):
     return fai, fname
 
 
+def column_switcher(fpairs: dd.DataFrame):
+    fpairs = fpairs.reset_index(drop=True)
+    query = "scaffold1 == scaffold2 & pos1 > pos2"
+    values = fpairs[["pos1", "pos2"]].to_dask_array(lengths=True)
+    if values.shape[0] == 0:
+        return fpairs
+    mask = np.repeat(fpairs.eval(query).compute().to_numpy(), 2).reshape(values.shape)
+    values = np.where(mask, values[:, [1, 0]], values)
+    fpairs["pos1"] = values[:, 0]
+    fpairs["pos2"] = values[:, 1]
+    fpairs = fpairs.drop_duplicates()
+    return fpairs
+
+
 def read_fpairs(hic, fai, save_dir):
     fpairs_command = 'find {} -type f | grep "_fragment_pairs.tsv.gz$"'.format(hic)
     fpairs = [
@@ -41,9 +55,9 @@ def read_fpairs(hic, fai, save_dir):
     ]
     if len(fpairs) > 0:
         fpairs = dd.concat(fpairs).reset_index(drop=True)
+        fpairs = column_switcher(fpairs)
         # Now let us change the scaffold1 and scaffold2
         left = fai[["scaffold"]].reset_index(drop=False)
-
         left1 = left.rename(columns={"scaffold": "scaffold1", "scaffold_index": "scaffold_index1"})
         assert "scaffold1" in left1.columns and "scaffold_index1" in left1.columns and left1.columns.shape[0] == 2
         fpairs = dd.merge(left1, fpairs, how="right", on="scaffold1").drop("scaffold1", axis=1)
@@ -54,6 +68,7 @@ def read_fpairs(hic, fai, save_dir):
         fpairs["orig_scaffold_index2"] = fpairs["scaffold_index2"]
         fpairs["orig_pos1"] = fpairs["pos1"]
         fpairs["orig_pos2"] = fpairs["pos2"]
+        # Remove double lines.
     else:
         fpairs = pd.DataFrame().assign(scaffold_index1=[], scaffold_index2=[],
                                        pos1=[], pos2=[], orig_pos1=[], orig_pos2=[],

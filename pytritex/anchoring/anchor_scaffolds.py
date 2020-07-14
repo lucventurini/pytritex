@@ -8,6 +8,8 @@ from dask.distributed import Client
 from dask.delayed import delayed
 from typing import Union
 import os
+import numpy as np
+np.seterr(all='raise')
 
 
 def anchor_scaffolds(assembly: dict,

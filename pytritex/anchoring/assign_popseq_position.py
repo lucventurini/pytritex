@@ -22,7 +22,7 @@ def _mad2(grouped):
         f = [_ if isinstance(_, list) else [_] for _ in f]
         return list(it.chain.from_iterable(f))
     chunks = grouped.apply(internal)
-    chunks = chunks.apply(lambda s: median_absolute_deviation(s, nan_policy="propagate"))
+    chunks = chunks.apply(lambda s: median_absolute_deviation(s, nan_policy="omit"))
     return chunks
 
 
@@ -53,8 +53,10 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
     #  info[is.na(popseq_Ncss2), popseq_Ncss2 := 0]
 
     assert isinstance(popseq, dd.DataFrame)
-    popseq_positions = popseq.loc[~popseq["popseq_alphachr"].isna(),
-                                  ["popseq_index", "popseq_alphachr", "popseq_cM"]][:].set_index("popseq_index")
+    popseq_positions = popseq.loc[
+                           ~popseq["popseq_alphachr"].isna(),
+                           ["popseq_index", "popseq_alphachr", "popseq_cM"]
+                       ][:].set_index("popseq_index").astype({"popseq_alphachr": str})
     assert isinstance(popseq_positions, dd.DataFrame)
     # This will be ["scaffold_index", "popseq_index"]
     right = client.scatter(cssaln[["popseq_index"]].compute().reset_index(drop=False))
@@ -92,8 +94,12 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
         ["scaffold_index", "popseq_alphachr", "popseq_Ncss", "popseq_cM", "popseq_cM_sd", "popseq_cM_mad"]]),
         client.scatter(best_locations), on=["scaffold_index", "popseq_alphachr"], how="right"
     )
+    popseq_stats = client.compute(popseq_stats).result()
+    popseq_stats["popseq_pchr"] = popseq_stats["popseq_Ncss1"].div(popseq_stats["popseq_Ncss"], fill_value=0)
+    popseq_stats["popseq_p12"] = popseq_stats["popseq_Ncss2"].div(popseq_stats["popseq_Ncss1"], fill_value=0)
+
     pop1 = delayed(dd.merge)(
-        popseq_stats,
+        client.scatter(popseq_stats),
         wheatchr.copy().rename(columns={"chr": "popseq_chr", "alphachr": "popseq_alphachr"}),
         on="popseq_alphachr", how="left")
     pop2 = delayed(dd.merge)(

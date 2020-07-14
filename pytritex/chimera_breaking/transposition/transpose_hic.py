@@ -66,9 +66,11 @@ def _transpose_hic_cov(new_assembly: dict,
         present = old_info.index.compute()
         present = np.unique(present.values[present.isin(old_to_keep)])
         old_info = old_info.loc[present].drop("mr_10x", axis=1, errors="ignore")
+        if isinstance(new_coverage["info"], str):
+            new_coverage["info"] = dd.read_parquet(new_coverage["info"])
         new_assembly["info"] = dd.concat([
             old_info.reset_index(drop=False),
-            dd.read_parquet(new_coverage["info"]).reset_index(drop=False)
+            new_coverage["info"].reset_index(drop=False)
         ]).set_index("scaffold_index")
 
     return new_assembly

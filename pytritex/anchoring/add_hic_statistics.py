@@ -1,8 +1,7 @@
-import pandas as pd
-import numpy as np
-from ..utils import first, second
+from ..utils import second_agg
 import dask.dataframe as dd
 from dask.distributed import Client
+from dask.delayed import delayed
 
 
 def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, client: Client, verbose=False):
@@ -20,34 +19,37 @@ def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, client:
     #   info[is.na(Nhic), Nhic := 0]
     #   info[is.na(hic_N1), hic_N1 := 0]
     #   info[is.na(hic_N2), hic_N2 := 0]
-    anchored0 = anchored_css.query("popseq_chr == sorted_chr")[["popseq_chr"]].compute().reset_index(drop=False)
-    anchored0 = anchored0.rename(columns={"popseq_chr": "chr"}, errors="raise")
-    anchored_hic_links = dd.merge(anchored0.copy().rename(
-        columns={"chr": "chr1",
-                 "scaffold_index": "scaffold_index1"},
-    errors="raise"), fpairs, on="scaffold_index1", how="right")
-    anchored_hic_links = dd.merge(anchored0.rename(
-        columns={"chr": "chr2",
-                 "scaffold_index": "scaffold_index2"}),
-        anchored_hic_links, on="scaffold_index2", how="right")
-    if verbose:
-        print("Anchored HiC links columns", anchored_hic_links.columns)
+    anchored0 = anchored_css.query("popseq_chr == sorted_chr")[["popseq_chr"]]  # .compute().reset_index(drop=False)
+    anchored0 = anchored0.rename(columns={"popseq_chr": "chr"}).astype({"chr": str})
+    anchored1 = anchored0[:].rename(columns={"chr": "chr1"})
+    anchored1.index = anchored1.index.rename("scaffold_index1")
+    fpairs1 = delayed(dd.merge)(
+        client.scatter(fpairs), client.scatter(anchored1), on="scaffold_index1", how="left")
+    anchored2 = anchored0[:].rename(columns={"chr": "chr2"})
+    anchored2.index = anchored2.index.rename("scaffold_index2")
+    fpairs2 = delayed(dd.merge)(fpairs1, client.scatter(anchored2), on="scaffold_index2", how="left")
+    anchored_hic_links = client.compute(fpairs2).result()
+    assert isinstance(anchored_hic_links, dd.DataFrame)
+
     hic_stats = anchored_hic_links.query("chr1 == chr1").rename(
         columns={"scaffold_index2": "scaffold_index", "chr1": "hic_chr"})
+    assert "scaffold_index" in hic_stats.columns
     hic_stats = hic_stats.groupby(
-        ["scaffold_index", "hic_chr"]).size().to_frame("N").reset_index(drop=False).compute()
-    hic_stats["scaffold_index"] = pd.to_numeric(hic_stats["scaffold_index"],
-                                                downcast="integer")
-    grouped_hic_stats = hic_stats.sort_values(["scaffold_index", "N"], ascending=[True, False])
-    hic_stats = grouped_hic_stats.groupby(
-        "scaffold_index", sort=False).agg(
-        hic_chr=("hic_chr", first), hic_chr2=("hic_chr", second), hic_N1=("N", first), hic_N2=("N", second),
-        Nhic=("N", "sum"))
-    hic_stats.loc[:, "hic_pchr"] = pd.to_numeric(hic_stats["hic_N1"].div(hic_stats["Nhic"], fill_value=0),
-                                                 downcast="float")
-    hic_stats.loc[:, "hic_p12"] = pd.to_numeric(hic_stats["hic_N2"].div(hic_stats["hic_N1"], fill_value=0),
-                                             downcast="float")
-    hic_stats = dd.from_pandas(hic_stats, npartitions=100)
-    anchored_css = dd.merge(hic_stats, anchored_css, on="scaffold_index", how="right")
+        ["scaffold_index", "hic_chr"]).size().to_frame("N").reset_index(drop=False)
+    # grouped_hic_stats = hic_stats.sort_values(["scaffold_index", "N"], ascending=[True, False])
+    hic_ns = hic_stats.groupby("scaffold_index")["N"].sum(split_out=hic_stats.npartitions).to_dask_array()
+    meta = dict(hic_stats.dtypes)
+    grouped_hic_stats = hic_stats.groupby("scaffold_index").apply(
+        lambda df: df.nlargest(2, "N"), meta=meta).reset_index(drop=True).groupby("scaffold_index")
+    hic_stats = grouped_hic_stats.agg({"hic_chr": ["first", second_agg], "N": ["first", second_agg]},
+                                      split_out=hic_stats.npartitions)
+    hic_stats.columns = ["hic_chr", "hic_chr2", "hic_N1", "hic_N2"]
+    hic_stats["Nhic"] = hic_ns
+    # Now merge back to anchored_css
+    hic_stats["hic_pchr"] = hic_stats["hic_N1"].div(hic_stats["Nhic"], fill_value=0)
+    hic_stats["hic_p12"] = hic_stats["hic_N2"].div(hic_stats["hic_N1"], fill_value=0)
+    func = delayed(dd.merge)(client.scatter(hic_stats),
+                             client.scatter(anchored_css), on="scaffold_index", how="right")
+    anchored_css = client.compute(func).result()
     anchored_css = anchored_css.persist()
     return anchored_css, anchored_hic_links

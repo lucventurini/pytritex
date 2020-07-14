@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import dask.dataframe as dd
 from dask.distributed import Client
+from dask.delayed import delayed
 
 
 def find_wrong_assignments(anchored_css: dd.DataFrame, measure: list, client: Client,
@@ -46,17 +47,23 @@ def find_wrong_assignments(anchored_css: dd.DataFrame, measure: list, client: Cl
     # Nchr_ass: number of assignments for the scaffold.
     # Nchr_ass_uniq: number of unique assignments for the scaffold.
     melted = melted.groupby("scaffold_index").agg({"N": ["sum", "size"]})
-    melted.columns = melted.columns.droplevel(0)
-    melted = melted.rename(columns={"sum": "Nchr_ass", "size": "Nchr_ass_uniq"})
-    anchored_css = dd.merge(melted, anchored_css, on="scaffold_index", how="right")
-    sorted_threshold = anchored_css.query("Ncss >= 30")["sorted_p12"].compute().quantile(
-        (sorted_percentile + 1) / 100)
+    melted.columns = ["Nchr_ass", "Nchr_ass_uniq"]
+    func = delayed(dd.merge)(client.scatter(anchored_css),
+                             client.scatter(melted), on="scaffold_index", how="left")
+    anchored_css = client.compute(func).result()
+    assert isinstance(anchored_css, dd.DataFrame), (type(anchored_css))
+    sorted_threshold = anchored_css.query("Ncss >= 30")["sorted_p12"].quantile(
+        (sorted_percentile + 1) / 100).compute()
     keys = ["Ncss", "sorted_p12", "sorted_Ncss2"]
+
     anchored_css = anchored_css.assign(bad_sorted=anchored_css[
         ["Ncss", "sorted_p12", "sorted_Ncss2"]].compute().eval(
         "Ncss >= 30 & sorted_p12 >= @sorted_threshold & sorted_Ncss2 >= 2"))
-    pop_threshold = anchored_css.query("popseq_Ncss >= 30")["popseq_p12"].compute().quantile(
-        (popseq_percentile + 1) / 100)
+    try:
+        pop_threshold = anchored_css.query("popseq_Ncss >= 30")["popseq_p12"].compute().quantile(
+            (popseq_percentile + 1) / 100)
+    except KeyError as kerror:
+        raise KeyError((kerror, anchored_css.columns))
     keys = ["popseq_Ncss", "popseq_p12", "popseq_Ncss2"]
     anchored_css = anchored_css.assign(bad_popseq=anchored_css[keys].compute().eval(
         "popseq_Ncss >= 30 & popseq_p12 >= @pop_threshold & popseq_Ncss2 >= 2"))
