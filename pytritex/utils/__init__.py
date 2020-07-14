@@ -6,6 +6,7 @@ import dask.dataframe as dd
 import dask.utils
 from dask.base import compute
 import itertools as it
+import typing
 
 
 def n50(array: np.array, p=0.5):
@@ -67,6 +68,8 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
     if not isinstance(ddf, dd.DataFrame):
         return ddf
 
+    ddf = ddf.persist()
+    _ = ddf.head(npartitions=-1, n=1)
     import logging
     dask_logger = logging.getLogger("dask")
     orig_shape = ddf.shape[0].compute()
@@ -77,7 +80,7 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
         mins, maxes = compute(mins, maxes)
         is_sorted = not (sorted(mins) != list(mins) or sorted(maxes) != list(maxes)
                       or any(a > b for a, b in zip(mins, maxes)))
-        dask_logger.warning("Dataframe with unknown divisions; is_sorted %s", is_sorted)
+        # dask_logger.warning("Dataframe with unknown divisions; is_sorted %s", is_sorted)
         # print("IS SORTED:", is_sorted)
         if ddf.index.name is not None:
             ddf = ddf.reset_index().set_index(ddf.index.name, sorted=is_sorted)
@@ -91,7 +94,7 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
     if target_memory is not None:
         mem_usage = ddf.memory_usage(deep=True).sum().compute()
         npartitions = 1 + mem_usage // target_memory
-        dask_logger.warning("Using %s for storing %s, target: %s", npartitions, mem_usage, target_memory)
+        # dask_logger.warning("Using %s for storing %s, target: %s", npartitions, mem_usage, target_memory)
     elif npartitions is None:
         npartitions=ddf.npartitions
     divisions, _ = dd.io.io.sorted_division_locations(index, npartitions=npartitions)
@@ -103,6 +106,45 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
         except ValueError:
             repartitioned = ddf
 
+    repartitioned = repartitioned.persist()
+    _ = repartitioned.head(npartitions=-1, n=1)
     new_shape = repartitioned.shape[0].compute()
+    if new_shape != orig_shape:
+        # Something went wrong.
+        dask_logger.critical("Error in rebalancing, old shape: %s; new shape: %s", orig_shape, new_shape)
+        if orig_shape < new_shape:
+            dask_logger.critical("Added new rows:")
+            new_rows = repartitioned.index.compute().difference(ddf.index.compute())
+            dask_logger.critical(repartitioned.loc[new_rows].head(npartitions=-1, n=10))
+        else:
+            dask_logger.critical("Lost rows:")
+            lost_rows = ddf.index.compute().difference(repartitioned.index.compute())
+            dask_logger.critical(lost_rows)
+            dask_logger.critical(ddf.loc[lost_rows].head(npartitions=-1, n=10))
+        raise AssertionError
+
     assert new_shape == orig_shape, (orig_shape, new_shape)
     return repartitioned
+
+
+def trim_fai(fai: typing.Union[str, dd.DataFrame]) -> dd.DataFrame:
+    if isinstance(fai, str):
+        new_fai = dd.read_parquet(fai, infer_divisions=True)
+    else:
+        assert isinstance(fai, dd.DataFrame)
+        new_fai = fai[:]
+    if "derived_from_split" not in new_fai.columns:  # Not initialised
+        new_fai["derived_from_split"] = False
+        new_fai["previous_iteration"] = new_fai.index
+        new_fai = new_fai.persist()
+        return new_fai
+
+    previous = new_fai["previous_iteration"].unique().values.compute()
+    original = new_fai.query("derived_from_split == False")
+    original_indices = original.index.compute()
+    midpoints = set.difference(set(previous), set(original_indices))
+    derived = new_fai.query("derived_from_split == True")["orig_scaffold_index"].values.compute()
+    all_indices = new_fai.index.compute()
+
+    final = new_fai.loc[all_indices.difference(midpoints).difference(derived).values]
+    return final.persist()

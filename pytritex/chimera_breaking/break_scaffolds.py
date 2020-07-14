@@ -9,33 +9,24 @@ import dask.dataframe as dd
 import os
 from joblib import Memory
 from dask.distributed import Client
-from ..utils import _rebalance_ddf
+from ..utils import _rebalance_ddf, trim_fai
 import logging
 dask_logger = logging.getLogger("dask")
-
-
-def trim_fai(fai: str) -> dd.DataFrame:
-    new_fai = dd.read_parquet(fai, infer_divisions=True)
-    _left1 = new_fai.query("derived_from_split == True")
-    _left1_indices = _left1["orig_scaffold_index"].compute()
-    # Now, let us get those that are NOT split AND do not have split children
-    _left2 = new_fai.query("derived_from_split == False")
-    _left2 = _left2.loc[_left2.index.compute().difference(_left1_indices).values]
-    # Put the unbroken scaffolds first
-    new_fai = dd.concat([_left2, _left1])
-    return new_fai.persist()
 
 
 def break_scaffolds(breaks, client: Client, save_dir: str, memory: Memory,
                     assembly, slop, cores=1, species="wheat") -> dict:
 
     fai = assembly["fai"]
-    new_assembly = memory.cache(calculate_broken_scaffolds)(breaks, fai=fai, slop=slop, save_dir=save_dir)
+    new_assembly = calculate_broken_scaffolds(breaks, fai=fai, slop=slop, save_dir=save_dir)
     for key in ["binsize", "innerDist", "minNbin", "popseq"]:
         new_assembly[key] = assembly[key]
     # Now extract the correct rows and columns from the FAI:
     # ie excluding the rows of the original scaffolds that have since been split.
     trimmed_fai = trim_fai(new_assembly["fai"])
+    dask_logger.warning("Original FAI: %s; trimmed FAI: %s",
+                        dd.read_parquet(new_assembly["fai"]).shape[0].compute(),
+                        trimmed_fai.shape[0].compute())
     # new_shape = new_fai["orig_scaffold_index"].unique().shape[0].compute()
     # old_shape = fai["orig_scaffold_index"].unique().shape[0].compute()
     # assert new_shape == old_shape, (new_shape, old_shape)

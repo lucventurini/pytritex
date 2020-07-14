@@ -33,10 +33,9 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
     molecule_cov = assembly.get("molecule_cov", None)
     # if molecule_cov is not None:
     #     molecule_cov = dd.read_parquet(molecule_cov)
-    breaks = memory.cache(find_10x_breaks)(molecule_cov,
-                                           interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
+    breaks = find_10x_breaks(molecule_cov, interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
     cycle = 0
-    lbreaks = {0: breaks}  # TODO: what is this for?
+    # lbreaks = {0: breaks}  # TODO: what is this for?
     if intermediate is True:
         assemblies = {0: assembly}
 
@@ -53,6 +52,8 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
                                    client=client,
                                    memory=memory,
                                    assembly=assembly, slop=slop, cores=cores, species=species)
+        # dd.to_parquet(breaks, os.path.join(save_dir, "breaks"), compute=True,
+        #               engine="pyarrow", compression="gzip")
         # for key in ['fai', 'cssaln', 'fpairs', 'molecules', 'info', 'molecule_cov', 'cov']:
         #     assembly[key] = dd.read_parquet(assembly[key], infer_divisions=True)
         if intermediate is True:
@@ -61,7 +62,7 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
                                                interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
         if breaks is None:
             break
-        lbreaks[cycle] = breaks
+        # lbreaks[cycle] = os.path.join(save_dir, "breaks")
 
     # for key in ["fai", "cssaln", "molecules", "molecule_cov", "cov"]:
     #     name = os.path.join(base, key)
@@ -76,12 +77,7 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
     # dd.to_parquet(assembly["fpairs"], fpairs_name, compute=True)
     # assembly["fpairs"] = fpairs_name
 
-    # Now delete the temp data
-    if cycle > 1:
-        for num in range(1, cycle):
-            rmtree(os.path.join(save_dir, str(cycle)))
-
     if intermediate is False:
-        return {"assembly": assembly, "breaks": lbreaks}
+        return {"assembly": assembly}   # , "breaks": lbreaks[cycle]}
     else:
-        return {"assemblies": assemblies, "breaks": lbreaks}
+        return {"assemblies": assemblies}   #, "breaks": lbreaks}

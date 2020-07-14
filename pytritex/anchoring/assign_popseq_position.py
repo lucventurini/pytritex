@@ -22,11 +22,16 @@ def _mad2(grouped):
         f = [_ if isinstance(_, list) else [_] for _ in f]
         return list(it.chain.from_iterable(f))
     chunks = grouped.apply(internal)
-    chunks = chunks.apply(lambda s: median_absolute_deviation(s, nan_policy="omit"))
     return chunks
 
 
-mad = dd.Aggregation("mad", chunk=_mad1, agg=_mad2, finalize=None)
+def _mad3(chunks):
+    chunks = chunks.apply(lambda s: np.nan if len(s) == 0 else
+                          median_absolute_deviation(s, nan_policy="omit"))
+    return chunks
+
+
+mad = dd.Aggregation("mad", chunk=_mad1, agg=_mad2, finalize=_mad3)
 
 
 def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,

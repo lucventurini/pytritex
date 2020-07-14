@@ -15,6 +15,8 @@ def _transpose_molecule_cov(new_assembly, fai: dd.DataFrame, save_dir: str,
     molecules = assembly.get("molecule_cov", None)
     info = new_assembly["info"]
     assert isinstance(info, dd.DataFrame)
+    if isinstance(molecules, str):
+        molecules = dd.read_parquet(molecules, infer_divisions=True)
     if molecules is not None and molecules.shape[0].compute() > 0:
         scaffolds = fai[fai["derived_from_split"] == True].index.values.compute()
         old_to_keep = fai[fai["derived_from_split"] == False].index.values.compute()
@@ -23,6 +25,8 @@ def _transpose_molecule_cov(new_assembly, fai: dd.DataFrame, save_dir: str,
             new_assembly, save_dir=save_dir, client=client, scaffolds=scaffolds,
             binsize=assembly["mol_binsize"], cores=cores)
         old_info = assembly["info"]
+        if isinstance(old_info, str):
+            old_info = dd.read_parquet(old_info, infer_divisions=True)
         assert old_info.index.name == "scaffold_index"
         _index = old_info.index.compute()
         present = np.unique(_index.values[_index.isin(old_to_keep)])

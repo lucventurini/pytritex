@@ -51,7 +51,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
     if scaffolds is None:
         null = True
     else:
-        dask_logger.warning("%s Extracting relevant scaffolds (10X)", ctime())
+        # dask_logger.warning("%s Extracting relevant scaffolds (10X)", ctime())
         info = info.loc[scaffolds]
         assert molecules.index.name == "scaffold_index", molecules.head()
         try:
@@ -64,7 +64,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
             raise
         molecules = molecules.loc[present]
         null = False
-        dask_logger.warning("%s Extracted relevant scaffolds (10X)", ctime())        
+        # dask_logger.warning("%s Extracted relevant scaffolds (10X)", ctime())
 
     if molecules.index.name == "scaffold_index":
         index = molecules.index.compute().values
@@ -73,34 +73,34 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
     else:
         raise KeyError("I cannot find the scaffold_index column in molecules!")
 
-    dask_logger.warning("%s Creating the temp dataframe (10X)", ctime())
+    # dask_logger.warning("%s Creating the temp dataframe (10X)", ctime())
     temp_dataframe = pd.DataFrame().assign(
         scaffold_index=index,
         bin1=molecules["start"].compute().to_numpy() // binsize * binsize,
         bin2=molecules["end"].compute().to_numpy() // binsize * binsize,
     ).set_index("scaffold_index")
     # temp_dataframe.index.name = "scaffold_index"
-    dask_logger.warning("%s Created the temp dataframe, querying (10X)", ctime())    
+    # dask_logger.warning("%s Created the temp dataframe, querying (10X)", ctime())
     temp_dataframe = temp_dataframe.query("bin2 - bin1 > 2 * @binsize")[:]
     temp_dataframe = dd.from_pandas(temp_dataframe, npartitions=molecules.npartitions)
-    dask_logger.warning("%s Queried the temp dataframe (10X)", ctime())
+    # dask_logger.warning("%s Queried the temp dataframe (10X)", ctime())
     # Now let's persist the dataframe, and submit it to the Dask cluster
     _gr = functools.partial(_group_analyser, binsize=binsize, cores=2)
-    dask_logger.warning("%s Calculating coverage per-group (10X)", ctime())    
+    # dask_logger.warning("%s Calculating coverage per-group (10X)", ctime())
     finalised = temp_dataframe.groupby("scaffold_index").apply(_gr, meta=int).compute().values
-    dask_logger.warning("%s Calculated coverage per-group (10X)", ctime())        
+    # dask_logger.warning("%s Calculated coverage per-group (10X)", ctime())
     finalised = np.vstack(finalised)
     coverage_df = pd.DataFrame().assign(
         scaffold_index=finalised[:, 0],
         bin=finalised[:, 1],
         n=finalised[:, 2]).set_index("scaffold_index")
-    dask_logger.warning("%s Created the coverage per-group (10X)", ctime())
+    # dask_logger.warning("%s Created the coverage per-group (10X)", ctime())
     shape = coverage_df.shape[0]
     coverage_df = dd.from_pandas(coverage_df, chunksize=100000)
 
     if shape > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
-        dask_logger.warning("%s Merging on coverage DF (10X)", ctime())
+        # dask_logger.warning("%s Merging on coverage DF (10X)", ctime())
         assert info.index.name == coverage_df.index.name
         coverage_df = client.scatter(coverage_df)
         info_length = client.scatter(info[["length"]])
@@ -111,7 +111,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
                                  left_index=True, right_index=True,
                                  how="right")
         coverage_df = client.compute(func).result().persist()
-        dask_logger.warning("%s Merged on coverage DF (10X)", ctime())
+        # dask_logger.warning("%s Merged on coverage DF (10X)", ctime())
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         arr = coverage_df[["bin", "length"]].to_dask_array(lengths=True)
         distance = dd.from_array(np.minimum(
@@ -123,25 +123,45 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         assert isinstance(nbins, dd.DataFrame), type(nbins)
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         coverage_df = dd.merge(coverage_df, nbins, how="left", left_index=True, right_index=True)
-        dask_logger.warning("%s Calculated the distance metric (10X)", ctime())
+        # dask_logger.warning("%s Calculated the distance metric (10X)", ctime())
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         # Get the average coverage ACROSS ALL SCAFFOLDS by distance to the end of the bin.
         mn = coverage_df.groupby("d")["n"].mean().to_frame("mn")
         coverage_df = dd.merge(coverage_df.reset_index(drop=False), mn, on="d", how="left"
                                ).set_index("scaffold_index")
-        dask_logger.warning("%s Calculated the mean coverage by distance (10X)", ctime())
+        coverage_df = coverage_df.persist()
+        # dask_logger.warning("%s Calculated the mean coverage by distance (10X)", ctime())
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         coverage_df = coverage_df.eval("r = log(n / mn) / log(2)")
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         coverage_df["mr_10x"] = coverage_df["r"].groupby(
             coverage_df.index.name).transform("min", meta=coverage_df.r.dtype).to_dask_array()
-        info_mr = dd.merge(coverage_df[["mr_10x"]].drop_duplicates(),
-                           info, how="right", on="scaffold_index")
-        dask_logger.warning("%s Calculated the coverage ratio to the average (10X)", ctime())
+        assert info.index.name == "scaffold_index"
+        coverage_df.index = coverage_df.index.astype(info.index.dtype)
+        coverage_df = coverage_df.persist()
+        try:
+            info_mr = dd.merge(coverage_df[["mr_10x"]].drop_duplicates(), info, how="right", on="scaffold_index")
+        except ValueError:
+            dask_logger.critical(coverage_df[["mr_10x"]].drop_duplicates().shape[0].compute())
+            dask_logger.critical("")
+            dask_logger.critical(coverage_df[["mr_10x"]].dtypes)
+            dask_logger.critical("")
+            dask_logger.critical(info.dtypes)
+            dask_logger.critical("")
+            dask_logger.critical((coverage_df[["mr_10x"]].index.dtype, info.index.dtype))
+            dask_logger.critical("")
+            dask_logger.critical(coverage_df[["mr_10x"]].head(npartitions=-1))
+            dask_logger.critical("")
+            dask_logger.critical(info.head())
+            dask_logger.critical("")
+            import sys
+            sys.exit(1)
+
+        # dask_logger.warning("%s Calculated the coverage ratio to the average (10X)", ctime())
         assert isinstance(info_mr, dd.DataFrame), type(info_mr)
         # assert isinstance(info_mr, dd.DataFrame), type(info_mr)
         info_mr = info_mr.drop("index", axis=1, errors="ignore").drop("scaffold", axis=1, errors="ignore")
-        dask_logger.warning("%s Finished calculating the 10X coverage DF", ctime())
+        # dask_logger.warning("%s Finished calculating the 10X coverage DF", ctime())
     else:
         info_mr = info.drop("mr_10x", axis=1, errors="ignore")
         # info_mr.drop("mr_10x", inplace=True, errors="ignore", axis=1)
@@ -154,10 +174,10 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         assembly["mol_binsize"] = binsize
         for key in ["info", "molecule_cov"]:
             print(time.ctime(), "Storing", key)
-            dask_logger.warning("%s Starting to rebalance %s", ctime(), key)
+            # dask_logger.warning("%s Starting to rebalance %s", ctime(), key)
             assembly[key] = _rebalance_ddf(assembly[key],
                                            target_memory=5 * 10 ** 7)
-            dask_logger.warning("%s Finished rebalancing %s", ctime(), key)
+            # dask_logger.warning("%s Finished rebalancing %s", ctime(), key)
             if save_dir is not None:
                 fname = os.path.join(save_dir, key + "_10x")
                 dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
