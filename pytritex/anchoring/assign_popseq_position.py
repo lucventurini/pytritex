@@ -82,7 +82,7 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
     # popseq_stats = popseq_stats.reset_index(drop=False)
     # So far we have congregated the different statistics about the centimorgans.
     # Now we have to consider .... ?
-    popseq_stats = popseq_stats.reset_index(drop=False).persist()
+    popseq_stats = popseq_stats.reset_index(drop=False)
     _meta = dict(popseq_stats.dtypes)
 
     best_locations = popseq_stats.groupby(
@@ -118,7 +118,6 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
                              client.scatter(anchored_css), on="scaffold_index", how="right")
     anchored_css = client.compute(func).result()
     # anchored_css = anchored_css.set_index("scaffold_index")
-    anchored_css = anchored_css.persist()
     if anchored_css.index.name != "scaffold_index":
         print(anchored_css.columns)
         assert False

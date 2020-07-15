@@ -70,10 +70,7 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
 
     ddf = ddf.persist()
     _ = ddf.head(npartitions=-1, n=1)
-    import logging
-    dask_logger = logging.getLogger("dask")
     orig_shape = ddf.shape[0].compute()
-    dask_logger.warning("Original shape: %s", orig_shape)
     if not ddf.known_divisions:  # e.g. for read_parquet(..., infer_divisions=False)
         mins = ddf.index.map_partitions(dask.utils.M.min, meta=ddf.index)
         maxes = ddf.index.map_partitions(dask.utils.M.max, meta=ddf.index)
@@ -89,7 +86,6 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
     
     index_counts = ddf.map_partitions(lambda _df: _df.index.value_counts(dropna=False).sort_index(),
                                       meta=int).compute()
-    dask_logger.warning("Index_counts: %s", sum(index_counts))
     index = np.repeat(index_counts.index, index_counts.values)
     if target_memory is not None:
         mem_usage = ddf.memory_usage(deep=True).sum().compute()
@@ -111,6 +107,8 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
     new_shape = repartitioned.shape[0].compute()
     if new_shape != orig_shape:
         # Something went wrong.
+        import logging
+        dask_logger = logging.getLogger("dask")
         dask_logger.critical("Error in rebalancing, old shape: %s; new shape: %s", orig_shape, new_shape)
         if orig_shape < new_shape:
             dask_logger.critical("Added new rows:")
@@ -127,7 +125,7 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
     return repartitioned
 
 
-def trim_fai(fai: typing.Union[str, dd.DataFrame]) -> dd.DataFrame:
+def assign_to_use_column(fai: typing.Union[str, dd.DataFrame]) -> dd.DataFrame:
     if isinstance(fai, str):
         new_fai = dd.read_parquet(fai, infer_divisions=True)
     else:
@@ -136,6 +134,7 @@ def trim_fai(fai: typing.Union[str, dd.DataFrame]) -> dd.DataFrame:
     if "derived_from_split" not in new_fai.columns:  # Not initialised
         new_fai["derived_from_split"] = False
         new_fai["previous_iteration"] = new_fai.index
+        new_fai["to_use"] = True
         new_fai = new_fai.persist()
         return new_fai
 
@@ -145,6 +144,5 @@ def trim_fai(fai: typing.Union[str, dd.DataFrame]) -> dd.DataFrame:
     midpoints = set.difference(set(previous), set(original_indices))
     derived = new_fai.query("derived_from_split == True")["orig_scaffold_index"].values.compute()
     all_indices = new_fai.index.compute()
-
-    final = new_fai.loc[all_indices.difference(midpoints).difference(derived).values]
-    return final.persist()
+    new_fai["to_use"] = new_fai.index.isin(all_indices.difference(midpoints).difference(derived).values)
+    return new_fai.persist()

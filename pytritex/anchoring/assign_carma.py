@@ -27,7 +27,7 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
     # combined_stats = anchored_css_grouped.compute().reset_index(level=1)
     combined_stats = combined_stats.reset_index(drop=False)
     # Now only keep the first two by "N"
-    nsum = combined_stats.groupby("scaffold_index")["N"].sum().to_frame("Ncss").persist()
+    nsum = combined_stats.groupby("scaffold_index")["N"].sum().to_frame("Ncss")
 
     combined_stats = combined_stats[["scaffold_index", "N", "sorted_alphachr"]].groupby("scaffold_index").apply(
         lambda df: df.nlargest(2, "N"), meta=({"scaffold_index": int, "N": int, "sorted_alphachr": int})
@@ -40,14 +40,10 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
     )
     combined_stats.columns = ["sorted_Ncss1", "sorted_Ncss2", "sorted_alphachr", "sorted_alphachr2"]
     combined_stats["sorted_alphachr2"] = combined_stats["sorted_alphachr2"].astype(object)
-    combined_stats = dd.merge(combined_stats, nsum, on="scaffold_index").persist()
+    combined_stats = dd.merge(combined_stats, nsum, on="scaffold_index")
 
     combined_stats["sorted_pchr"] = combined_stats["sorted_Ncss1"].div(combined_stats["Ncss"], fill_value=0)
     combined_stats["sorted_p12"] = combined_stats["sorted_Ncss2"].div(combined_stats["sorted_Ncss1"], fill_value=0)
-
-    # Persist results
-    combined_stats = combined_stats.persist()
-
     #  # Assignment of CARMA chromosome arm
     #  cssaln[sorted_arm == "L", .(NL=.N), keyby=.(scaffold, sorted_alphachr)]->al
     #  cssaln[sorted_arm == "S", .(NS=.N), keyby=.(scaffold, sorted_alphachr)]->as
@@ -99,7 +95,6 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
     #  info[is.na(sorted_Ncss1), sorted_Ncss1 := 0]
     #  info[is.na(sorted_Ncss2), sorted_Ncss2 := 0]
 
-    combined_stats = combined_stats.persist()
     assert "sorted_alphachr" in combined_stats.columns
     assert "sorted_alphachr2" in combined_stats.columns
 
@@ -115,9 +110,8 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
     info3 = delayed(dd.merge)(
         info2,
         client.scatter(fai), on="scaffold_index", how="right")
-    info = client.compute(info3).result().drop("scaffold", axis=1).persist()
+    info = client.compute(info3).result().drop("scaffold", axis=1)
     if info.index.name != "scaffold_index":
-        info = info.set_index("scaffold_index").persist()
+        info = info.set_index("scaffold_index")
 
-    info = info.persist()
     return info

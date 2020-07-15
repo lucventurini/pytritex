@@ -15,6 +15,7 @@ np.seterr(all='raise')
 def anchor_scaffolds(assembly: dict,
                      save: Union[str, None],
                      client: Client,
+                     scaffolds=None,
                      species=None,
                      sorted_percentile=95,
                      popseq_percentile=90,
@@ -50,6 +51,10 @@ def anchor_scaffolds(assembly: dict,
             fpairs = dd.read_parquet(fpairs, infer_divisions=True)
         hic = (fpairs.head(5, npartitions=-1).shape[0] > 0)
 
+    # if scaffolds is not None:
+    #     anchored_css = assembly["anchored_css"]
+    #
+    # else:
     anchored_css = assign_carma(cssaln, fai, wheatchr, client)
     anchored_css = assign_popseq_position(
         cssaln=cssaln, popseq=popseq, client=client,

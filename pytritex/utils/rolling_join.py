@@ -53,7 +53,7 @@ def rolling_join(left: Union[pd.DataFrame, dd.DataFrame], right: Union[pd.DataFr
         left["__idx_pos"] = da.from_array(grouped[by].transform(rank).astype(int),
                                           chunks=chunks)
         assert left.shape[0].compute() > 0
-        s = grouped[by].agg(by=(by, lambda col: np.sort(col.values).tolist() ))
+        s = grouped[by].agg(by=(by, lambda col: np.sort(col.values).tolist()))
         s = dd.from_pandas(s, chunksize=1000)
         # assert s.index.dtype == left.index.dtype, (s.index.)
     else:

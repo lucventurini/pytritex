@@ -51,5 +51,4 @@ def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, client:
     func = delayed(dd.merge)(client.scatter(hic_stats),
                              client.scatter(anchored_css), on="scaffold_index", how="right")
     anchored_css = client.compute(func).result()
-    anchored_css = anchored_css.persist()
     return anchored_css, anchored_hic_links

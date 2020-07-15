@@ -4,7 +4,7 @@ import dask.dataframe as dd
 import os
 from functools import partial
 import dask.array as da
-from ..utils import trim_fai
+from ..utils import assign_to_use_column
 import logging
 dask_logger = logging.getLogger("dask")
 import time
