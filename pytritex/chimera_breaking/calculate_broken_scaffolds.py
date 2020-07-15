@@ -50,7 +50,6 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     if "derived_from_split" not in fai.columns:  # Not initialised
         fai["derived_from_split"] = False
         fai["previous_iteration"] = fai.index
-        fai = fai.persist()
 
     broken = breaks.copy()
     broken = dd.merge(fai, broken.drop("length", axis=1, errors="ignore"),
@@ -84,7 +83,6 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
         check = (grouped["breakpoint"].apply(
             lambda group: group.shift(0) - group.shift(1), meta=np.float) <= 2 * slop).compute()
 
-    broken = broken.persist()
     # Now we are guaranteed that all the breaks are at the correct distance.
     # Next up: ensure that none of these breaks happened in non-original scaffolds.
     # If they do, we need to change the coordinates.
@@ -97,7 +95,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     # Also we need to *remove* from the FAI the scaffolds we are breaking further, I think?
     right = fai[["scaffold"]].rename(columns={"scaffold": "orig_scaffold"})
     broken = dd.merge(broken.reset_index(drop=False), right,
-                      left_on="orig_scaffold_index", right_index=True).persist()
+                      left_on="orig_scaffold_index", right_index=True)
     broken = broken.drop("idx", axis=1).set_index("scaffold_index")
     broken["scaffold"] = broken["scaffold"].mask(bait, broken["orig_scaffold"])
 
@@ -105,8 +103,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     broken["scaffold_index"] = broken.index
     broken.index = broken.index.rename("old_scaffold_index")
     broken["scaffold_index"] = broken["scaffold_index"].mask(bait, broken["orig_scaffold_index"])
-    broken = broken.persist()
-    broken = broken.drop_duplicates(subset=["scaffold_index", "breakpoint"], keep="first").persist()
+    broken = broken.drop_duplicates(subset=["scaffold_index", "breakpoint"], keep="first")
 
     # broken["derived_from_split"] = False
     sloppy = partial(_scaffold_breaker, slop=slop)
@@ -139,13 +136,14 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
                        broken[["orig_scaffold_index", "previous_iteration",
                                "scaffold"]].reset_index(drop=True).drop_duplicates(),
                        how="left",
-                       on="previous_iteration").persist()
+                       on="previous_iteration")
     new_shape = _broken.shape[0].compute()
     assert new_shape == orig_shape, (orig_shape, new_shape)
     assert "scaffold_index" in _broken.columns, (_broken.columns, broken.columns)
     _broken = _broken.reset_index(drop=True).set_index("scaffold_index")
     _broken = _broken[fai.columns]
-    _broken["scaffold"] = (_broken["scaffold"] + ":" + _broken["orig_start"].astype(str) +
+    broken = broken.astype({"orig_start": int, "orig_end": int})
+    _broken["scaffold"] = (_broken["scaffold"].astype(str) + ":" + _broken["orig_start"].astype(str) +
                            "-" + _broken["orig_end"].astype(str))
 
     dask_logger.warning("%s Finished scaffold breaking", time.ctime())
@@ -165,7 +163,6 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
         raise
     # assert fai[fai["derived_from_split"] == True].shape[0].compute() >= _broken.shape[0].compute()
     assert fai.index.name == "scaffold_index", fai.head()
-    fai = fai.persist()
     dask_logger.warning("%s Finished, returning the FAI", time.ctime())
     fai_name = os.path.join(save_dir, "fai")
     dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")

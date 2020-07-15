@@ -47,22 +47,19 @@ def column_switcher(fpairs: dd.DataFrame):
 
 def read_fpairs(hic, fai, save_dir):
     fpairs_command = 'find {} -type f | grep "_fragment_pairs.tsv.gz$"'.format(hic)
-    fpairs = [
-        dd.read_csv(
-            fname.decode().rstrip(), sep="\t", header=None, names=["scaffold1", "pos1", "scaffold2", "pos2"],
-            compression="gzip", blocksize=None)
-        for fname in sp.Popen(fpairs_command, shell=True, stdout=sp.PIPE).stdout
-    ]
+    fpairs = [fname.decode().rstrip() for fname in sp.Popen(fpairs_command, shell=True, stdout=sp.PIPE).stdout]
+
     if len(fpairs) > 0:
-        fpairs = dd.concat(fpairs).reset_index(drop=True)
+        fpairs = dd.read_csv(fpairs, sep="\t", header=None, names=["scaffold1", "pos1", "scaffold2", "pos2"],
+                             compression="gzip", blocksize=None)
         fpairs = column_switcher(fpairs)
         # Now let us change the scaffold1 and scaffold2
         left = fai[["scaffold"]].reset_index(drop=False)
         left1 = left.rename(columns={"scaffold": "scaffold1", "scaffold_index": "scaffold_index1"})
-        assert "scaffold1" in left1.columns and "scaffold_index1" in left1.columns and left1.columns.shape[0] == 2
+        # assert "scaffold1" in left1.columns and "scaffold_index1" in left1.columns and left1.columns.shape[0] == 2
         fpairs = dd.merge(left1, fpairs, how="right", on="scaffold1").drop("scaffold1", axis=1)
         left2 = left.rename(columns={"scaffold": "scaffold2", "scaffold_index": "scaffold_index2"})
-        assert "scaffold2" in left2.columns and "scaffold_index2" in left2.columns and left2.columns.shape[0] == 2
+        # assert "scaffold2" in left2.columns and "scaffold_index2" in left2.columns and left2.columns.shape[0] == 2
         fpairs = dd.merge(left2, fpairs, how="right", on="scaffold2").drop("scaffold2", axis=1)
         fpairs["orig_scaffold_index1"] = fpairs["scaffold_index1"]
         fpairs["orig_scaffold_index2"] = fpairs["scaffold_index2"]
@@ -74,7 +71,6 @@ def read_fpairs(hic, fai, save_dir):
                                        pos1=[], pos2=[], orig_pos1=[], orig_pos2=[],
                                        orig_scaffold_index1=[], orig_scaffold_index2=[])
         fpairs = dd.from_pandas(fpairs)
-    fpairs = fpairs.persist()
     fname = os.path.join(save_dir, "fpairs")
     dd.to_parquet(fpairs, fname, compression="gzip", compute=True, engine="pyarrow")
     return fname

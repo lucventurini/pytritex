@@ -68,7 +68,6 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
     if not isinstance(ddf, dd.DataFrame):
         return ddf
 
-    ddf = ddf.persist()
     _ = ddf.head(npartitions=-1, n=1)
     orig_shape = ddf.shape[0].compute()
     if not ddf.known_divisions:  # e.g. for read_parquet(..., infer_divisions=False)
@@ -102,7 +101,6 @@ def _rebalance_ddf(ddf: dd.DataFrame, npartitions=None, target_memory=None):
         except ValueError:
             repartitioned = ddf
 
-    repartitioned = repartitioned.persist()
     _ = repartitioned.head(npartitions=-1, n=1)
     new_shape = repartitioned.shape[0].compute()
     if new_shape != orig_shape:
@@ -135,7 +133,6 @@ def assign_to_use_column(fai: typing.Union[str, dd.DataFrame]) -> dd.DataFrame:
         new_fai["derived_from_split"] = False
         new_fai["previous_iteration"] = new_fai.index
         new_fai["to_use"] = True
-        new_fai = new_fai.persist()
         return new_fai
 
     previous = new_fai["previous_iteration"].unique().values.compute()
@@ -145,4 +142,4 @@ def assign_to_use_column(fai: typing.Union[str, dd.DataFrame]) -> dd.DataFrame:
     derived = new_fai.query("derived_from_split == True")["orig_scaffold_index"].values.compute()
     all_indices = new_fai.index.compute()
     new_fai["to_use"] = new_fai.index.isin(all_indices.difference(midpoints).difference(derived).values)
-    return new_fai.persist()
+    return new_fai

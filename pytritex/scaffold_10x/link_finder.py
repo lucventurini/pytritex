@@ -59,12 +59,12 @@ def _calculate_link_pos(molecules: str, fai: str, save_dir: str,
     assert "start" in movf.columns
     base = movf.loc[:, side_columns].reset_index(drop=False)
     base["pos"] = base.map_partitions(lambda df: df.eval("floor((start + end) / 2)"))
-    base = base.drop(["start", "end"], axis=1).persist()
+    base = base.drop(["start", "end"], axis=1)
     # Now merge the two sides
     link_pos = dd.merge(base, base, how="outer",
                         left_on=["sample", "barcode_index"],
                         right_on=["sample", "barcode_index"],
-                        suffixes=("1", "2")).persist()
+                        suffixes=("1", "2"))
     link_pos = link_pos.query(
         "(scaffold_index1 != scaffold_index2) | ((scaffold_index1 == scaffold_index2) & (pos1 != pos2))")
     assert "scaffold_index2" in link_pos, link_pos.head()
@@ -87,9 +87,10 @@ def mol_counter(link_pos, min_nmol):
 
 
 def sample_counter(mol_count, min_nsample):
-    sample_count = mol_count.reset_index(drop=False)[["scaffold_index1", "scaffold_index2", "sample"]].drop_duplicates().persist()
+    sample_count = mol_count.reset_index(drop=False)[
+        ["scaffold_index1", "scaffold_index2", "sample"]].drop_duplicates()
     sample_count = sample_count.groupby(
-        ["scaffold_index1", "scaffold_index2"])["sample"].size().rename("nsample").persist()
+        ["scaffold_index1", "scaffold_index2"])["sample"].size().rename("nsample")
     sample_count = sample_count[sample_count >= min_nsample].to_frame("nsample")
     sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index1")
     return sample_count
@@ -200,11 +201,9 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     sample_count = dd.read_parquet(sample_count_name, infer_divisions=True, engine="auto")
     dask_logger.warning("Calculating the link positions.")
     if popseq_dist > 0:
-        sample_count = sample_count.persist()
         links = sample_count[
                 (sample_count["same_chr"] == True) & ((sample_count.eval("popseq_cM2 - popseq_cM1").astype(float)).abs() <= popseq_dist)]
         links_name = os.path.join(save_dir, "links")
-        links = links.persist()
         # links = _rebalance_ddf(links, target_memory=5 * 10**7)
         dd.to_parquet(links, links_name, compression="gzip", engine="pyarrow", compute=True)
     else:

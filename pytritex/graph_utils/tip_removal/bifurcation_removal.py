@@ -57,7 +57,6 @@ def _remove_bifurcations(links: dd.DataFrame,
     upper = client.scatter(bifurcated.loc[bifurcated.type, ["super", "bin0"]].assign(bin=1))
     func = delayed(dd.merge)(left, upper, on=key)
     upper = client.compute(func).result()
-    upper = upper.persist()
     upper_size = upper.shape[0].compute()
     assert "scaffold_index" in upper.columns
     upper = client.scatter(upper)
@@ -66,7 +65,6 @@ def _remove_bifurcations(links: dd.DataFrame,
         columns={"super_nbin": "bin"}))
     func = delayed(dd.merge)(left, lower, on=key)
     lower = client.compute(func).result()
-    lower.persist()
     lower_size = lower.shape[0].compute()
     assert max(lower_size, upper_size) > 0
     assert "scaffold_index" in lower.columns

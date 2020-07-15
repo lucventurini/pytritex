@@ -52,7 +52,7 @@ def _initial_branch_remover(client: Client,
     links = dd.read_parquet(links, infer_divisions=True, engine="pyarrow")
     info = dd.read_parquet(info, infer_divisions=True, engine="pyarrow")
     scaffolds_to_use = np.unique(links[["scaffold_index1", "scaffold_index2"]].values.compute().flatten())
-    info_to_use = info.loc[scaffolds_to_use].persist()
+    info_to_use = info.loc[scaffolds_to_use]
 
     _iterator = partial(iteration,
                         links=links,

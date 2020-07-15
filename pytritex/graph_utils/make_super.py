@@ -73,7 +73,7 @@ def make_super(hl: dd.DataFrame,
                    cluster_info.shape[0].compute())
     bait1 = hl["cluster1"].isin(non_excluded)
     bait2 = hl["cluster2"].isin(non_excluded)
-    hl = hl.loc[bait1 & bait2, :].persist()
+    hl = hl.loc[bait1 & bait2, :]
     # hl = hl.loc[(hl["cluster1"].isin(
     #     cluster_info.loc[~cluster_info["excluded"]].index.values))
     #     & (hl["cluster2"].isin(cluster_info.loc[~cluster_info["excluded"]].index.values))]
@@ -122,7 +122,6 @@ def make_super(hl: dd.DataFrame,
         sys.exit(1)
     membership = cluster_info.merge(raw_membership, left_index=True,
                                     right_index=True, how="right")
-    membership = membership.persist()
     if membership.shape[0].compute() != length:
         logger.error("Duplicated indices after merging with cluster_info")
         import sys
@@ -133,7 +132,7 @@ def make_super(hl: dd.DataFrame,
     info = grouped.agg(
         {"super": "size",
          "cM": "mean"}
-    ).rename(columns={"super": "size"}).persist()
+    ).rename(columns={"super": "size"})
     # print(info.head(npartitions=-1, n=5))
     info["chr"] = grouped["chr"].unique().apply(lambda s: [_ for _ in s if not np.isnan(_)][0],
                                                 meta=np.float)
@@ -143,14 +142,14 @@ def make_super(hl: dd.DataFrame,
     edge_list.index = edge_list.index.rename("cluster1")
 
     edge_list = edge_list.merge(hl, on="cluster1", how="right")
-    edge_list = _rebalance_ddf(edge_list, npartitions=100)
+    # edge_list = _rebalance_ddf(edge_list, npartitions=100)
 
     super_object = {"super_info": info,
                     "membership": membership, "graph": graph, "edges": edge_list}
 
     if paths is True:
         cms = membership.loc[:, ["super", "cM"]
-              ].copy().reset_index(drop=False).set_index("super").persist().rename(
+              ].copy().reset_index(drop=False).set_index("super").rename(
                   columns={"scaffold_index": "cluster"})
         if "cluster" not in cms.columns:
             logger.critical("\n\n%s\n\n", cms.head())
@@ -163,7 +162,7 @@ def make_super(hl: dd.DataFrame,
                 "length", ascending=False).head(path_max).index.values)
         else:
             idx = np.unique(super_object["super_info"].index.values.compute())
-        edges = super_object["edges"].set_index("super").persist()
+        edges = super_object["edges"].set_index("super")
 
         # grouped_edges = super_object["edges"].groupby("super")
         # grouped_membership = cms.groupby("super")
@@ -223,9 +222,9 @@ def make_super(hl: dd.DataFrame,
             cluster=results[:, 0], bin=results[:, 1], rank=results[:, 2], backbone=results[:, 3])
         assert results.cluster.unique().shape[0] == results.shape[0]
         results = results.set_index("cluster")
-        super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster").persist()
+        super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster")
         assert super_object["membership"].index.name == "cluster"
 
-    super_object["membership"] = super_object["membership"].drop("cidx", axis=1).persist()
+    super_object["membership"] = super_object["membership"].drop("cidx", axis=1)
     logger.warning("%s Finished make_super run", time.ctime())
     return super_object

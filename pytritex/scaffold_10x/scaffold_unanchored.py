@@ -49,7 +49,7 @@ def _scaffold_unanchored(links: str,
         "scaffold_index2"), left2, on="scaffold_index2").reset_index(drop=False)
 
     linkages = linkages.query(
-        "super2 != super1 & d1 == 0 & d2 == 0 & super_nbin1 > 1 & super_nbin2 > 1 & chr1 == chr2").persist()
+        "super2 != super1 & d1 == 0 & d2 == 0 & super_nbin1 > 1 & super_nbin2 > 1 & chr1 == chr2")
     # Only keep unambiguous links
     linkages = linkages.merge(
         linkages.query("scaffold_index1 < scaffold_index2").groupby("scaffold_link").size().to_frame("nscl"),

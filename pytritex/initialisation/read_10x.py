@@ -40,29 +40,17 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, clien
     mol = client.scatter(mol)
     print(time.ctime(), "Scattered 10X files")
     f = fai[["scaffold"]].reset_index(drop=False).set_index("scaffold")
-    try:
-        print(time.ctime(), "Merging FAI into molecules")
-        print(type(mol))
-        molfunc = delayed(dd.merge)(f, mol, on="scaffold", how="right")
-        mol = client.compute(molfunc)
-        mol = mol.result().reset_index(drop=True)
-        assert isinstance(mol, dd.DataFrame)
-        # mol = dd.from_delayed(mol)
-        print(time.ctime(), "Merged FAI into molecules")
-    except KeyError:
-        print(mol.head(10))
-        print()
-        print(f.head(10))
-        print()
-        raise
+    molfunc = delayed(dd.merge)(f, mol, on="scaffold", how="right")
+    mol = client.compute(molfunc)
+    mol = mol.result().reset_index(drop=True)
+    assert isinstance(mol, dd.DataFrame)
     mol["length"] = mol.eval("end - start")
     mol["start"] += 1
     mol["orig_start"] = mol["start"]
     mol["orig_end"] = mol["end"]
     mol["orig_scaffold_index"] = mol["scaffold_index"]
-    mol = client.persist(mol)
+    assert isinstance(mol, dd.DataFrame)
     # barcode = mol["barcode"].compute()
-    print(time.ctime(), "Changing barcodes with indices")
     barcodes = mol["barcode"].unique().compute()
     shape = barcodes.shape[0]
     barcodes = pd.DataFrame().assign(
@@ -72,10 +60,11 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, clien
     bar_name = os.path.join(save_dir, "barcodes")
     dd.to_parquet(barcodes, bar_name, compression="gzip", engine="pyarrow", compute=True)
     barcodes = dd.read_parquet(bar_name)
-    mol = dd.merge(barcodes, mol, how="right", on="barcode", npartitions=100
-                   ).drop("barcode", axis=1).set_index("scaffold_index")
-    mol = client.persist(mol)
-    print(time.ctime(), "Storing data to disk")
+    mol = client.scatter(mol)
+    func = delayed(dd.merge)(barcodes, mol, how="right", on="barcode", npartitions=100)
+    mol = client.compute(func).result()
+    assert isinstance(mol, dd.DataFrame)
+    mol = mol.drop("barcode", axis=1).set_index("scaffold_index")
     fname = os.path.join(save_dir, "molecules")
     dd.to_parquet(mol, fname, compression="gzip", engine="pyarrow", compute=True)
     return fname, bar_name

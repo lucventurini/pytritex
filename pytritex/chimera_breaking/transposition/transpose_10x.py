@@ -4,9 +4,9 @@ from ...sequencing_coverage import add_molecule_cov
 import dask.dataframe as dd
 import os
 from dask.distributed import Client
-from joblib import Memory
+# from joblib import Memory
 import numpy as np
-from ...utils import _rebalance_ddf
+# from ...utils import _rebalance_ddf
 
 
 def _transpose_molecule_cov(new_assembly,
@@ -103,7 +103,9 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
                         fai["to_use"] == True), ["orig_scaffold_index", "orig_start", "length"]][:]
         derived = derived.rename(columns={"length": "s_length"}).reset_index(drop=False)
         derived = derived.assign(orig_pos=derived["orig_start"])
-        molecules_down = rolling_join(derived, molecules_down, on="orig_scaffold_index", by="orig_start")
+        molecules_down = rolling_join(derived.compute(),
+                                      molecules_down.compute(),
+                                      on="orig_scaffold_index", by="orig_start").reset_index(drop=False)
 
         molecules_down["start"] = molecules_down.eval("orig_start - orig_pos + 1")
         molecules_down["end"] = molecules_down.eval("orig_end - orig_pos + 1")
@@ -114,13 +116,11 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         # assert molecules_up.index.name == "scaffold_index", molecules_up.compute().head()
         molecules = dd.concat([molecules_up,
                                molecules_down]).reset_index(drop=False)
-        # assert molecules.index.values.compute().min() == min_idx
-        # assert molecules.index.name == "scaffold_index", molecules.compute().head()
-        # assert molecules.shape[0].compute() >= molecules_up.shape[0].compute()
-        molecules = molecules.astype(dict((key, np.int) for key in
-                                          ["start", "end", "length", "scaffold_index", "orig_scaffold_index",
-                                           "orig_start", "orig_end"]))
+        assert molecules.scaffold_index.isna().any().compute() == False
+        molecules = molecules.astype({"scaffold_index": np.int})
         molecules = molecules.set_index("scaffold_index")
+        molecules = molecules.astype(dict((key, np.int) for key in
+                                          ["start", "end", "length", "orig_scaffold_index", "orig_start", "orig_end"]))
         assert isinstance(molecules, dd.DataFrame)
 
     elif molecules is None:
@@ -130,7 +130,7 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         molecules = dd.from_pandas(molecules, npartitions=1)
 
     assert isinstance(molecules, dd.DataFrame)
-    molecules = _rebalance_ddf(molecules, target_memory=5*10**7)
+    # molecules = _rebalance_ddf(molecules, target_memory=5*10**7)
     fname = os.path.join(save_dir, "molecules")
     dd.to_parquet(molecules, fname, engine="pyarrow", compression="gzip", compute=True)
     return fname

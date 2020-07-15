@@ -9,7 +9,7 @@ import dask.dataframe as dd
 import os
 from joblib import Memory
 from dask.distributed import Client
-from ..utils import _rebalance_ddf, assign_to_use_column
+from ..utils import assign_to_use_column  # , _rebalance_ddf
 import logging
 dask_logger = logging.getLogger("dask")
 
@@ -67,11 +67,13 @@ def break_scaffolds(breaks, client: Client, save_dir: str, memory: Memory,
         new_assembly, fai=trimmed_fai, save_dir=save_dir, scaffolds=new_indices,
         client=client, assembly=assembly, cores=cores)
     # Change values that are 0 to nan
+    dask_logger.warning("%s Transposed the 10X coverage data", ctime())
     for key in ["popseq_alphachr2", "popseq_alphachr", "sorted_alphachr", "sorted_alphachr2"]:
         new_assembly["info"][key] = new_assembly["info"][key].map({0: np.nan})
     new_assembly["info"]["derived_from_split"] = new_assembly["info"]["derived_from_split"].fillna(False)
     for key in ["molecule_cov", "info", "cov"]:
         # BugFix for pyarrow not handling float16 and int16
+        dask_logger.warning("%s Storing %s", ctime(), key)
         if (new_assembly[key].dtypes == np.int16).any():
             for index, col in enumerate(new_assembly[key].dtypes == np.int16):
                 if col is False:
@@ -84,10 +86,12 @@ def break_scaffolds(breaks, client: Client, save_dir: str, memory: Memory,
                     continue
                 col = new_assembly[key].dtypes.index[index]
                 new_assembly[key][col] = new_assembly[key][col].astype(np.float32)
-
-        new_assembly[key] = _rebalance_ddf(new_assembly[key], target_memory=5 * 10**7)
+        # dask_logger.warning("%s Rebalancing %s", ctime(), key)
+        # new_assembly[key] = _rebalance_ddf(new_assembly[key], target_memory=5 * 10**7)
+        # dask_logger.warning("%s Rebalanced %s", ctime(), key)
         fname = os.path.join(save_dir, key)
         dd.to_parquet(new_assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+        dask_logger.warning("%s Stored %s", ctime(), key)
         new_assembly[key] = fname
 
     print(ctime(), "Finished transposing")

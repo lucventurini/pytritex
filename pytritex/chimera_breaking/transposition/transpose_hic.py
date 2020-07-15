@@ -4,7 +4,7 @@ from ...sequencing_coverage import add_hic_cov
 import dask.dataframe as dd
 from dask.distributed import Client
 import numpy as np
-from ...utils import _rebalance_ddf
+# from ...utils import _rebalance_ddf
 import os
 import time
 import logging
@@ -116,46 +116,55 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
         unstable_pairs = fpairs[bait1 & bait2][final_columns]
         unstable_1_stable_2 = fpairs[bait1 & ~bait2][final_columns]
         stable_1_unstable_2 = fpairs[~bait1 & bait2][final_columns]
-        dask_logger.warning("%s Roll join USS", time.ctime())
-        # This is the easy one.
-        unstable_pairs = unstable_pairs[
-            ["orig_scaffold_index1", "orig_scaffold_index2", "orig_pos1", "orig_pos2"]]
-        unstable_pairs = rolling_join(left.rename(columns=dict((_, _ + "1") for _ in left.columns)),
-                                      unstable_pairs, on="orig_scaffold_index1", by="orig_pos1")
-        assert "scaffold_index1" in unstable_pairs.columns, unstable_pairs.compute().head()
-        unstable_pairs = rolling_join(left.rename(columns=dict((_, _ + "2") for _ in left.columns)),
-                                      unstable_pairs, on="orig_scaffold_index2", by="orig_pos2")
-        assert "scaffold_index2" in unstable_pairs.columns, unstable_pairs.head()
-        unstable_pairs["pos1"] = unstable_pairs.eval("orig_pos1 - orig_start1 + 1")
-        unstable_pairs["pos2"] = unstable_pairs.eval("orig_pos2 - orig_start2 + 1")
+
+        if unstable_pairs.shape[0].compute() > 0:
+            dask_logger.warning("%s Roll join USS", time.ctime())
+            # This is the easy one.
+            unstable_pairs = unstable_pairs[
+                ["orig_scaffold_index1", "orig_scaffold_index2", "orig_pos1", "orig_pos2"]]
+            unstable_pairs = rolling_join(
+                left.rename(columns=dict((_, _ + "1") for _ in left.columns)).compute(),
+                unstable_pairs.compute(), on="orig_scaffold_index1", by="orig_pos1").reset_index(drop=False)
+            assert "scaffold_index1" in unstable_pairs.columns, unstable_pairs.compute().head()
+            unstable_pairs = rolling_join(
+                left.rename(columns=dict((_, _ + "2") for _ in left.columns)).compute(),
+                unstable_pairs, on="orig_scaffold_index2", by="orig_pos2").reset_index(drop=False)
+            assert "scaffold_index2" in unstable_pairs.columns, unstable_pairs.head()
+            unstable_pairs["pos1"] = unstable_pairs.eval("orig_pos1 - orig_start1 + 1")
+            unstable_pairs["pos2"] = unstable_pairs.eval("orig_pos2 - orig_start2 + 1")
+
         unstable_pairs = unstable_pairs[final_columns]
 
         # Unstable 1, stable2: only roll join the scaffold1
-        dask_logger.warning("%s Roll join US1S2", time.ctime())
-        unstable_1_stable_2 = unstable_1_stable_2[
-            ["orig_scaffold_index1", "orig_scaffold_index2", "orig_pos1", "orig_pos2",
-             'scaffold_index2', 'pos2']]
-        unstable_1_stable_2 = rolling_join(left.rename(columns=dict((_, _ + "1") for _ in left.columns)),
-                                           unstable_1_stable_2, on="orig_scaffold_index1", by="orig_pos1")
-        unstable_1_stable_2["pos1"] = unstable_1_stable_2.eval("orig_pos1 - orig_start1 + 1")
+        if unstable_1_stable_2.shape[0].compute() > 0:
+            dask_logger.warning("%s Roll join US1S2", time.ctime())
+            unstable_1_stable_2 = unstable_1_stable_2[
+                ["orig_scaffold_index1", "orig_scaffold_index2", "orig_pos1", "orig_pos2",
+                 'scaffold_index2', 'pos2']]
+            unstable_1_stable_2 = rolling_join(
+                left.rename(columns=dict((_, _ + "1") for _ in left.columns)).compute(),
+                unstable_1_stable_2.compute(), on="orig_scaffold_index1", by="orig_pos1").reset_index(drop=False)
+            unstable_1_stable_2["pos1"] = unstable_1_stable_2.eval("orig_pos1 - orig_start1 + 1")
         unstable_1_stable_2 = unstable_1_stable_2[final_columns]
 
         # Stable 1, unstable2: only roll join the scaffold1
-        dask_logger.warning("%s Roll join S1US2", time.ctime())
-        stable_1_unstable_2 = stable_1_unstable_2[
-            ["orig_scaffold_index1", "orig_scaffold_index2", "orig_pos1", "orig_pos2",
-             'scaffold_index1', 'pos1']]
-        stable_1_unstable_2 = rolling_join(left.rename(columns=dict((_, _ + "2") for _ in left.columns)),
-                                           stable_1_unstable_2, on="orig_scaffold_index2", by="orig_pos2")
-        stable_1_unstable_2["pos2"] = stable_1_unstable_2.eval("orig_pos2 - orig_start2 + 2")
+        if stable_1_unstable_2.shape[0].compute() > 0:
+            dask_logger.warning("%s Roll join S1US2", time.ctime())
+            stable_1_unstable_2 = stable_1_unstable_2[
+                ["orig_scaffold_index1", "orig_scaffold_index2", "orig_pos1", "orig_pos2",
+                 'scaffold_index1', 'pos1']]
+            stable_1_unstable_2 = rolling_join(
+                left.rename(columns=dict((_, _ + "2") for _ in left.columns)).compute(),
+                stable_1_unstable_2.compute(), on="orig_scaffold_index2", by="orig_pos2").reset_index(drop=False)
+            stable_1_unstable_2["pos2"] = stable_1_unstable_2.eval("orig_pos2 - orig_start2 + 2")
         stable_1_unstable_2 = stable_1_unstable_2[final_columns]
 
         dask_logger.warning("%s Concatenating fpairs", time.ctime())
         fpairs = dd.concat([
             stable_pairs,
-            unstable_pairs,
-            unstable_1_stable_2,
-            stable_1_unstable_2]).reset_index(drop=True)
+            unstable_pairs.astype(dict(stable_pairs.dtypes)),
+            unstable_1_stable_2.astype(dict(stable_pairs.dtypes)),
+            stable_1_unstable_2.astype(dict(stable_pairs.dtypes))]).reset_index(drop=True)
         fpairs = fpairs.astype(dict((_, np.int) for _ in
                                     ["orig_scaffold_index1", "orig_scaffold_index2", "orig_pos1", "orig_pos2",
                                      'scaffold_index1', 'pos1']))
@@ -164,7 +173,7 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
         fpairs = pd.DataFrame().assign(**dict((column, list()) for column in final_columns))
         fpairs = dd.from_pandas(fpairs, chunksize=1)
 
-    fpairs = _rebalance_ddf(fpairs, target_memory=5 * 10**7)
+    # fpairs = _rebalance_ddf(fpairs, target_memory=5 * 10**7)
     fpairs_name = os.path.join(save_dir, "anchored_hic_links")
     dd.to_parquet(fpairs, fpairs_name, compute=True, engine="pyarrow", compression="gzip")
     return fpairs_name

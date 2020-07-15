@@ -41,9 +41,9 @@ def find_wrong_assignments(anchored_css: dd.DataFrame, measure: list, client: Cl
     # scaffold_index is the index
     to_melt = anchored_css[measure].reset_index(drop=False)
     melted = dd.melt(to_melt, id_vars="scaffold_index",
-                     value_vars=measure, var_name="map", value_name="chr").dropna().persist()
+                     value_vars=measure, var_name="map", value_name="chr").dropna()
     #  w[, .N, key=.(scaffold, chr)]->w
-    melted = melted.groupby(["scaffold_index", "chr"]).size().to_frame("N").reset_index(drop=False).persist()
+    melted = melted.groupby(["scaffold_index", "chr"]).size().to_frame("N").reset_index(drop=False)
     # Nchr_ass: number of assignments for the scaffold.
     # Nchr_ass_uniq: number of unique assignments for the scaffold.
     melted = melted.groupby("scaffold_index").agg({"N": ["sum", "size"]})
@@ -77,13 +77,12 @@ def find_wrong_assignments(anchored_css: dd.DataFrame, measure: list, client: Cl
 
     # Finally, let's count how many bad assignments we found for each scaffold. This can be between 0 and 3.
     # Melt only the columns we are interested in
-    to_melt = anchored_css[measure].reset_index(drop=False).persist()
+    to_melt = anchored_css[measure].reset_index(drop=False)
     melted = dd.melt(to_melt,
                 id_vars=["scaffold_index"],
                 value_vars=measure,
                 value_name="bad",
-                var_name="map").dropna().query("bad == True").persist()
-    melted = melted.groupby("scaffold_index").size().to_frame("Nbad").persist()
+                var_name="map").dropna().query("bad == True")
+    melted = melted.groupby("scaffold_index").size().to_frame("Nbad")
     anchored_css = dd.merge(melted, anchored_css, on="scaffold_index", how="right")
-    anchored_css = anchored_css.persist()
     return anchored_css

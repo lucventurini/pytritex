@@ -65,7 +65,6 @@ def prepare_tables(links, info, membership, excluded):
                                 chunks=tuple(cluster_info.map_partitions(len).compute().values.tolist()))
     cluster_info["excluded"] = excl_column
     cluster_info.index = cluster_info.index.rename("cluster")
-    cluster_info = cluster_info.persist()
     assert cluster_info[cluster_info.excluded == True].shape[0].compute() == len(excluded)
     hl = links.copy().rename(columns={"scaffold_index1": "cluster1", "scaffold_index2": "cluster2"})
     return links, info, membership, excluded_scaffolds, cluster_info, hl
@@ -93,7 +92,6 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
 
     _to_concatenate = info.loc[bait_index, ["popseq_chr", "popseq_cM", "length"]].rename(
         columns={"popseq_chr": "chr", "popseq_cM": "cM"})
-    _to_concatenate = _to_concatenate.persist()
     assert _to_concatenate.shape[0].compute() == len(bait_index)
 
     chunks = client.compute(delayed(
@@ -110,19 +108,17 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
         sys.exit(1)
     excl_column = da.from_array(excl_vector, chunks=chunks)
 
-    _to_concatenate = _to_concatenate.persist()
     _to_concatenate = _to_concatenate.assign(
         bin=1, rank=0, backbone=True,
         excluded=excl_column,
         super=sup_column)
-    _to_concatenate = _to_concatenate.persist()
     assert _to_concatenate.index.name == membership.index.name
     if _to_concatenate.index.dtype != membership.index.dtype:
         assert membership.index.name is not None
         name = membership.index.name
         _to_concatenate = _to_concatenate.reset_index(drop=False)
         _to_concatenate[name] = _to_concatenate[name].astype(membership.index.dtype)
-        _to_concatenate = _to_concatenate.set_index(name).persist()
+        _to_concatenate = _to_concatenate.set_index(name)
     assert _to_concatenate.index.dtype == membership.index.dtype
     func = delayed(dd.concat)([client.scatter(membership), client.scatter(_to_concatenate)])
     new_membership = client.compute(func).result()
@@ -139,7 +135,6 @@ Concatenated: %s""", info_index.shape[0], indices.shape[0], _to_concatenate.shap
         import sys
         sys.exit(1)
 
-    new_membership = new_membership.persist()
     return new_membership
 
 
@@ -160,7 +155,7 @@ def add_statistics(membership, client):
     if left.index.dtype != membership.index.dtype:
         left = left.reset_index(drop=False)
         left["super"] = left["super"].astype(membership.index.dtype)
-        left = left.set_index("super").persist()
+        left = left.set_index("super")
     left = client.scatter(left)
     membership = client.scatter(membership)
     func = delayed(dd.merge)(left, membership, left_index=True, right_on="super",

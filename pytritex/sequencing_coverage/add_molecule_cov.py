@@ -8,7 +8,7 @@ import os
 from .collapse_bins import collapse_bins as cbn
 from dask import delayed
 import time
-from ..utils import _rebalance_ddf
+# from ..utils import _rebalance_ddf
 import logging
 dask_logger = logging.getLogger("dask")
 
@@ -110,7 +110,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         func = delayed(dd.merge)(info_length, coverage_df,
                                  left_index=True, right_index=True,
                                  how="right")
-        coverage_df = client.compute(func).result().persist()
+        coverage_df = client.compute(func).result()
         # dask_logger.warning("%s Merged on coverage DF (10X)", ctime())
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         arr = coverage_df[["bin", "length"]].to_dask_array(lengths=True)
@@ -129,7 +129,6 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         mn = coverage_df.groupby("d")["n"].mean().to_frame("mn")
         coverage_df = dd.merge(coverage_df.reset_index(drop=False), mn, on="d", how="left"
                                ).set_index("scaffold_index")
-        coverage_df = coverage_df.persist()
         # dask_logger.warning("%s Calculated the mean coverage by distance (10X)", ctime())
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         coverage_df = coverage_df.eval("r = log(n / mn) / log(2)")
@@ -138,7 +137,6 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
             coverage_df.index.name).transform("min", meta=coverage_df.r.dtype).to_dask_array()
         assert info.index.name == "scaffold_index"
         coverage_df.index = coverage_df.index.astype(info.index.dtype)
-        coverage_df = coverage_df.persist()
         try:
             info_mr = dd.merge(coverage_df[["mr_10x"]].drop_duplicates(), info, how="right", on="scaffold_index")
         except ValueError:
@@ -173,10 +171,8 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         assert isinstance(assembly["info"], dd.DataFrame), type(assembly["info"])
         assembly["mol_binsize"] = binsize
         for key in ["info", "molecule_cov"]:
-            print(time.ctime(), "Storing", key)
             # dask_logger.warning("%s Starting to rebalance %s", ctime(), key)
-            assembly[key] = _rebalance_ddf(assembly[key],
-                                           target_memory=5 * 10 ** 7)
+            # assembly[key] = _rebalance_ddf(assembly[key], target_memory=5 * 10 ** 7)
             # dask_logger.warning("%s Finished rebalancing %s", ctime(), key)
             if save_dir is not None:
                 fname = os.path.join(save_dir, key + "_10x")

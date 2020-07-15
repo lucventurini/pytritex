@@ -43,5 +43,5 @@ def find_10x_breaks(cov: dd.DataFrame, scaffolds=None,
 
     if broken.index.name is not None:
         broken = broken.reset_index(drop=False)
-    broken = broken.drop_duplicates(subset=["scaffold_index", "breakpoint"]).persist()
+    broken = broken.drop_duplicates(subset=["scaffold_index", "breakpoint"])
     return broken

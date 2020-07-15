@@ -8,8 +8,8 @@ pd.options.mode.chained_assignment = 'raise'
 from time import ctime
 import os
 from .collapse_bins import collapse_bins as cbn
-from dask import delayed
-from ..utils import _rebalance_ddf
+# from dask import delayed
+# from ..utils import _rebalance_ddf
 import logging
 dask_logger = logging.getLogger("dask")
 
@@ -165,7 +165,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         dask_logger.warning("%s Calculating the mean mn metric (HiC)", ctime())
         mn = coverage_df.groupby("d")["n"].mean().to_frame("mn")
         idx = coverage_df.index
-        coverage_df = coverage_df.drop("mn", axis=1, errors="ignore").merge(mn, how="left", on="d").persist()
+        coverage_df = coverage_df.drop("mn", axis=1, errors="ignore").merge(mn, how="left", on="d")
         coverage_df.index = idx
         # Logarithm of number of pairs in bin divided by mean of number of pairs in bin?
         coverage_df = coverage_df.eval("r = log(n/mn) / log(2)")
@@ -194,7 +194,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assert coverage_df.index.name == "scaffold_index"
         assert min_internal_ratio.index.name == coverage_df.index.name, min_internal_ratio.index.name
         coverage_df = coverage_df.merge(min_internal_ratio, how="left",
-                                        left_index=True, right_index=True).persist()
+                                        left_index=True, right_index=True)
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         assert info.index.name == min_ratio.index.name == "scaffold_index"
         info_mr = dd.merge(min_ratio, info, left_index=True, right_index=True, how="right")
@@ -216,10 +216,9 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assembly["minNbin"] = minNbin
         assembly["innerDist"] = innerDist
         for key in ["info", "cov"]:
-            dask_logger.warning("%s Rebalancing %s for HiC", ctime(), key)
-            assembly[key] = _rebalance_ddf(assembly[key],
-                                           target_memory=5 * 10 ** 7)
-            dask_logger.warning("%s Rebalanced %s for HiC", ctime(), key)
+            # dask_logger.warning("%s Rebalancing %s for HiC", ctime(), key)
+            # assembly[key] = _rebalance_ddf(assembly[key], target_memory=5 * 10 ** 7)
+            # dask_logger.warning("%s Rebalanced %s for HiC", ctime(), key)
             if save_dir is not None:
                 fname = os.path.join(save_dir, key + "_hic")
                 dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)

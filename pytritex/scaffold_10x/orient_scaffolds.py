@@ -69,18 +69,17 @@ def _create_association(membership, info, link_pos, client, max_dist_orientation
     left.index = left.index.rename("scaffold_index1")
     func = delayed(dd.merge)(client.scatter(left), client.scatter(link_pos),
                              on="scaffold_index1", how="inner")
-    association = client.compute(func).result().persist()
+    association = client.compute(func).result()
     left = m_greater_one[["bin", "super"]].rename(columns={"bin": "bin2", "super": "super2"})
     left.index = left.index.rename("scaffold_index2")
     func = delayed(dd.merge)(client.scatter(left), client.scatter(association),
                              on="scaffold_index2", how="inner")
-    association = client.compute(func).result().persist()
+    association = client.compute(func).result()
     logger.warning("%s Obtained the association table", time.ctime())
     association = association.query("(super1 == super2) & (bin1 != bin2)")
     association = association.eval("d = abs(bin2 - bin1)")
     association = association[association["d"] <= max_dist_orientation]
     association = association.rename(columns={"scaffold_index1": "scaffold_index"})
-    association = association.persist()
     assert association.shape[0].compute() > 0
     logger.warning("%s Grouping the association table by SI", time.ctime())
     grouped = association.groupby("scaffold_index")
@@ -88,7 +87,6 @@ def _create_association(membership, info, link_pos, client, max_dist_orientation
     prev = grouped.apply(lambda group: group.loc[group.eval("bin2 < bin1"), "pos1"].mean(), meta=float).to_frame("prv")
     final_association = dd.concat([prev, nxt], axis=1)
     final_association = info[["length"]].merge(final_association, left_index=True, right_index=True)
-    final_association = final_association.persist()
     return final_association
 
 
@@ -181,7 +179,6 @@ def orient_scaffolds(info: str, res: str,
     # Now add back missing scaffolds
     excluded_scaffolds = membership[membership["excluded"] == True].index.values.compute()
     membership = add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client)
-    membership = membership.persist()
     logger.warning("%s Added the super_pos columns", time.ctime())
 
     # Now we have to assign the genetic positions, ie anchor
@@ -196,11 +193,10 @@ def orient_scaffolds(info: str, res: str,
     logger.warning("%s Dropping max_nchr duplicates", time.ctime())
     nchr = nchr.query("nchr == max_nchr").drop_duplicates(subset="super").drop("max_nchr", axis=1)
     # chr, super, nchr, pchr - no index
-    nchr = nchr.persist()
     logger.warning("%s Merging into nchr_with_cms", time.ctime())
     func = delayed(dd.merge)(client.scatter(membership[~membership["cM"].isna()].reset_index(drop=False)),
                              client.scatter(nchr), on=["chr", "super"])
-    nchr_with_cms = client.compute(func).result().persist().set_index("scaffold_index")
+    nchr_with_cms = client.compute(func).result().set_index("scaffold_index")
     logger.warning("%s Merged into nchr_with_cms", time.ctime())
     grouped_nchr_with_cms = nchr_with_cms.groupby("super")
     logger.warning("%s Calculating the nchr_with_cms stats", time.ctime())
@@ -220,7 +216,6 @@ def orient_scaffolds(info: str, res: str,
     nchr = nchr.set_index("super")
     func = delayed(dd.merge)(client.scatter(nchr), client.scatter(res), on="super", how="right")
     res = client.compute(func).result()
-    res = res.persist()
     func = delayed(dd.merge)(nchr_with_cms, client.scatter(res), on="super", how="right")
     res = client.compute(func).result()
 
