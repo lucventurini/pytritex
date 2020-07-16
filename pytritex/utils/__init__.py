@@ -26,18 +26,23 @@ def second(series: pd.Series):
 
 
 def _agg_second(grouped):
+    # First create a list for each of the grouped chunks
     def internal(c):
         if (c != c).all():
             return [np.nan]
         f = [_ for _ in c if _ == _]
         f = [_ if isinstance(_, list) else [_] for _ in f]
         return list(it.chain.from_iterable(f))
-    g = grouped.apply(internal)
-    g = g.apply(lambda s: np.nan if len(s) == 1 else s[1])
-    return g
+    chunks = grouped.apply(internal)
+    return chunks
 
 
-second_agg = dd.Aggregation("second", lambda s: s.apply(list), _agg_second)
+def _agg_third(chunks):
+    chunks = chunks.apply(lambda s: np.nan if len(s) == 1 else s[1])
+    return chunks
+
+
+second_agg = dd.Aggregation("second", lambda s: s.apply(list), _agg_second, _agg_third)
 
 
 def unique_count(series: pd.Series):

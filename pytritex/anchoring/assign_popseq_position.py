@@ -6,6 +6,9 @@ import dask.dataframe as dd
 import itertools as it
 from dask.distributed import Client
 from dask.delayed import delayed
+import time
+import logging
+dask_logger = logging.getLogger("dask")
 
 
 def _mad1(chunks):
@@ -64,20 +67,26 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
                        ][:].set_index("popseq_index").astype({"popseq_alphachr": str})
     assert isinstance(popseq_positions, dd.DataFrame)
     # This will be ["scaffold_index", "popseq_index"]
-    right = client.scatter(cssaln[["popseq_index"]].compute().reset_index(drop=False))
+    dask_logger.debug("%s Assigning PopSeq - calculating right", time.ctime())
+    right = client.scatter(cssaln[["popseq_index"]].reset_index(drop=False))
     popseq_positions = client.scatter(popseq_positions)
+    dask_logger.debug("%s Assigning PopSeq - merging with the popseq_index", time.ctime())
     func = delayed(dd.merge)(popseq_positions, right, on="popseq_index", how="left")
     popseq_positions = client.compute(func).result()
     popseq_positions = popseq_positions.astype({"popseq_alphachr": object})
     # Group by "scaffold_index", "popseq_alphachr"
+    dask_logger.debug("%s Assigning PopSeq - starting with popseq_stats", time.ctime())
     popseq_stats = popseq_positions.groupby(["scaffold_index", "popseq_alphachr"])
     popseq_count = popseq_stats.size(
         split_out=popseq_positions.npartitions).to_dask_array()
+    dask_logger.debug("%s Assigning PopSeq - calculating mean, std, MAD", time.ctime())
     popseq_stats = popseq_stats.agg({"popseq_cM": [np.mean, np.std, mad]},
                                     split_out=popseq_positions.npartitions)
     popseq_stats.columns = ["popseq_cM", "popseq_cM_sd", "popseq_cM_mad"]
     popseq_stats["N"] = popseq_count
+    dask_logger.debug("%s Assigning PopSeq - resetting the index for popseq_stats", time.ctime())
     popseq_stats = popseq_stats.reset_index(drop=False).set_index("scaffold_index", sorted=False)
+    dask_logger.debug("%s Assigning PopSeq - computing Ncss", time.ctime())
     popseq_stats["popseq_Ncss"] = popseq_stats.groupby("scaffold_index")["N"].transform("sum", meta=int)
     # popseq_stats = popseq_stats.reset_index(drop=False)
     # So far we have congregated the different statistics about the centimorgans.
@@ -85,6 +94,7 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
     popseq_stats = popseq_stats.reset_index(drop=False)
     _meta = dict(popseq_stats.dtypes)
 
+    dask_logger.debug("%s Assigning PopSeq - starting to compute the best locations", time.ctime())
     best_locations = popseq_stats.groupby(
         "scaffold_index").apply(lambda df: df.nlargest(2, "N"), meta=_meta).reset_index(drop=True)
 
@@ -94,15 +104,18 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
     ).astype({("popseq_alphachr", "first"): object, ("popseq_alphachr", "second"): object})
     best_locations.columns = ["popseq_alphachr", "popseq_alphachr2", "popseq_Ncss1", "popseq_Ncss2"]
 
+    dask_logger.debug("%s Assigning PopSeq - merging popseq_stats with best_locations", time.ctime())
     popseq_stats = delayed(dd.merge)(
         client.scatter(popseq_stats[
         ["scaffold_index", "popseq_alphachr", "popseq_Ncss", "popseq_cM", "popseq_cM_sd", "popseq_cM_mad"]]),
         client.scatter(best_locations), on=["scaffold_index", "popseq_alphachr"], how="right"
     )
     popseq_stats = client.compute(popseq_stats).result()
+    dask_logger.debug("%s Assigning PopSeq - calculating the popseq_pchr/12", time.ctime())
     popseq_stats["popseq_pchr"] = popseq_stats["popseq_Ncss1"].div(popseq_stats["popseq_Ncss"], fill_value=0)
     popseq_stats["popseq_p12"] = popseq_stats["popseq_Ncss2"].div(popseq_stats["popseq_Ncss1"], fill_value=0)
 
+    dask_logger.debug("%s Assigning PopSeq - merging popseq_stats with wheatchr", time.ctime())
     pop1 = delayed(dd.merge)(
         client.scatter(popseq_stats),
         wheatchr.copy().rename(columns={"chr": "popseq_chr", "alphachr": "popseq_alphachr"}),
@@ -114,6 +127,7 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
     )
 
     pop2 = client.compute(pop2).result().set_index("scaffold_index")
+    dask_logger.debug("%s Assigning PopSeq - merging anchored_css with popseq_stats", time.ctime())
     func = delayed(dd.merge)(client.scatter(pop2),
                              client.scatter(anchored_css), on="scaffold_index", how="right")
     anchored_css = client.compute(func).result()
@@ -121,6 +135,7 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
     if anchored_css.index.name != "scaffold_index":
         print(anchored_css.columns)
         assert False
+    dask_logger.debug("%s Assigning PopSeq - finished", time.ctime())        
     # for column in ["popseq_Ncss", "popseq_Ncss1", "popseq_Ncss2"]:
     #     anchored_css.loc[:, column] = pd.to_numeric(anchored_css[column].fillna(0),
     #                                                 downcast="signed")
