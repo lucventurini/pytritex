@@ -10,6 +10,8 @@ import time
 from joblib import load
 import numpy as np
 import dask.array as da
+import logging
+dask_logger = logging.getLogger("dask")
 
 
 def fai_reader(fasta, save_dir):
@@ -51,30 +53,43 @@ def read_fpairs(hic, fai, save_dir):
     fpairs = [fname.decode().rstrip() for fname in sp.Popen(fpairs_command, shell=True, stdout=sp.PIPE).stdout]
 
     if len(fpairs) > 0:
+        dask_logger.warning("%s Starting to read the CSV.", time.ctime())
         fpairs = dd.read_csv(fpairs, sep="\t", header=None, names=["scaffold1", "pos1", "scaffold2", "pos2"],
                              compression="gzip", blocksize=None)
+        dask_logger.warning("%s Switching columns.", time.ctime())
         fpairs = column_switcher(fpairs)
+        dask_logger.warning("%s Switched columns, repartitioning.", time.ctime())
+        fpairs = fpairs.repartition(partition_size="100MB")
+        dask_logger.warning("%s Merging on scaffold1.", time.ctime())        
         # Now let us change the scaffold1 and scaffold2
-        left = fai[["scaffold"]].reset_index(drop=False)
-        left1 = left.rename(columns={"scaffold": "scaffold1", "scaffold_index": "scaffold_index1"})
+        left = fai[["scaffold"]].reset_index(drop=False).set_index("scaffold")
+        left1 = left[:]
+        left1.index = left1.index.rename("scaffold1")
+        left1 = left1.rename(columns={"scaffold_index": "scaffold_index1"})
         # assert "scaffold1" in left1.columns and "scaffold_index1" in left1.columns and left1.columns.shape[0] == 2
         fpairs = dd.merge(left1, fpairs, how="right", on="scaffold1").drop("scaffold1", axis=1)
-        left2 = left.rename(columns={"scaffold": "scaffold2", "scaffold_index": "scaffold_index2"})
+        dask_logger.warning("%s Merging on scaffold2.", time.ctime())        
+        left2 = left[:]
+        left2.index = left2.index.rename("scaffold2")
+        left2 = left2.rename(columns={"scaffold_index": "scaffold_index2"})
         # assert "scaffold2" in left2.columns and "scaffold_index2" in left2.columns and left2.columns.shape[0] == 2
         fpairs = dd.merge(left2, fpairs, how="right", on="scaffold2").drop("scaffold2", axis=1)
+        dask_logger.warning("%s Merged on scaffold2.", time.ctime())
         fpairs["orig_scaffold_index1"] = fpairs["scaffold_index1"]
         fpairs["orig_scaffold_index2"] = fpairs["scaffold_index2"]
         fpairs["orig_pos1"] = fpairs["pos1"]
         fpairs["orig_pos2"] = fpairs["pos2"]
         # Now create an index.
+        dask_logger.warning("%s Creating the pair_index column.", time.ctime())
         fpairs["pair_index"] = da.from_array(np.arange(1, fpairs.shape[0].compute() + 1, dtype=np.int),
                                              chunks=tuple(fpairs.map_partitions(len).compute().values.tolist()))
         fpairs = fpairs.set_index("pair_index")
+        dask_logger.warning("%s Created and indexed with the pair_index column.", time.ctime())
         # Remove double lines.
     else:
-        fpairs = pd.DataFrame().assign(scaffold_index1=[], scaffold_index2=[],
+        fpairs = pd.DataFrame().assign(pair_index=[], scaffold_index1=[], scaffold_index2=[],
                                        pos1=[], pos2=[], orig_pos1=[], orig_pos2=[],
-                                       orig_scaffold_index1=[], orig_scaffold_index2=[])
+                                       orig_scaffold_index1=[], orig_scaffold_index2=[]).set_index("pair_index")
         fpairs = dd.from_pandas(fpairs)
     fname = os.path.join(save_dir, "fpairs")
     dd.to_parquet(fpairs, fname, compression="gzip", compute=True, engine="pyarrow")
