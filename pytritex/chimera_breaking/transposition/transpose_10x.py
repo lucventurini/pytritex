@@ -6,7 +6,9 @@ import os
 from dask.distributed import Client
 # from joblib import Memory
 import numpy as np
-# from ...utils import _rebalance_ddf
+import logging
+dask_logger = logging.getLogger("dask")
+import time
 
 
 def _transpose_molecule_cov(new_assembly,
@@ -23,13 +25,16 @@ def _transpose_molecule_cov(new_assembly,
     if molecules is not None and molecules.shape[0].compute() > 0:
 
         assert "mr_10x" not in info.columns
+        dask_logger.debug("%s Starting molecule cov", time.ctime())
         coverage = add_molecule_cov(
             new_assembly, save_dir=save_dir, client=client, scaffolds=scaffolds,
             binsize=assembly["mol_binsize"], cores=cores)
+        dask_logger.debug("%s Finished molecule cov", time.ctime())
         old_info = assembly["info"]
         if isinstance(old_info, str):
             old_info = dd.read_parquet(old_info, infer_divisions=True)
         assert old_info.index.name == "scaffold_index"
+        dask_logger.debug("%s Getting the old valid info", time.ctime())
         _index = np.unique(old_info.index.compute())
         present = _index[np.in1d(_index, fai[fai.to_use == True].index.values.compute()) &
                           ~np.in1d(_index, scaffolds)]
@@ -39,19 +44,22 @@ def _transpose_molecule_cov(new_assembly,
         new_assembly["info"] = dd.concat([old_info.reset_index(drop=False),
                                           coverage["info"].reset_index(drop=False)
                                           ]).set_index("scaffold_index")
-
+        dask_logger.debug("%s Concatenated old and new info", time.ctime())
         new_assembly["mol_binsize"] = assembly["mol_binsize"]
         old_coverage = dd.read_parquet(assembly["molecule_cov"], infer_divisions=True)
+        dask_logger.debug("%s Getting old coverage", time.ctime())
         _index = np.unique(old_coverage.index.compute())
         present = _index[np.in1d(_index, fai[fai.to_use == True].index.values.compute()) &
                          ~np.in1d(_index, scaffolds)]
         old_coverage = old_coverage.loc[present]
         if coverage["molecule_cov"].shape[0].compute() > 0:
+            dask_logger.debug("%s Concatenating old and new coverage", time.ctime())
             assert "scaffold_index" == old_coverage.index.name == coverage["molecule_cov"].index.name
             new_assembly["molecule_cov"] = dd.concat(
                 [old_coverage.reset_index(drop=False),
                  coverage["molecule_cov"].reset_index(drop=False)
                  ]).set_index("scaffold_index")
+            dask_logger.debug("%s Concatenated old and new coverage", time.ctime())
         else:
             new_assembly["molecule_cov"] = old_coverage
         #
@@ -103,14 +111,15 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
                         fai["to_use"] == True), ["orig_scaffold_index", "orig_start", "length"]][:]
         derived = derived.rename(columns={"length": "s_length"}).reset_index(drop=False)
         derived = derived.assign(orig_pos=derived["orig_start"])
-        molecules_down = rolling_join(derived.compute(),
-                                      molecules_down.compute(),
-                                      on="orig_scaffold_index", by="orig_start").reset_index(drop=False)
-
+        molecules_down = rolling_join(derived, molecules_down,
+                                      on="orig_scaffold_index", by="orig_start")
+        assert "orig_scaffold_index" in molecules_down.columns
+        assert "scaffold_index" in molecules_down.columns
+        molecules_down = molecules_down.set_index("scaffold_index")
         molecules_down["start"] = molecules_down.eval("orig_start - orig_pos + 1")
         molecules_down["end"] = molecules_down.eval("orig_end - orig_pos + 1")
         # Remove 10X links that straddle the broken chimerism.
-        molecules_down = molecules_down.query("end <= s_length").set_index("scaffold_index")
+        molecules_down = molecules_down.query("end <= s_length")
         # molecules_down = molecules_down.set_index("scaffold_index")
         molecules_down = molecules_down.drop("orig_pos", axis=1).drop("s_length", axis=1)
         # assert molecules_up.index.name == "scaffold_index", molecules_up.compute().head()
@@ -130,7 +139,7 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         molecules = dd.from_pandas(molecules, npartitions=1)
 
     assert isinstance(molecules, dd.DataFrame)
-    # molecules = _rebalance_ddf(molecules, target_memory=5*10**7)
+    molecules = molecules.repartition(partition_size="100MB")
     fname = os.path.join(save_dir, "molecules")
     dd.to_parquet(molecules, fname, engine="pyarrow", compression="gzip", compute=True)
     return fname

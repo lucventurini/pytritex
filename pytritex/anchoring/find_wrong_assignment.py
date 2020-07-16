@@ -48,17 +48,28 @@ def find_wrong_assignments(anchored_css: dd.DataFrame, measure: list, client: Cl
     melted = dd.melt(to_melt, id_vars="scaffold_index",
                      value_vars=measure, var_name="map", value_name="chr").dropna()
     #  w[, .N, key=.(scaffold, chr)]->w
+    assert "scaffold_index" in melted.columns
+    assert "chr" in melted.columns
     melted = melted.groupby(["scaffold_index", "chr"]).size().to_frame("N").reset_index(drop=False)
+    dask_logger.debug("\n\n")
     dask_logger.debug("%s Find wrong assignments - melted and grouped by, aggregating", time.ctime())    
     # Nchr_ass: number of assignments for the scaffold.
     # Nchr_ass_uniq: number of unique assignments for the scaffold.
     melted = melted.groupby("scaffold_index").agg({"N": ["sum", "size"]})
     melted.columns = ["Nchr_ass", "Nchr_ass_uniq"]
-    assert melted.index.name == anchored_css.index.name == "scaffold_index", (melted.index.name, anchored_css.index.name)
-    dask_logger.debug("%s Find wrong assignments - merging the melted with anchored_css", time.ctime())
+    dask_logger.debug("\n\n")
+    assert melted.index.name == anchored_css.index.name == "scaffold_index", (
+        melted.index.name, anchored_css.index.name)
     anchored_css = dd.merge(anchored_css, melted, on="scaffold_index", how="left")
     assert isinstance(anchored_css, dd.DataFrame), (type(anchored_css))
-    sorted_threshold = anchored_css.query("Ncss >= 30")["sorted_p12"].quantile((sorted_percentile + 1) / 100).compute()
+    dask_logger.debug("%s Find wrong assignments - finding the \"sorted threshold\"", time.ctime())
+    assert "sorted_p12" in anchored_css.columns, anchored_css.columns
+    assert "Ncss" in anchored_css.columns, anchored_css.columns
+    sorted_threshold = anchored_css.query("Ncss >= 30").compute()
+    sorted_threshold = sorted_threshold["sorted_p12"]
+    sorted_threshold = sorted_threshold.quantile((sorted_percentile + 1) / 100)
+    dask_logger.debug("%s Find wrong assignments - \"Sorted threshold\": %s", time.ctime(),
+                        sorted_threshold)
     keys = ["Ncss", "sorted_p12", "sorted_Ncss2"]
 
     dask_logger.debug("%s Find wrong assignments - assigning the bad_sorted column", time.ctime())

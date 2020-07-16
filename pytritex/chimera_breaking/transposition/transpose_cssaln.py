@@ -1,7 +1,6 @@
 from ...utils import rolling_join
 import dask.dataframe as dd
 import numpy as np
-# from ...utils import _rebalance_ddf
 import os
 from time import ctime
 import logging
@@ -42,32 +41,32 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> str:
 
     derived = derived.copy().assign(orig_pos=derived["orig_start"])
 
-    dask_logger.warning("To keep: %s; derived: %s", css_up_index.shape[0], derived.shape[0].compute())
+    dask_logger.debug("To keep: %s; derived: %s", css_up_index.shape[0], derived.shape[0].compute())
     # assert np.isnan(cssaln.orig_scaffold_index.values.compute()).any() == False, _cssaln_str
 
     _cssaln_down = _cssaln_down.drop("length", axis=1).reset_index(drop=True)
     # assert np.isnan(_cssaln_down.index.values.compute()).any() == False
     assert derived.index.isna().any().compute() == False and derived.index.name == "scaffold_index"
-    cssaln_down = rolling_join(derived.reset_index(drop=False).compute(),
-                               _cssaln_down.compute(),
-                               on="orig_scaffold_index", by="orig_pos").reset_index(drop=False)
-
+    cssaln_down = rolling_join(derived.reset_index(drop=False),
+                               _cssaln_down, on="orig_scaffold_index", by="orig_pos")
+    assert "orig_scaffold_index" in cssaln_down.columns
+    assert "scaffold_index" in cssaln_down.columns
     dtypes = {"scaffold_index": cssaln_up.index.dtype}
     dtypes.update(dict(cssaln_up.dtypes))
     cssaln_down = cssaln_down.astype(dtypes).set_index("scaffold_index")
     assert cssaln_down.orig_scaffold_index.dtype == cssaln_up["orig_scaffold_index"].dtype
     assert cssaln_down.index.isna().any() == False
-    assert "scaffold_index" in cssaln_down.columns or cssaln_down.index.name == "scaffold_index", (
-        (derived.columns, cssaln_down.columns))
     cssaln_down["pos"] = cssaln_down.eval("orig_pos - orig_start + 1")
     cssaln_down = cssaln_down.drop("orig_start", axis=1)
+    cssaln_down = cssaln_down.categorize().reset_index(drop=False).astype({"scaffold_index": int})
+    cssaln_up = cssaln_up.categorize().reset_index(drop=False).astype({"scaffold_index": int})
 
     try:
-        cssaln_down = dd.from_pandas(cssaln_down, npartitions=_cssaln_down.npartitions)
-        cssaln = dd.concat([cssaln_up, cssaln_down[cssaln_up.columns]])
+        cssaln = dd.concat([cssaln_up,
+                            cssaln_down[cssaln_up.columns].astype(dict(cssaln_up.dtypes))])
     except (TypeError, ValueError):
-        print(cssaln_up.index.dtype, cssaln_up.dtypes)
-        print(cssaln_down.index.dtype, cssaln_down.dtypes)
+        dask_logger.critical("Up: %s, %s", cssaln_up.index.dtype, cssaln_up.dtypes)
+        dask_logger.critical("Down: %s, %s", cssaln_down.index.dtype, cssaln_down.dtypes)
         dd.to_parquet(cssaln_down, "/tmp/down", engine="pyarrow", compute=True)
         dd.to_parquet(cssaln_up, "/tmp/up", engine="pyarrow", compute=True)
         raise
@@ -77,9 +76,9 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> str:
     # assert set(cols.values.tolist()) == set(cssaln.columns.values.tolist())
     dask_logger.debug("%s Finished calculating CSS-ALN, rebalancing", ctime())
 
-    # cssaln = _rebalance_ddf(cssaln, target_memory=5 * 10**7)
+    cssaln = cssaln.repartition(partition_size="100MB")
     dask_logger.debug("%s Rebalanced CSS-ALN", ctime())
     cssaln_name = os.path.join(save_dir, "cssaln")
     dd.to_parquet(cssaln, cssaln_name, engine="pyarrow", compression="gzip", compute=True)
-    dask_logger.warning("%s Saved CSS-ALN in %s", ctime(), cssaln_name)
+    dask_logger.debug("%s Saved CSS-ALN in %s", ctime(), cssaln_name)
     return cssaln_name

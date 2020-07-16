@@ -9,6 +9,7 @@ from dask import delayed
 import time
 from joblib import load
 import numpy as np
+import dask.array as da
 
 
 def fai_reader(fasta, save_dir):
@@ -65,6 +66,10 @@ def read_fpairs(hic, fai, save_dir):
         fpairs["orig_scaffold_index2"] = fpairs["scaffold_index2"]
         fpairs["orig_pos1"] = fpairs["pos1"]
         fpairs["orig_pos2"] = fpairs["pos2"]
+        # Now create an index.
+        fpairs["pair_index"] = da.from_array(np.arange(1, fpairs.shape[0].compute() + 1, dtype=np.int),
+                                             chunks=tuple(fpairs.map_partitions(len).compute().values.tolist()))
+        fpairs = fpairs.set_index("pair_index")
         # Remove double lines.
     else:
         fpairs = pd.DataFrame().assign(scaffold_index1=[], scaffold_index2=[],

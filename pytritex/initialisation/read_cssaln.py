@@ -3,7 +3,6 @@ from pytritex.utils.chrnames import chrNames
 import subprocess as sp
 import dask.dataframe as dd
 import numpy as np
-import tempfile
 import os
 
 
@@ -63,6 +62,7 @@ def read_morexaln_minimap(paf: str,
     morex["orig_scaffold_index"] = morex.index.values
     morex["orig_pos"] = morex["pos"]
     fname = os.path.join(save_dir, "cssaln")
+    morex = morex.repartition(partition_size="100MB")
     dd.to_parquet(morex, fname, compression="gzip", compute=True, engine="pyarrow")
     buf.close()
     os.remove(buf.name)

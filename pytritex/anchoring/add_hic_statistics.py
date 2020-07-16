@@ -2,6 +2,8 @@ from ..utils import second_agg
 import dask.dataframe as dd
 from dask.distributed import Client
 from dask.delayed import delayed
+import numpy as np
+import dask.array as da
 
 
 def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, client: Client, verbose=False):
@@ -30,6 +32,11 @@ def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, client:
     fpairs2 = delayed(dd.merge)(fpairs1, client.scatter(anchored2), on="scaffold_index2", how="left")
     anchored_hic_links = client.compute(fpairs2).result()
     assert isinstance(anchored_hic_links, dd.DataFrame)
+
+    anchored_hic_links["hic_index"] = da.from_array(
+        np.arange(1, anchored_hic_links.shape[0].compute() + 1),
+        chunks=tuple(anchored_hic_links.map_partitions(len).compute().values.tolist()))
+    anchored_hic_links = anchored_hic_links.set_index("hic_index")
 
     hic_stats = anchored_hic_links.query("chr1 == chr1").rename(
         columns={"scaffold_index2": "scaffold_index", "chr1": "hic_chr"})

@@ -46,7 +46,7 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
     while breaks.shape[0].compute() > 0 and cycle <= maxcycle:
         cycle += 1
         save_dir = os.path.join(base, str(cycle))
-        dask_logger.warning("%s Starting cycle %s of %s, with %s breaks",
+        dask_logger.debug("%s Starting cycle %s of %s, with %s breaks",
                             time.ctime(), cycle, maxcycle, breaks.shape[0].compute())
         assembly = break_scaffolds(breaks=breaks, save_dir=save_dir,
                                    client=client,

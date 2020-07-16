@@ -9,7 +9,6 @@ from time import ctime
 import os
 from .collapse_bins import collapse_bins as cbn
 # from dask import delayed
-# from ..utils import _rebalance_ddf
 import logging
 dask_logger = logging.getLogger("dask")
 
@@ -79,6 +78,7 @@ def add_hic_cov(assembly, save_dir, client: Client,
         raise ValueError("This function presumes that binsize is at least three times smaller than binsize2.\
 Supplied values: {}, {}".format(binsize, binsize2))
 
+    dask_logger.warning("%s Loading the info and fpairs data", ctime())
     if isinstance(assembly["info"], str):
         info = dd.read_parquet(assembly["info"])
     else:
@@ -91,18 +91,23 @@ Supplied values: {}, {}".format(binsize, binsize2))
     else:
         assert isinstance(assembly["fpairs"], dd.DataFrame)
         fpairs = assembly["fpairs"]
+    dask_logger.warning("%s Loaded the info and fpairs data", ctime())
 
     binsize = np.int(np.floor(binsize))
     if scaffolds is None:
         null = True
-        dask_logger.warning("%s Removing duplicates from fpairs", ctime())
-        fpairs = client.submit(column_switcher, fpairs).result()
-        dask_logger.warning("%s Removed duplicates from fpairs", ctime())
+        # dask_logger.warning("%s Removing duplicates from fpairs", ctime())
+        # fpairs = client.submit(column_switcher, fpairs).result()
+        # dask_logger.warning("%s Removed duplicates from fpairs", ctime())
     else:
-        info = info.loc[scaffolds]
+        dask_logger.warning("%s Selecting data from info and fpairs", ctime())
+        info = info.loc[scaffolds].copy()
+        info = client.persist(info)
+        dask_logger.warning("%s Selected data from info", ctime())
         fpairs = fpairs[(fpairs.scaffold_index1.isin(scaffolds)) |
-                        (fpairs.scaffold_index2.isin(scaffolds))]
-
+                        (fpairs.scaffold_index2.isin(scaffolds))].copy()
+        fpairs = client.persist(fpairs)
+        dask_logger.warning("%s Selected data from fpairs", ctime())
         null = False
 
     assert isinstance(fpairs, dd.DataFrame)
@@ -217,7 +222,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assembly["innerDist"] = innerDist
         for key in ["info", "cov"]:
             # dask_logger.warning("%s Rebalancing %s for HiC", ctime(), key)
-            # assembly[key] = _rebalance_ddf(assembly[key], target_memory=5 * 10 ** 7)
+            assembly[key] = assembly[key].repartition(partition_size="100MB")
             # dask_logger.warning("%s Rebalanced %s for HiC", ctime(), key)
             if save_dir is not None:
                 fname = os.path.join(save_dir, key + "_hic")
@@ -227,6 +232,8 @@ Supplied values: {}, {}".format(binsize, binsize2))
         dask_logger.warning("%s Finished storing HiC", ctime())
         return assembly
     else:
+        dask_logger.warning("%s Preparing the HiC DF for further use", ctime())
         info_mr = info_mr.drop("index", errors="ignore", axis=1)
         assembly = {"info": info_mr, "cov": coverage_df}
+        dask_logger.warning("%s Returning the HiC DF for further use", ctime())
         return assembly

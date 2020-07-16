@@ -71,15 +71,18 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
     right = client.scatter(cssaln[["popseq_index"]].reset_index(drop=False))
     popseq_positions = client.scatter(popseq_positions)
     dask_logger.debug("%s Assigning PopSeq - merging with the popseq_index", time.ctime())
-    func = delayed(dd.merge)(popseq_positions, right, on="popseq_index", how="left")
+    func = delayed(dd.merge)(popseq_positions, right, on="popseq_index", how="right")
     popseq_positions = client.compute(func).result()
+    popseq_positions = popseq_positions.repartition(npartitions=cssaln.npartitions)
     popseq_positions = popseq_positions.astype({"popseq_alphachr": object})
     # Group by "scaffold_index", "popseq_alphachr"
-    dask_logger.debug("%s Assigning PopSeq - starting with popseq_stats", time.ctime())
+    dask_logger.debug("%s Assigning PopSeq (nparts: %s) - starting with popseq_stats", time.ctime(),
+                        popseq_positions.npartitions)
     popseq_stats = popseq_positions.groupby(["scaffold_index", "popseq_alphachr"])
     popseq_count = popseq_stats.size(
         split_out=popseq_positions.npartitions).to_dask_array()
-    dask_logger.debug("%s Assigning PopSeq - calculating mean, std, MAD", time.ctime())
+    dask_logger.debug("%s Assigning PopSeq (nparts %s) - calculating mean, std, MAD", time.ctime(),
+                        popseq_positions.npartitions)
     popseq_stats = popseq_stats.agg({"popseq_cM": [np.mean, np.std, mad]},
                                     split_out=popseq_positions.npartitions)
     popseq_stats.columns = ["popseq_cM", "popseq_cM_sd", "popseq_cM_mad"]
@@ -135,6 +138,7 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
     if anchored_css.index.name != "scaffold_index":
         print(anchored_css.columns)
         assert False
+    anchored_css = anchored_css.reset_index(drop=False).set_index("scaffold_index")
     dask_logger.debug("%s Assigning PopSeq - finished", time.ctime())        
     # for column in ["popseq_Ncss", "popseq_Ncss1", "popseq_Ncss2"]:
     #     anchored_css.loc[:, column] = pd.to_numeric(anchored_css[column].fillna(0),

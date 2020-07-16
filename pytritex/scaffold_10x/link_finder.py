@@ -17,10 +17,9 @@ def _calculate_link_pos(molecules: str, fai: str, save_dir: str,
     molecules_over_filter = molecules_over_filter.astype(
         dict((col, np.int32) for col in molecules_over_filter.columns)
     )
-    molecules_over_filter = molecules_over_filter[molecules_over_filter["npairs"] >= min_npairs]
-    # rebalance
-    # molecules_over_filter = _rebalance_ddf(molecules_over_filter, target_memory=5 * 10**7)
-
+    molecules_over_filter = molecules_over_filter.query("npairs >= @min_npairs",
+                                                        local_dict={"min_npairs": min_npairs})[:]
+    molecules_over_filter = molecules_over_filter.repartition(partition_size="100MB")
     # We need to repartition. 100 partitions are just too few.
     movf = molecules_over_filter
     movf = client.scatter(movf)
@@ -71,7 +70,7 @@ def _calculate_link_pos(molecules: str, fai: str, save_dir: str,
     assert "npairs2" in link_pos
     # link_pos = scaffold1_side.merge(scaffold2_side, how="outer", on=["sample", "barcode_index"])
     # link_pos = both_sides.copy()
-    # link_pos = _rebalance_ddf(link_pos, target_memory= 5 * 10**7)
+    link_pos = link_pos.repartition(partition_size="100MB")
     link_pos_name = os.path.join(save_dir, "link_pos")
     dd.to_parquet(link_pos, link_pos_name, compression="gzip", engine="pyarrow")
     del link_pos
@@ -194,9 +193,9 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     sample_count = delayed(add_cols)(sample_count)
     sample_count = client.compute(sample_count)
     dask_logger.warning("Added the last columns to sample_count.")
-    # sample_count = _rebalance_ddf(sample_count, target_memory=5 * 10**7)
     sample_count_name = os.path.join(save_dir, "sample_count")
-    dd.to_parquet(sample_count.result(), sample_count_name, compression="gzip", engine="pyarrow", compute=True)
+    dd.to_parquet(sample_count.result().repartition(partition_size="100MB"),
+                  sample_count_name, compression="gzip", engine="pyarrow", compute=True)
     del sample_count
     sample_count = dd.read_parquet(sample_count_name, infer_divisions=True, engine="auto")
     dask_logger.warning("Calculating the link positions.")
@@ -204,7 +203,7 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
         links = sample_count[
                 (sample_count["same_chr"] == True) & ((sample_count.eval("popseq_cM2 - popseq_cM1").astype(float)).abs() <= popseq_dist)]
         links_name = os.path.join(save_dir, "links")
-        # links = _rebalance_ddf(links, target_memory=5 * 10**7)
+        links = links.repartition(partition_size="100MB")
         dd.to_parquet(links, links_name, compression="gzip", engine="pyarrow", compute=True)
     else:
         # links = sample_count[:]
