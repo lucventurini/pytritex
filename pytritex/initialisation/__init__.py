@@ -70,12 +70,14 @@ def read_fpairs(hic, fai, save_dir):
             buf.close()
         
         dask_logger.warning("%s Starting to read the CSV(s): %s.", time.ctime(), ",".join(fnames))
-        fpairs = dd.read_csv(fnames, sep="\t", header=None, names=["scaffold1", "pos1", "scaffold2", "pos2"], blocksize=10**7)
+        fpairs = dd.read_csv(fnames, sep="\t", header=None, names=["scaffold1", "pos1", "scaffold2", "pos2"])
+        fpairs["pair_index"] = da.from_array(np.arange(1, fpairs.shape[0].compute() + 1, dtype=np.int),
+                                             chunks=tuple(fpairs.map_partitions(len).compute().values.tolist()))
+        dask_logger.warning("%s Indexing.", time.ctime())
+        fpairs = fpairs.set_index("pair_index", sorted=True)
         dask_logger.warning("%s Switching columns.", time.ctime())
         fpairs = column_switcher(fpairs)
-        dask_logger.warning("%s Switched columns, repartitioning.", time.ctime())
-        fpairs = fpairs.repartition(partition_size="10MB")
-        dask_logger.warning("%s Merging on scaffold1.", time.ctime())        
+        dask_logger.warning("%s Merging on scaffold1.", time.ctime())
         # Now let us change the scaffold1 and scaffold2
         left = fai[["scaffold"]].reset_index(drop=False)
         left1 = left[:].rename(columns={"scaffold_index": "scaffold_index1", "scaffold": "scaffold1"})
@@ -91,9 +93,8 @@ def read_fpairs(hic, fai, save_dir):
         fpairs["orig_pos1"] = fpairs["pos1"]
         fpairs["orig_pos2"] = fpairs["pos2"]
         # Now create an index.
-        dask_logger.warning("%s Repartitioning.", time.ctime())
-        fpairs = fpairs.repartition(partition_size="10MB")        
         dask_logger.warning("%s Creating the pair_index column.", time.ctime())
+        fpairs = fpairs.drop("pair_index", axis=1, errors="ignore")
         fpairs["pair_index"] = da.from_array(np.arange(1, fpairs.shape[0].compute() + 1, dtype=np.int),
                                              chunks=tuple(fpairs.map_partitions(len).compute().values.tolist()))
         dask_logger.warning("%s Setting the index on pair_index.", time.ctime())        
@@ -149,7 +150,7 @@ def initial(popseq, fasta, css, tenx, hic, save, client, memory, ram="20GB", cor
         cssaln = client.submit(read_morexaln_minimap,
                                paf=css, popseq=popseq, save_dir=save_dir,
                                fai=fai, minqual=minqual, minlen=minlen, ref=ref)
-        cssaln = client.gather(cssaln)
+        cssaln = client.compute(cssaln).result()
         return cssaln
 
     cssaln = memory.cache(cssaln_submitter, ignore=["fai", "css", "popseq"])(
@@ -160,7 +161,7 @@ def initial(popseq, fasta, css, tenx, hic, save, client, memory, ram="20GB", cor
 
     def fpairs_reader_submitter(hic, fai, save_dir):
         fpairs = client.submit(read_fpairs, hic, fai, save_dir)
-        fpairs = client.gather(fpairs)
+        fpairs = client.compute(fpairs).result()
         return fpairs
 
     fpairs = memory.cache(fpairs_reader_submitter, ignore=["hic", "fai"])(hic, fai, save_dir)

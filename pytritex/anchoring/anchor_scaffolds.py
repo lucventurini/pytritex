@@ -69,27 +69,18 @@ def anchor_scaffolds(assembly: dict,
                         time.ctime(), anchored_css.npartitions)
     if hic is True:
         dask_logger.warning("%s Adding HiC stats", time.ctime())
-        anchored_css, anchored_hic_links = add_hic_statistics(anchored_css, fpairs, client=client)
+        anchored_css, anchored_hic_links = add_hic_statistics(anchored_css, fpairs)
         measure = ["popseq_chr", "hic_chr", "sorted_chr"]
-        anchored_css = anchored_css.repartition(partition_size="10MB")
-        anchored_hic_links = anchored_hic_links.repartition(partition_size="10MB")
         dask_logger.warning("%s Finished adding HiC stats", time.ctime())
     else:
         measure = ["popseq_chr", "sorted_chr"]
         anchored_hic_links = None
-    dask_logger.warning("%s Rebalancing anchored_css, npartitions: %s", time.ctime(), anchored_css.npartitions)
-    anchored_css = anchored_css.repartition(partition_size="10MB")
-    dask_logger.warning("%s Rebalanced anchored_css, new npartitions: %s", time.ctime(), anchored_css.npartitions)
     dask_logger.warning("%s Finding wrong assignments", time.ctime())
     anchored_css = find_wrong_assignments(
-        anchored_css, measure, client=client,
-        sorted_percentile=sorted_percentile, hic_percentile=hic_percentile,
+        anchored_css, measure, sorted_percentile=sorted_percentile, hic_percentile=hic_percentile,
         popseq_percentile=popseq_percentile, hic=hic)
     assert isinstance(anchored_css, dd.DataFrame), (type(anchored_css))
     assert isinstance(anchored_css, dd.DataFrame)
-    dask_logger.warning("%s Rebalancing", time.ctime())
-    anchored_css = anchored_css.repartition(partition_size="10MB")
-
     dask_logger.warning("%s Saving to disk", time.ctime())
 
     if save is not None:

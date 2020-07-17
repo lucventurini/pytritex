@@ -171,7 +171,6 @@ def make_super(hl: dd.DataFrame,
         to_skip, previous_results = find_previous_results(raw_membership, previous_membership)
         # First thing: let's check whether we have previous hits. We will consider these separately.
         # pool = mp.Pool(cores)
-        # membership = client.scatter(membership)
         total = order.shape[0]
         analysed, cached = 0, 0
         for chrom in sorted(np.unique(order["chr"].values)):
@@ -189,8 +188,6 @@ def make_super(hl: dd.DataFrame,
                     continue
                 chrom_analysed += 1
                 logger.debug("%s Analysing super %s on chromosome %s", time.ctime(), ssuper, popseq_chr)
-                # my_edges = client.scatter(edges.loc[ssuper])
-                # my_membership = client.scatter(cms.loc[ssuper])
                 my_edges = edges.loc[ssuper]
                 my_membership = cms.loc[ssuper]
                 func = delayed(_concatenator)(my_edges, my_membership, known_ends, maxiter, verbose)

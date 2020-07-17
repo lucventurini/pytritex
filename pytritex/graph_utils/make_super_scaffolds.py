@@ -95,7 +95,7 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
     assert _to_concatenate.shape[0].compute() == len(bait_index)
 
     chunks = client.compute(delayed(
-        lambda df: df.map_partitions(len))(client.scatter(_to_concatenate))).result()
+        lambda df: df.map_partitions(len))(_to_concatenate)).result()
     chunks = tuple(chunks.compute().values.tolist())
 
     sup_column = da.from_array(
@@ -120,7 +120,7 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
         _to_concatenate[name] = _to_concatenate[name].astype(membership.index.dtype)
         _to_concatenate = _to_concatenate.set_index(name)
     assert _to_concatenate.index.dtype == membership.index.dtype
-    func = delayed(dd.concat)([client.scatter(membership), client.scatter(_to_concatenate)])
+    func = delayed(dd.concat)([membership, _to_concatenate])
     new_membership = client.compute(func).result()
     new_membership = new_membership.reset_index(drop=False)
     assert "scaffold_index" in new_membership.columns
@@ -156,8 +156,6 @@ def add_statistics(membership, client):
         left = left.reset_index(drop=False)
         left["super"] = left["super"].astype(membership.index.dtype)
         left = left.set_index("super")
-    left = client.scatter(left)
-    membership = client.scatter(membership)
     func = delayed(dd.merge)(left, membership, left_index=True, right_on="super",
                              how="right")
     membership = client.compute(func).result()

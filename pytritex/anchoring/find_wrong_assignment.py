@@ -1,14 +1,10 @@
-import pandas as pd
-import numpy as np
 import dask.dataframe as dd
-from dask.distributed import Client
-from dask.delayed import delayed
 import time
 import logging
 dask_logger = logging.getLogger("dask")
 
 
-def find_wrong_assignments(anchored_css: dd.DataFrame, measure: list, client: Client,
+def find_wrong_assignments(anchored_css: dd.DataFrame, measure: list,
                            sorted_percentile, popseq_percentile,
                            hic_percentile, hic=False):
 

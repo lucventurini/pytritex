@@ -25,7 +25,7 @@ def _group_analyser(group: pd.DataFrame, binsize, cores=1):
     return assigned
 
 
-def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, binsize=200, cores=1):
+def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200):
 
     dask_logger.warning("%s Begin add molecule coverage (10X)", ctime())
     info = assembly["info"]
@@ -52,7 +52,8 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         null = True
     else:
         dask_logger.warning("%s Extracting relevant scaffolds (10X)", ctime())
-        info = info.loc[scaffolds].copy()
+        present = info.index.compute().intersection(scaffolds).values
+        info = info.loc[present].copy()
         dask_logger.warning("%s Extracted from info (10X)", ctime())
         try:
             dask_logger.warning("%s Calculating the index of molecules", time.ctime())
@@ -108,15 +109,12 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
         dask_logger.warning("%s Merging on coverage DF (10X)", ctime())
         assert info.index.name == coverage_df.index.name
-        coverage_df = client.scatter(coverage_df)
-        info_length = client.scatter(info[["length"]])
+        info_length = info[["length"]]
         # coverage_df = dd.merge(info_length, coverage_df,
         #          left_index=True, right_index=True,
         #          how="right", chunksize=5000)
-        func = delayed(dd.merge)(info_length, coverage_df,
-                                 left_index=True, right_index=True,
-                                 how="right")
-        coverage_df = client.compute(func).result()
+        coverage_df = dd.merge(info_length, coverage_df, left_index=True, right_index=True,
+                               how="right", npartitions=coverage_df.npartitions)
         dask_logger.warning("%s Merged on coverage DF (10X)", ctime())
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         arr = coverage_df[["bin", "length"]].to_dask_array(lengths=True)
@@ -177,9 +175,6 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         assert isinstance(assembly["info"], dd.DataFrame), type(assembly["info"])
         assembly["mol_binsize"] = binsize
         for key in ["info", "molecule_cov"]:
-            # dask_logger.warning("%s Starting to rebalance %s", ctime(), key)
-            assembly[key] = assembly[key].repartition(partition_size="10MB")
-            # dask_logger.warning("%s Finished rebalancing %s", ctime(), key)
             if save_dir is not None:
                 fname = os.path.join(save_dir, key + "_10x")
                 dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)

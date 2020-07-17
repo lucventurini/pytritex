@@ -63,28 +63,23 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
     assert isinstance(popseq, dd.DataFrame)
     popseq_positions = popseq.loc[
                            ~popseq["popseq_alphachr"].isna(),
-                           ["popseq_index", "popseq_alphachr", "popseq_cM"]
-                       ][:].set_index("popseq_index").astype({"popseq_alphachr": str})
+                           ["popseq_index", "popseq_chr", "popseq_cM"]
+                       ][:].set_index("popseq_index").astype({"popseq_chr": int})
     assert isinstance(popseq_positions, dd.DataFrame)
     # This will be ["scaffold_index", "popseq_index"]
     dask_logger.debug("%s Assigning PopSeq - calculating right", time.ctime())
-    right = client.scatter(cssaln[["popseq_index"]].reset_index(drop=False))
-    popseq_positions = client.scatter(popseq_positions)
+    right = cssaln[["popseq_index"]].reset_index(drop=False)
     dask_logger.debug("%s Assigning PopSeq - merging with the popseq_index", time.ctime())
-    func = delayed(dd.merge)(popseq_positions, right, on="popseq_index", how="right")
-    popseq_positions = client.compute(func).result()
-    popseq_positions = popseq_positions.repartition(npartitions=cssaln.npartitions)
-    popseq_positions = popseq_positions.astype({"popseq_alphachr": object})
+    popseq_positions = dd.merge(popseq_positions, right, on="popseq_index", how="right",
+                                npartitions=right.npartitions)
     # Group by "scaffold_index", "popseq_alphachr"
     dask_logger.debug("%s Assigning PopSeq (nparts: %s) - starting with popseq_stats", time.ctime(),
                         popseq_positions.npartitions)
-    popseq_stats = popseq_positions.groupby(["scaffold_index", "popseq_alphachr"])
-    popseq_count = popseq_stats.size(
-        split_out=popseq_positions.npartitions).to_dask_array()
+    popseq_stats = popseq_positions.groupby(["scaffold_index", "popseq_chr"])
+    popseq_count = popseq_stats.size(split_out=popseq_positions.npartitions).to_dask_array()
     dask_logger.debug("%s Assigning PopSeq (nparts %s) - calculating mean, std, MAD", time.ctime(),
                         popseq_positions.npartitions)
-    popseq_stats = popseq_stats.agg({"popseq_cM": [np.mean, np.std, mad]},
-                                    split_out=popseq_positions.npartitions)
+    popseq_stats = popseq_stats.agg({"popseq_cM": [np.mean, np.std, mad]}, split_out=popseq_positions.npartitions)
     popseq_stats.columns = ["popseq_cM", "popseq_cM_sd", "popseq_cM_mad"]
     popseq_stats["N"] = popseq_count
     dask_logger.debug("%s Assigning PopSeq - resetting the index for popseq_stats", time.ctime())
@@ -102,45 +97,41 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
         "scaffold_index").apply(lambda df: df.nlargest(2, "N"), meta=_meta).reset_index(drop=True)
 
     best_locations = best_locations.groupby("scaffold_index").agg(
-        {"popseq_alphachr": ["first", second_agg],
+        {"popseq_chr": ["first", second_agg],
          "popseq_Ncss": ["first", second_agg]}
-    ).astype({("popseq_alphachr", "first"): object, ("popseq_alphachr", "second"): object})
-    best_locations.columns = ["popseq_alphachr", "popseq_alphachr2", "popseq_Ncss1", "popseq_Ncss2"]
+    ).astype({("popseq_chr", "first"): int, ("popseq_chr", "second"): float})
+    best_locations.columns = ["popseq_chr", "popseq_chr2", "popseq_Ncss1", "popseq_Ncss2"]
 
     dask_logger.debug("%s Assigning PopSeq - merging popseq_stats with best_locations", time.ctime())
-    popseq_stats = delayed(dd.merge)(
-        client.scatter(popseq_stats[
-        ["scaffold_index", "popseq_alphachr", "popseq_Ncss", "popseq_cM", "popseq_cM_sd", "popseq_cM_mad"]]),
-        client.scatter(best_locations), on=["scaffold_index", "popseq_alphachr"], how="right"
+    popseq_stats = dd.merge(
+        popseq_stats[
+        ["scaffold_index", "popseq_chr",
+         "popseq_Ncss", "popseq_cM", "popseq_cM_sd", "popseq_cM_mad"]],
+        best_locations, on=["scaffold_index", "popseq_chr"], how="right", npartitions=best_locations.npartitions,
     )
-    popseq_stats = client.compute(popseq_stats).result()
     dask_logger.debug("%s Assigning PopSeq - calculating the popseq_pchr/12", time.ctime())
     popseq_stats["popseq_pchr"] = popseq_stats["popseq_Ncss1"].div(popseq_stats["popseq_Ncss"], fill_value=0)
     popseq_stats["popseq_p12"] = popseq_stats["popseq_Ncss2"].div(popseq_stats["popseq_Ncss1"], fill_value=0)
 
     dask_logger.debug("%s Assigning PopSeq - merging popseq_stats with wheatchr", time.ctime())
     pop1 = delayed(dd.merge)(
-        client.scatter(popseq_stats),
+        popseq_stats,
         wheatchr.copy().rename(columns={"chr": "popseq_chr", "alphachr": "popseq_alphachr"}),
-        on="popseq_alphachr", how="left")
+        on="popseq_chr", how="left")
     pop2 = delayed(dd.merge)(
         pop1,
         wheatchr.copy().rename(columns={"chr": "popseq_chr2", "alphachr": "popseq_alphachr2"}),
-        how="left", on="popseq_alphachr2"
+        how="left", on="popseq_chr2"
     )
-
     pop2 = client.compute(pop2).result().set_index("scaffold_index")
+    del pop1
     dask_logger.debug("%s Assigning PopSeq - merging anchored_css with popseq_stats", time.ctime())
-    func = delayed(dd.merge)(client.scatter(pop2),
-                             client.scatter(anchored_css), on="scaffold_index", how="right")
-    anchored_css = client.compute(func).result()
+    anchored_css = dd.merge(anchored_css, pop2, on="scaffold_index", how="right", npartitions=anchored_css.npartitions)
     # anchored_css = anchored_css.set_index("scaffold_index")
     if anchored_css.index.name != "scaffold_index":
         print(anchored_css.columns)
         assert False
     anchored_css = anchored_css.reset_index(drop=False).set_index("scaffold_index")
+    assert isinstance(anchored_css, dd.DataFrame)
     dask_logger.debug("%s Assigning PopSeq - finished", time.ctime())        
-    # for column in ["popseq_Ncss", "popseq_Ncss1", "popseq_Ncss2"]:
-    #     anchored_css.loc[:, column] = pd.to_numeric(anchored_css[column].fillna(0),
-    #                                                 downcast="signed")
     return anchored_css

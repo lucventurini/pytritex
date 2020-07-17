@@ -9,7 +9,7 @@ import logging
 dask_logger = logging.getLogger("dask")
 
 
-def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, client: Client, verbose=False):
+def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame):
     """This function will add the HiC statistics to the anchored dataframe."""
 
     # info[!(popseq_chr != sorted_chr)][, .(scaffold, chr=popseq_chr)]->info0
@@ -31,12 +31,11 @@ def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, client:
     anchored1 = anchored0[:].rename(columns={"chr": "chr1"})
     anchored1.index = anchored1.index.rename("scaffold_index1")
     dask_logger.warning("%s Merging anchored_css to fpairs", time.ctime())
-    fpairs1 = delayed(dd.merge)(
-        client.scatter(fpairs), client.scatter(anchored1), on="scaffold_index1", how="left")
+    nparts = fpairs.npartitions
+    fpairs1 = dd.merge(fpairs, anchored1, on="scaffold_index1", how="left", npartitions=nparts)
     anchored2 = anchored0[:].rename(columns={"chr": "chr2"})
     anchored2.index = anchored2.index.rename("scaffold_index2")
-    fpairs2 = delayed(dd.merge)(fpairs1, client.scatter(anchored2), on="scaffold_index2", how="left")
-    anchored_hic_links = client.compute(fpairs2).result()
+    anchored_hic_links = dd.merge(fpairs1, anchored2, on="scaffold_index2", how="left", npartitions=nparts)
     dask_logger.warning("%s Merged anchored_css to fpairs", time.ctime())    
     assert isinstance(anchored_hic_links, dd.DataFrame)
 
@@ -65,9 +64,8 @@ def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, client:
     hic_stats["hic_pchr"] = hic_stats["hic_N1"].div(hic_stats["Nhic"], fill_value=0)
     hic_stats["hic_p12"] = hic_stats["hic_N2"].div(hic_stats["hic_N1"], fill_value=0)
     dask_logger.warning("%s Calculated hic_stats", time.ctime())
-    func = delayed(dd.merge)(client.scatter(anchored_css),
-                             hic_stats, on="scaffold_index", how="left")
-    anchored_css = client.compute(func).result()
+    anchored_css = dd.merge(anchored_css, hic_stats, on="scaffold_index", how="left",
+                            npartitions=anchored_css.npartitions)
     dask_logger.warning("%s Merged hic_stats back into anchored_css", time.ctime())    
     assert isinstance(anchored_css, dd.DataFrame)
     return anchored_css, anchored_hic_links

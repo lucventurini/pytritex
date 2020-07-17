@@ -44,11 +44,10 @@ def _remove_short_tips(links: dd.DataFrame,
     inner1 = np.tile(inner[:, 1], 3).reshape(3, inner.shape[0]) + np.array([0, -1, 1]).reshape(3, 1)
     inner1 = inner1.flatten()
     inner = pd.DataFrame().assign(super=inner0, bin=inner1).astype({"super": np.int})
-    right = client.scatter(membership.reset_index(drop=False).astype({"super": np.int}))
+    right = membership.reset_index(drop=False).astype({"super": np.int})
     func = delayed(dd.merge)(right, inner, how="right", on=["super", "bin"])
     middle = client.compute(func).result().set_index("scaffold_index")
     degree = _calculate_degree(links, excluded)
-    middle = client.scatter(middle)
     func = delayed(dd.merge)(degree, middle, left_index=True, right_index=True)
     a = client.compute(func).result()
     add = a.loc[(a["degree"] == 1) & (a["length"] <= min_dist)].index.compute().values

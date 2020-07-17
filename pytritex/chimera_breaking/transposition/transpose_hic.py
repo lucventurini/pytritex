@@ -16,8 +16,7 @@ def _transpose_hic_cov(new_assembly: dict,
                        old_info: dd.DataFrame,
                        save_dir: str,
                        coverage: dd.DataFrame,
-                       fpairs: dd.DataFrame,
-                       client: Client, cores=1):
+                       fpairs: dd.DataFrame):
 
     if fpairs is not None and isinstance(fpairs, str):
         fpairs = dd.read_parquet(fpairs)
@@ -43,7 +42,7 @@ def _transpose_hic_cov(new_assembly: dict,
             new_assembly,
             scaffolds=scaffolds,
             save_dir=save_dir,
-            client=client, binsize=binsize, minNbin=minNbin, innerDist=innerDist, cores=cores)
+            binsize=binsize, minNbin=minNbin, innerDist=innerDist)
 
         # First let's get the new coverage
         # present = np.unique(coverage.index.compute())
@@ -198,7 +197,6 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
         fpairs = pd.DataFrame().assign(**dict((column, list()) for column in final_columns))
         fpairs = dd.from_pandas(fpairs, chunksize=1)
 
-    fpairs = fpairs.repartition(partition_size="10MB")
     fpairs_name = os.path.join(save_dir, "anchored_hic_links")
     dd.to_parquet(fpairs, fpairs_name, compute=True, engine="pyarrow", compression="gzip")
     return fpairs_name

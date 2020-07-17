@@ -19,38 +19,28 @@ def _calculate_link_pos(molecules: str, fai: str, save_dir: str,
     )
     molecules_over_filter = molecules_over_filter.query("npairs >= @min_npairs",
                                                         local_dict={"min_npairs": min_npairs})[:]
-    molecules_over_filter = molecules_over_filter.repartition(partition_size="10MB")
     # We need to repartition. 100 partitions are just too few.
     movf = molecules_over_filter
-    movf = client.scatter(movf)
+    assert isinstance(movf, dd.DataFrame)
     fai = dd.read_parquet(fai, infer_divisions=True, engine="auto")
     lengths = fai[["length"]]
     lengths.columns = ["scaffold_length"]
-    merger = delayed(dd.merge)(movf, lengths, left_index=True, right_index=True, how="left")
-    movf = client.compute(merger).result()
-
-    # movf = dd.merge(movf, lengths, left_index=True, right_index=True, how="left")
-    # assert "scaffold_length" in movf.columns
+    movf = dd.merge(movf, lengths, left_index=True, right_index=True, how="left", npartitions=movf.npartitions)
+    assert isinstance(movf, dd.DataFrame)
     movf = movf[(movf["end"] <= max_dist) | (movf.eval("scaffold_length - start") <= max_dist)]
 
     # Group by barcode and sample. Only keep those lines in the table where a barcode in a given sample
     # is linking two different scaffolds.
-    movf = client.scatter(movf)
 
     def chunk_computer(df):
         return df.map_partitions(len)
-
-    chunks = delayed(chunk_computer)(movf)
-    chunks = tuple(client.compute(chunks).result().compute().values.tolist())
-
+    chunks = tuple(chunk_computer(movf).compute().values.tolist())
     def pair_counter(df):
         return df[["barcode_index", "sample", "npairs"]].astype(np.int32).compute().groupby(
             ["barcode_index", "sample"])["npairs"].transform("size")
 
-    nsc = delayed(pair_counter)(movf)
-    nsc = client.compute(nsc).result().values
+    nsc = pair_counter(movf).values
     nsc = da.from_array(nsc, chunks=chunks)
-    movf = client.gather(movf)
     movf = movf.assign(nsc=nsc).query("nsc >= 2")
     # These are the columns we are interested in.
     side_columns = ["npairs", "start", "end", "sample", "barcode_index"]
@@ -70,7 +60,6 @@ def _calculate_link_pos(molecules: str, fai: str, save_dir: str,
     assert "npairs2" in link_pos
     # link_pos = scaffold1_side.merge(scaffold2_side, how="outer", on=["sample", "barcode_index"])
     # link_pos = both_sides.copy()
-    link_pos = link_pos.repartition(partition_size="10MB")
     link_pos_name = os.path.join(save_dir, "link_pos")
     dd.to_parquet(link_pos, link_pos_name, compression="gzip", engine="pyarrow")
     del link_pos
@@ -138,49 +127,35 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     link_pos = dd.read_parquet(link_pos_name, infer_divisions=True, engine="auto")
     dask_logger.warning("Arrived at merging both sides")
 
-    link_pos = client.scatter(link_pos)
-    mol_count = delayed(mol_counter)(link_pos, min_nmol)
     dask_logger.warning("{} Computing the molecule counts".format(time.ctime()))
-    mol_count = client.compute(mol_count).result()
-    mol_count = client.scatter(mol_count)
+    mol_count = mol_counter(link_pos, min_nmol)
     dask_logger.warning("{} Computed the molecule counts".format(time.ctime()))
-    sample_count = delayed(sample_counter)(mol_count, min_nsample)
-    sample_count = client.compute(sample_count).result()
+    sample_count = sample_counter(mol_count, min_nsample)
     dask_logger.warning("{} Computed the sample counts".format(time.ctime()))
     sample_count_name = os.path.join(save_dir, "sample_count")
     dask_logger.warning("Storing the raw sample counts")
-    dd.to_parquet(sample_count,
-                  sample_count_name, compression="gzip", engine="pyarrow")
+    dd.to_parquet(sample_count, sample_count_name, compression="gzip", engine="pyarrow")
     sample_count = dd.read_parquet(sample_count_name, infer_divisions=True)
     dask_logger.warning("Stored the raw sample counts")
 
     basic = info.loc[:, ["popseq_chr", "length", "popseq_pchr", "popseq_cM"]]
     left = basic.rename(columns=dict((col, col + "1") for col in basic.columns))
     left.index = left.index.rename("scaffold_index1")
-    left = client.scatter(left)
-    sample_count = delayed(dd.merge)(left, sample_count,
-                                     left_index=True,
-                                     right_index=True,
-                                     how="right")
-    sample_count = client.compute(sample_count)
+    sample_count = dd.merge(left, sample_count, left_index=True, right_index=True, how="right",
+                            npartitions=sample_count.npartitions)
     dask_logger.warning("{} Storing the first merge of sample counts".format(time.ctime()))
-    dd.to_parquet(sample_count.result(), sample_count_name, compression="gzip", engine="pyarrow", compute=True)
+    dd.to_parquet(sample_count, sample_count_name, compression="gzip", engine="pyarrow", compute=True)
     dask_logger.warning("{} Stored the first merge of sample counts".format(time.ctime()))
     sample_count = dd.read_parquet(sample_count_name, infer_divisions=True, engine="auto", compute=True)
-    sample_count = client.scatter(sample_count)
-    sample_count = delayed(index_resetter)(sample_count, "scaffold_index2", sorted=False)
+    sample_count = index_resetter(sample_count, "scaffold_index2", sorted=False)
     left = basic.rename(
         columns=dict((col, col + "2") for col in basic.columns))
     left.index = left.index.rename("scaffold_index2")
-    left = client.scatter(left)
-    sample_count = delayed(dd.merge)(
-        left, sample_count,
-        left_index=True, right_index=True,
-        how="right")
-    sample_count = client.compute(sample_count)
-    dask_logger.warning("{} Storing the second merge of sample counts".format(time.ctime()))
-    dd.to_parquet(sample_count.result(), sample_count_name, compression="gzip", engine="pyarrow", compute=True)
-    dask_logger.warning("{} Stored the second merge of sample counts".format(time.ctime()))
+    sample_count = dd.merge(left, sample_count, left_index=True, right_index=True,
+                            how="right", npartitions=sample_count.npartitions)
+    dask_logger.warning("%s Storing the second merge of sample counts", time.ctime())
+    dd.to_parquet(sample_count, sample_count_name, compression="gzip", engine="pyarrow", compute=True)
+    dask_logger.warning("%s Stored the second merge of sample counts", time.ctime())
     sample_count = dd.read_parquet(sample_count_name, infer_divisions=True, engine="auto", compute=True)
 
     def add_cols(sample_count):
@@ -188,22 +163,18 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
         "((popseq_chr1 == popseq_chr2) & (popseq_chr1 == popseq_chr1) & (popseq_chr2 == popseq_chr2))")
         sample_count["weight"] = sample_count.eval("-1 * log10((length1 + length2) / 1e9)")
         return sample_count
-    sample_count = client.scatter(sample_count)
-    sample_count = delayed(lambda df: df.reset_index(drop=False))(sample_count)
-    sample_count = delayed(add_cols)(sample_count)
-    sample_count = client.compute(sample_count)
+    sample_count = add_cols(sample_count.reset_index(drop=False))
     dask_logger.warning("Added the last columns to sample_count.")
     sample_count_name = os.path.join(save_dir, "sample_count")
-    dd.to_parquet(sample_count.result().repartition(partition_size="10MB"),
-                  sample_count_name, compression="gzip", engine="pyarrow", compute=True)
+    dd.to_parquet(sample_count, sample_count_name, compression="gzip", engine="pyarrow", compute=True)
     del sample_count
     sample_count = dd.read_parquet(sample_count_name, infer_divisions=True, engine="auto")
     dask_logger.warning("Calculating the link positions.")
     if popseq_dist > 0:
         links = sample_count[
-                (sample_count["same_chr"] == True) & ((sample_count.eval("popseq_cM2 - popseq_cM1").astype(float)).abs() <= popseq_dist)]
+                (sample_count["same_chr"] == True) &
+                ((sample_count.eval("popseq_cM2 - popseq_cM1").astype(float)).abs() <= popseq_dist)]
         links_name = os.path.join(save_dir, "links")
-        links = links.repartition(partition_size="10MB")
         dd.to_parquet(links, links_name, compression="gzip", engine="pyarrow", compute=True)
     else:
         # links = sample_count[:]

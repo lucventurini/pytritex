@@ -67,13 +67,11 @@ def _create_association(membership, info, link_pos, client, max_dist_orientation
     assert m_greater_one.shape[0].compute() > 0, membership.head()
     left = m_greater_one.loc[:, ["bin", "super"]].rename(columns={"bin": "bin1", "super": "super1"})
     left.index = left.index.rename("scaffold_index1")
-    func = delayed(dd.merge)(client.scatter(left), client.scatter(link_pos),
-                             on="scaffold_index1", how="inner")
+    func = delayed(dd.merge)(left, link_pos, on="scaffold_index1", how="inner")
     association = client.compute(func).result()
     left = m_greater_one[["bin", "super"]].rename(columns={"bin": "bin2", "super": "super2"})
     left.index = left.index.rename("scaffold_index2")
-    func = delayed(dd.merge)(client.scatter(left), client.scatter(association),
-                             on="scaffold_index2", how="inner")
+    func = delayed(dd.merge)(left, association, on="scaffold_index2", how="inner")
     association = client.compute(func).result()
     logger.warning("%s Obtained the association table", time.ctime())
     association = association.query("(super1 == super2) & (bin1 != bin2)")
@@ -106,8 +104,7 @@ def _calculate_orientation_column(membership, final_association, client):
     final_association["orientation"] = orientation
     assert isinstance(final_association, dd.DataFrame), type(final_association)
     logger.warning("%s Merging the orientation variable back into membership", time.ctime())
-    func = delayed(dd.merge)(client.scatter(membership),
-                             client.scatter(final_association[["orientation"]]),
+    func = delayed(dd.merge)(membership, final_association[["orientation"]],
                              left_index=True, right_index=True, how="left")
     membership = client.compute(func).result().drop_duplicates()
     logger.warning("%s Merged the orientation variable back into membership", time.ctime())
@@ -194,8 +191,8 @@ def orient_scaffolds(info: str, res: str,
     nchr = nchr.query("nchr == max_nchr").drop_duplicates(subset="super").drop("max_nchr", axis=1)
     # chr, super, nchr, pchr - no index
     logger.warning("%s Merging into nchr_with_cms", time.ctime())
-    func = delayed(dd.merge)(client.scatter(membership[~membership["cM"].isna()].reset_index(drop=False)),
-                             client.scatter(nchr), on=["chr", "super"])
+    func = delayed(dd.merge)(membership[~membership["cM"].isna()].reset_index(drop=False),
+                             nchr, on=["chr", "super"])
     nchr_with_cms = client.compute(func).result().set_index("scaffold_index")
     logger.warning("%s Merged into nchr_with_cms", time.ctime())
     grouped_nchr_with_cms = nchr_with_cms.groupby("super")
@@ -214,9 +211,9 @@ def orient_scaffolds(info: str, res: str,
     if res.index.name is None:
         res = res.set_index("super")
     nchr = nchr.set_index("super")
-    func = delayed(dd.merge)(client.scatter(nchr), client.scatter(res), on="super", how="right")
+    func = delayed(dd.merge)(nchr, res, on="super", how="right")
     res = client.compute(func).result()
-    func = delayed(dd.merge)(nchr_with_cms, client.scatter(res), on="super", how="right")
+    func = delayed(dd.merge)(nchr_with_cms, res, on="super", how="right")
     res = client.compute(func).result()
 
     logger.warning("%s Merged everything into res, saving", time.ctime())

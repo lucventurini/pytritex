@@ -27,8 +27,8 @@ def _transpose_molecule_cov(new_assembly,
         assert "mr_10x" not in info.columns
         dask_logger.debug("%s Starting molecule cov", time.ctime())
         coverage = add_molecule_cov(
-            new_assembly, save_dir=save_dir, client=client, scaffolds=scaffolds,
-            binsize=assembly["mol_binsize"], cores=cores)
+            new_assembly, save_dir=save_dir, scaffolds=scaffolds,
+            binsize=assembly["mol_binsize"])
         dask_logger.debug("%s Finished molecule cov", time.ctime())
         old_info = assembly["info"]
         if isinstance(old_info, str):
@@ -98,7 +98,8 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         orig_shape = 0
 
     if molecules is not None and orig_shape > 0:
-
+        dask_logger.warning("%s Starting transposing the molecules; npartitions: %s",
+                            time.ctime(), molecules.npartitions)
         molecules_index = molecules.index.unique().compute()
         mol_up_index = np.unique(
             molecules_index.intersection(fai.loc[fai["to_use"] == True].index.compute().values).values)
@@ -123,6 +124,7 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         # molecules_down = molecules_down.set_index("scaffold_index")
         molecules_down = molecules_down.drop("orig_pos", axis=1).drop("s_length", axis=1)
         # assert molecules_up.index.name == "scaffold_index", molecules_up.compute().head()
+        nparts = molecules.npartitions
         molecules = dd.concat([molecules_up,
                                molecules_down]).reset_index(drop=False)
         assert molecules.scaffold_index.isna().any().compute() == False
@@ -130,7 +132,10 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         molecules = molecules.set_index("scaffold_index")
         molecules = molecules.astype(dict((key, np.int) for key in
                                           ["start", "end", "length", "orig_scaffold_index", "orig_start", "orig_end"]))
+        molecules = molecules.repartition(npartitions=nparts)
         assert isinstance(molecules, dd.DataFrame)
+        dask_logger.warning("%s Finished transposing the molecules; npartitions: %s",
+                            time.ctime(), molecules.npartitions)
 
     elif molecules is None:
         molecules = pd.DataFrame().assign(
@@ -139,7 +144,6 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         molecules = dd.from_pandas(molecules, npartitions=1)
 
     assert isinstance(molecules, dd.DataFrame)
-    molecules = molecules.repartition(partition_size="10MB")
     fname = os.path.join(save_dir, "molecules")
     dd.to_parquet(molecules, fname, engine="pyarrow", compression="gzip", compute=True)
     return fname

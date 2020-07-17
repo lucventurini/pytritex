@@ -65,7 +65,7 @@ def remove_tips(links: str, excluded, out: dict, info: str,
 
     dask_logger.warning("%s Removing the last tips", ctime())
     degree = _calculate_degree(links, excluded)
-    scattered = client.scatter(membership.query("rank == 1"))
+    scattered = membership.query("rank == 1")
     func = delayed(dd.merge)(scattered, degree, on="scaffold_index")
     add = client.compute(func).result().query("degree == 1")
     add = add.index.compute().values

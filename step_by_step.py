@@ -120,11 +120,9 @@ def main():
     assembly = memory.cache(anchor_scaffolds, ignore=["client"])(
         assembly, os.path.join(args.save_prefix, "joblib", "pytritex", "anchoring"), species="wheat", client=client)
     cov_base = os.path.join(args.save_prefix, "joblib", "pytritex", "sequencing_coverage")
-    assembly = memory.cache(add_molecule_cov, ignore=["cores", "client"])(
-        assembly, cores=args.procs, client=client, binsize=200, save_dir=cov_base)
-    assembly = memory.cache(add_hic_cov, ignore=["cores", "client"])(
-        assembly, save_dir=cov_base, client=client,
-        cores=args.procs, binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
+    assembly = memory.cache(add_molecule_cov)(assembly, binsize=200, save_dir=cov_base)
+    assembly = memory.cache(add_hic_cov)(assembly, save_dir=cov_base,
+                                         binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
     assembly_v1 = memory.cache(break_10x, ignore=["cores", "client", "memory"])(
         assembly, client=client, memory=memory,
         ratio=-3, interval=5e4, minNbin=20, dist=2e3, save_dir=args.save_prefix,

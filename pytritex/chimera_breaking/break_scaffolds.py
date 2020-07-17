@@ -61,7 +61,7 @@ def break_scaffolds(breaks, client: Client, save_dir: str, memory: Memory,
         old_info=assembly["info"],
         scaffolds=new_indices,
         save_dir=save_dir,
-        coverage=assembly["cov"], fpairs=assembly["fpairs"], cores=cores, client=client)
+        coverage=assembly["cov"], fpairs=assembly["fpairs"])
     dask_logger.debug("%s Transposing the 10X coverage data", ctime())
     new_assembly = _transpose_molecule_cov(
         new_assembly, fai=trimmed_fai, save_dir=save_dir, scaffolds=new_indices,
@@ -86,7 +86,6 @@ def break_scaffolds(breaks, client: Client, save_dir: str, memory: Memory,
                     continue
                 col = new_assembly[key].dtypes.index[index]
                 new_assembly[key][col] = new_assembly[key][col].astype(np.float32)
-        new_assembly[key] = new_assembly[key].repartition(partition_size="10MB")
         fname = os.path.join(save_dir, key)
         dd.to_parquet(new_assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
         dask_logger.debug("%s Stored %s", ctime(), key)

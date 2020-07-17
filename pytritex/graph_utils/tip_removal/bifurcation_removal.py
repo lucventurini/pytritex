@@ -53,30 +53,26 @@ def _remove_bifurcations(links: dd.DataFrame,
     key = ["super", "bin"]
     # indexed = dd_membership.set_index(key)
     # m[x[type == T,.(super, bin0, bin=1)], on = c("super", "bin")],
-    left = client.scatter(membership.reset_index(drop=False).astype({"super": np.int}))
-    upper = client.scatter(bifurcated.loc[bifurcated.type, ["super", "bin0"]].assign(bin=1))
+    left = membership.reset_index(drop=False).astype({"super": np.int})
+    upper = bifurcated.loc[bifurcated.type, ["super", "bin0"]].assign(bin=1)
     func = delayed(dd.merge)(left, upper, on=key)
     upper = client.compute(func).result()
     upper_size = upper.shape[0].compute()
     assert "scaffold_index" in upper.columns
-    upper = client.scatter(upper)
     # m[x[type == F,.(super, bin0, bin=super_nbin)], on = c("super", "bin")]
-    lower = client.scatter(bifurcated.loc[~bifurcated.type, ["super", "bin0", "super_nbin"]].rename(
-        columns={"super_nbin": "bin"}))
+    lower = bifurcated.loc[~bifurcated.type, ["super", "bin0", "super_nbin"]].rename(
+        columns={"super_nbin": "bin"})
     func = delayed(dd.merge)(left, lower, on=key)
     lower = client.compute(func).result()
     lower_size = lower.shape[0].compute()
     assert max(lower_size, upper_size) > 0
     assert "scaffold_index" in lower.columns
-    lower = client.scatter(lower)
     func = delayed(dd.concat)([upper, lower])
     a = client.compute(func).result()
     assert isinstance(a, dd.DataFrame)
     # assert a.shape[0].compute() > 0
     a = a.drop_duplicates().rename(columns={"length": "length2", "scaffold_index": "scaffold_index2"})
-    a = client.scatter(a)
     # Now merge with "x" to find places to exclude
-    bifurcated = client.scatter(bifurcated)
     func = delayed(dd.merge)(a, bifurcated, on=["super", "bin0"], how="right")
     a = client.compute(func).result().compute()
     add = np.where((a.length >= a.length2), a.scaffold_index2, a.scaffold_index)

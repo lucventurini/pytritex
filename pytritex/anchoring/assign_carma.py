@@ -43,8 +43,8 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
     combined_stats = dd.from_pandas(combined_stats, npartitions=anchored_css.npartitions)
     # Now assign first, second
     combined_stats.columns = ["sorted_Ncss1", "sorted_Ncss2", "sorted_chr", "sorted_chr2"]
-    func = delayed(dd.merge)(client.scatter(combined_stats), nsum, on="scaffold_index")
-    combined_stats = client.compute(func).result()
+    combined_stats = dd.merge(combined_stats, nsum, on="scaffold_index", npartitions=combined_stats.npartitions)
+    assert isinstance(combined_stats, dd.DataFrame)
     dask_logger.debug("%s Assigning CARMA - percentages pchr, p12", time.ctime())    
     combined_stats["sorted_pchr"] = combined_stats["sorted_Ncss1"].div(combined_stats["Ncss"], fill_value=0)
     combined_stats["sorted_p12"] = combined_stats["sorted_Ncss2"].div(combined_stats["sorted_Ncss1"], fill_value=0)
@@ -68,10 +68,12 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
         ["scaffold_index", "sorted_chr"])["sorted_arm"].size().to_frame("NL").reset_index(drop=False)
 
     dask_logger.debug("%s Assigning CARMA - merging arm counts back", time.ctime())
-    func = delayed(dd.merge)(client.scatter(combined_stats),
-                             long_arm_counts, on=["scaffold_index", "sorted_chr"], how="left")
-    func2 = delayed(dd.merge)(func, short_arm_counts, on=["scaffold_index", "sorted_chr"], how="left")
-    combined_stats = client.compute(func2).result()
+    combined_stats = dd.merge(combined_stats,
+                             long_arm_counts, on=["scaffold_index", "sorted_chr"], how="left",
+                             npartitions=combined_stats.npartitions)
+    combined_stats = dd.merge(combined_stats, short_arm_counts, on=["scaffold_index", "sorted_chr"], how="left",
+                              npartitions=combined_stats.npartitions)
+    assert isinstance(combined_stats, dd.DataFrame)
 
     dask_logger.debug("%s Assigning CARMA - assigning arm", time.ctime())
     combined_stats["sorted_arm"] = (combined_stats["NS"] > combined_stats["NL"])
@@ -102,23 +104,22 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
 
     dask_logger.debug("%s Combined stats: %s; wheatchr: %s", time.ctime(),
                         combined_stats.shape[0].compute(), wheatchr.shape[0])
-    info1 = delayed(dd.merge)(
-        client.scatter(combined_stats),
+    info2 = dd.merge(combined_stats,
         wheatchr.copy().rename(columns={"chr": "sorted_chr", "alphachr": "sorted_alphachr"}),
-        how="left", on="sorted_chr")
+        how="left", on="sorted_chr", npartitions=combined_stats.npartitions)
 
-    info2 = delayed(dd.merge)(info1,
-        wheatchr.copy().rename(columns={"chr": "sorted_chr2", "alphachr": "sorted_alphachr2"}),
-        how="left", on="sorted_chr2")
+    info2 = dd.merge(info2,
+                     wheatchr.copy().rename(columns={"chr": "sorted_chr2", "alphachr": "sorted_alphachr2"}),
+                     how="left", on="sorted_chr2", npartitions=combined_stats.npartitions)
 
-    info2 = client.compute(info2).result()
     assert info2.scaffold_index.dtype == fai.index.dtype
     info2 = info2.set_index("scaffold_index")
     
     dask_logger.debug("%s Finished with info2 (%s), now merging with FAI (%s)",
-                        time.ctime(), info2.shape[0].compute(), fai.shape[0].compute())
+                      time.ctime(), info2.shape[0].compute(), fai.shape[0].compute())
 
-    info = dd.merge(info2, fai, on="scaffold_index", how="right").drop("scaffold", axis=1)
+    info = dd.merge(fai, info2, on="scaffold_index", how="right",
+                    npartitions=info2.npartitions).drop("scaffold", axis=1)
     info = info.reset_index(drop=False).set_index("scaffold_index")
     dask_logger.debug("%s Finished with info (%s)", time.ctime(), info.shape[0].compute())
     assert isinstance(info, dd.DataFrame)
@@ -127,5 +128,5 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
         info = info.set_index("scaffold_index")
         dask_logger.debug("%s Assigning CARMA - reset the index", time.ctime())
     dask_logger.debug("%s Assigning CARMA - finished", time.ctime())
-        
+
     return info

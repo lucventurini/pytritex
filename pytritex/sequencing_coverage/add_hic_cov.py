@@ -3,7 +3,6 @@ import numpy as np
 # import pandarallel
 import functools
 import dask.dataframe as dd
-from dask.distributed import Client
 pd.options.mode.chained_assignment = 'raise'
 from time import ctime
 import os
@@ -39,21 +38,7 @@ def _group_analyser(group, binsize, cores=1):
     return assigned
 
 
-# Switch columns for those positions
-def column_switcher(fpairs: dd.DataFrame):
-    fpairs = fpairs.reset_index(drop=True)
-    query = "scaffold_index1 == scaffold_index2 & pos1 > pos2"
-    values = fpairs[["pos1", "pos2"]].to_dask_array(lengths=True)
-    mask = np.repeat(fpairs.eval(query).compute().to_numpy(), 2).reshape(values.shape)
-    values = np.where(mask, values[:, [1, 0]], values)
-    fpairs["pos1"] = values[:, 0]
-    fpairs["pos2"] = values[:, 1]
-    fpairs = fpairs.drop_duplicates()
-    return fpairs
-
-
-def add_hic_cov(assembly, save_dir, client: Client,
-                scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5, cores=1):
+def add_hic_cov(assembly, save_dir, scaffolds=None, binsize=1e3, binsize2=1e5, minNbin=50, innerDist=1e5):
     """
     Calculate physical coverage with Hi-C links in sliding windows along the scaffolds.
     :param assembly:
@@ -101,15 +86,16 @@ Supplied values: {}, {}".format(binsize, binsize2))
         # dask_logger.warning("%s Removed duplicates from fpairs", ctime())
     else:
         dask_logger.warning("%s Selecting data from info and fpairs", ctime())
-        info = info.loc[scaffolds].copy()
-        info = client.persist(info)
+        info_index = info.index.compute()
+        assert info.index.name == "scaffold_index"
+        info = info.loc[info_index.intersection(scaffolds).values].copy()
         dask_logger.warning("%s Selected data from info", ctime())
         fpairs = fpairs[(fpairs.scaffold_index1.isin(scaffolds)) |
                         (fpairs.scaffold_index2.isin(scaffolds))].copy()
-        fpairs = client.persist(fpairs)
         dask_logger.warning("%s Selected data from fpairs", ctime())
         null = False
 
+    original_info_size = info.shape[0].compute()
     assert isinstance(fpairs, dd.DataFrame)
     assert fpairs.shape[0].compute() > 0
     # Bin positions of the match by BinSize; only select those bins where the distance between the two bins is
@@ -144,7 +130,6 @@ Supplied values: {}, {}".format(binsize, binsize2))
         n=finalised[:, 2]).set_index("scaffold_index")
 
     if coverage_df.shape[0] > 0:
-        original_info_size = info.shape[0].compute()
         dask_logger.warning("%s Merging on coverage DF (HiC)", ctime())
         # Group by bin, count how covered is each bin, reset the index so it is only by scaffold_index
         coverage_df = coverage_df.groupby(["scaffold_index", "bin"]).agg(n=("n", "sum")).reset_index(level=1)
@@ -221,9 +206,6 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assembly["minNbin"] = minNbin
         assembly["innerDist"] = innerDist
         for key in ["info", "cov"]:
-            # dask_logger.warning("%s Rebalancing %s for HiC", ctime(), key)
-            assembly[key] = assembly[key].repartition(partition_size="10MB")
-            # dask_logger.warning("%s Rebalanced %s for HiC", ctime(), key)
             if save_dir is not None:
                 fname = os.path.join(save_dir, key + "_hic")
                 dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
