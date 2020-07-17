@@ -110,7 +110,7 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
     dask_logger.debug("%s Finished with info2 (%s), now merging with FAI (%s)",
                       time.ctime(), info2.shape[0], fai.shape[0].compute())
 
-    info = dd.merge(fai, info2, on="scaffold_index", how="right",
+    info = dd.merge(fai, info2, on="scaffold_index", how="left",
                     npartitions=anchored_css.npartitions).drop("scaffold", axis=1)
     info = info.reset_index(drop=False).set_index("scaffold_index")
     dask_logger.debug("%s Finished with info (%s)", time.ctime(), info.shape[0].compute())

@@ -7,8 +7,7 @@ dask_logger = logging.getLogger("dask")
 from typing import Union
 
 
-def find_10x_breaks(cov: dd.DataFrame, scaffolds=None,
-                    interval=5e4, minNbin=20, dist=5e3, ratio=-3) -> Union[pd.DataFrame, None]:
+def find_10x_breaks(cov: dd.DataFrame, interval=5e4, minNbin=20, dist=5e3, ratio=-3) -> Union[pd.DataFrame, None]:
     """
     This function will take as input a coverage dataframe derived from 10X data.
     It will find those areas in scaffolds that are further away from the end point of the scaffold than the
@@ -26,14 +25,12 @@ def find_10x_breaks(cov: dd.DataFrame, scaffolds=None,
     if isinstance(cov, str):
         cov = dd.read_parquet(cov, infer_divisions=True)
     assert isinstance(cov, dd.DataFrame), type(cov)
-    if scaffolds is not None:
-        # Cov is indexed by scaffold index.
-        cov = cov.loc[np.unique(cov.index.compute().intersection(scaffolds)), :]
-
     dask_logger.debug("%s Calculating b", time.ctime())
     cov["b"] = cov["bin"] // interval
     dask_logger.debug("%s Calculating b", time.ctime())
     broken = cov.loc[(cov["nbin"] >= minNbin) & (cov["r"] <= ratio), :].compute()
+    if broken.index.name == "scaffold_index":
+        broken = broken.reset_index(drop=False)
     dask_logger.debug("%s Extracted broken, creating the bait", time.ctime())
     bait = (np.minimum(broken["length"] - broken["bin"], broken["bin"]) >= dist)
     bindex = np.unique(broken.index[bait])

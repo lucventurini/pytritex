@@ -40,36 +40,10 @@ def _transpose_hic_cov(new_assembly: dict,
         # This returns a dictionary with "info" and "cov"
         new_coverage = add_hic_cov(
             new_assembly,
-            scaffolds=scaffolds,
+            scaffolds=None,
             save_dir=save_dir,
             binsize=binsize, minNbin=minNbin, innerDist=innerDist)
-
-        # First let's get the new coverage
-        # present = np.unique(coverage.index.compute())
-        _index = np.unique(coverage.index.compute())
-        present = np.unique(_index[np.in1d(_index, fai[fai.to_use == True].index.values.compute()) &
-                            ~np.in1d(_index, scaffolds)])
-
-        # inters = ~present.isin(scaffolds)
-        # present = np.unique(present.values[inters])
-        previous_to_keep = coverage.loc[present]
-        if new_coverage["cov"].shape[0].compute() > 0:
-            assert "scaffold_index" == previous_to_keep.index.name == new_coverage["cov"].index.name
-            new_assembly["cov"] = dd.concat([
-                previous_to_keep,
-                new_coverage["cov"]]).reset_index(drop=False).set_index("scaffold_index")
-        else:
-            new_assembly["cov"] = previous_to_keep
-
-        # Now extract the info which is still valid
-        _index = np.unique(old_info.index.compute())
-        present = np.unique(_index[np.in1d(_index, fai[fai.to_use == True].index.values.compute()) &
-                                   ~np.in1d(_index, scaffolds)])
-        old_info = old_info.loc[present].drop("mr_10x", axis=1, errors="ignore")
-        if isinstance(new_coverage["info"], str):
-            new_coverage["info"] = dd.read_parquet(new_coverage["info"])
-        new_assembly["info"] = dd.concat([
-            old_info, new_coverage["info"]]).reset_index(drop=False).set_index("scaffold_index")
+        return new_coverage
 
     return new_assembly
 
@@ -197,6 +171,6 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
         fpairs = pd.DataFrame().assign(**dict((column, list()) for column in final_columns))
         fpairs = dd.from_pandas(fpairs, chunksize=1)
 
-    fpairs_name = os.path.join(save_dir, "anchored_hic_links")
+    fpairs_name = os.path.join(save_dir, "fpairs")
     dd.to_parquet(fpairs, fpairs_name, compute=True, engine="pyarrow", compression="gzip")
     return fpairs_name

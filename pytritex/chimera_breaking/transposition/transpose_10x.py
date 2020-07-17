@@ -27,42 +27,10 @@ def _transpose_molecule_cov(new_assembly,
         assert "mr_10x" not in info.columns
         dask_logger.debug("%s Starting molecule cov", time.ctime())
         coverage = add_molecule_cov(
-            new_assembly, save_dir=save_dir, scaffolds=scaffolds,
+            new_assembly, save_dir=save_dir, scaffolds=None,
             binsize=assembly["mol_binsize"])
         dask_logger.debug("%s Finished molecule cov", time.ctime())
-        old_info = assembly["info"]
-        if isinstance(old_info, str):
-            old_info = dd.read_parquet(old_info, infer_divisions=True)
-        assert old_info.index.name == "scaffold_index"
-        dask_logger.debug("%s Getting the old valid info", time.ctime())
-        _index = np.unique(old_info.index.compute())
-        present = _index[np.in1d(_index, fai[fai.to_use == True].index.values.compute()) &
-                          ~np.in1d(_index, scaffolds)]
-        old_info = old_info.loc[present]
-        # We have to reset the index to trigger the sorting.
-        assert old_info.index.name == coverage["info"].index.name == "scaffold_index"
-        new_assembly["info"] = dd.concat([old_info.reset_index(drop=False),
-                                          coverage["info"].reset_index(drop=False)
-                                          ]).set_index("scaffold_index")
-        dask_logger.debug("%s Concatenated old and new info", time.ctime())
-        new_assembly["mol_binsize"] = assembly["mol_binsize"]
-        old_coverage = dd.read_parquet(assembly["molecule_cov"], infer_divisions=True)
-        dask_logger.debug("%s Getting old coverage", time.ctime())
-        _index = np.unique(old_coverage.index.compute())
-        present = _index[np.in1d(_index, fai[fai.to_use == True].index.values.compute()) &
-                         ~np.in1d(_index, scaffolds)]
-        old_coverage = old_coverage.loc[present]
-        if coverage["molecule_cov"].shape[0].compute() > 0:
-            dask_logger.debug("%s Concatenating old and new coverage", time.ctime())
-            assert "scaffold_index" == old_coverage.index.name == coverage["molecule_cov"].index.name
-            new_assembly["molecule_cov"] = dd.concat(
-                [old_coverage.reset_index(drop=False),
-                 coverage["molecule_cov"].reset_index(drop=False)
-                 ]).set_index("scaffold_index")
-            dask_logger.debug("%s Concatenated old and new coverage", time.ctime())
-        else:
-            new_assembly["molecule_cov"] = old_coverage
-        #
+        return coverage
     else:
         new_assembly["molecule_cov"] = pd.DataFrame()
     return new_assembly
