@@ -29,16 +29,13 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> str:
         assert isinstance(cssaln, dd.DataFrame)
 
     css_index = cssaln.index.compute()
-    css_up_index = np.unique(
-        css_index.intersection(fai.loc[fai["to_use"] == True].index.compute().values).values)
+    css_up_index = np.unique(css_index.intersection(fai.loc[fai["to_use"] == True].index.compute().values).values)
     cssaln_up = cssaln.loc[css_up_index].copy()
     css_down_index = css_index.difference(css_up_index).values
     _cssaln_down = cssaln.loc[css_down_index].copy()
 
-    derived = fai.loc[
-                  (fai.orig_scaffold_index.isin(fai.loc[css_down_index, "orig_scaffold_index"].values.compute())) & (
-                          fai["to_use"] == True), ["orig_scaffold_index", "orig_start", "length"]][:]
-
+    derived_bait = (fai.orig_scaffold_index.isin(fai.loc[css_down_index, "orig_scaffold_index"].values.compute()))
+    derived = fai.loc[derived_bait &(fai["to_use"] == True), ["orig_scaffold_index", "orig_start", "length"]][:]
     derived = derived.copy().assign(orig_pos=derived["orig_start"])
 
     dask_logger.debug("To keep: %s; derived: %s", css_up_index.shape[0], derived.shape[0].compute())

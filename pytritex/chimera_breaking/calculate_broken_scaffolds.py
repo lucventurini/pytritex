@@ -46,6 +46,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     else:
         assert isinstance(fai, dd.DataFrame)
 
+    original_types = dict(fai.dtypes)
     if "derived_from_split" not in fai.columns:  # Not initialised
         fai["derived_from_split"] = False
         fai["previous_iteration"] = fai.index
@@ -148,6 +149,8 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
         print(broken.head())
         raise
     assert fai.index.name == "scaffold_index", fai.head()
+    fai = fai.astype(original_types)
+    fai = fai.astype({"previous_iteration": int})
     dask_logger.warning("%s calculate_broken_scaffolds -  Finished, returning the FAI", time.ctime())
     fai_name = os.path.join(save_dir, "fai")
     dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
