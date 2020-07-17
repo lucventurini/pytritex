@@ -1,10 +1,14 @@
 import pandas as pd
 import dask.dataframe as dd
 import numpy as np
+import time
+import logging
+dask_logger = logging.getLogger("dask")
+from typing import Union
 
 
 def find_10x_breaks(cov: dd.DataFrame, scaffolds=None,
-                    interval=5e4, minNbin=20, dist=5e3, ratio=-3) -> dd.DataFrame:
+                    interval=5e4, minNbin=20, dist=5e3, ratio=-3) -> Union[pd.DataFrame, None]:
     """
     This function will take as input a coverage dataframe derived from 10X data.
     It will find those areas in scaffolds that are further away from the end point of the scaffold than the
@@ -26,24 +30,26 @@ def find_10x_breaks(cov: dd.DataFrame, scaffolds=None,
         # Cov is indexed by scaffold index.
         cov = cov.loc[np.unique(cov.index.compute().intersection(scaffolds)), :]
 
+    dask_logger.debug("%s Calculating b", time.ctime())
     cov["b"] = cov["bin"] // interval
-    broken = cov.loc[(cov["nbin"] >= minNbin) & (cov["r"] <= ratio), :][:]
-    bait = (np.minimum(broken["length"] - broken["bin"], broken["bin"]) >= dist).compute()
-    bindex = np.unique(broken.index.compute()[bait])
+    dask_logger.debug("%s Calculating b", time.ctime())
+    broken = cov.loc[(cov["nbin"] >= minNbin) & (cov["r"] <= ratio), :].compute()
+    dask_logger.debug("%s Extracted broken, creating the bait", time.ctime())
+    bait = (np.minimum(broken["length"] - broken["bin"], broken["bin"]) >= dist)
+    bindex = np.unique(broken.index[bait])
     if bindex.shape[0] == 0:
-        return dd.from_pandas(pd.DataFrame(), npartitions=1)
+        return None
 
     broken = broken.loc[bindex, :].reset_index(drop=False).astype({"scaffold_index": int})
+    dask_logger.debug("%s Extracting using the bait", time.ctime())
     # We exploit here the fact that each specific index is going to be in a different partition.
 
-    broken = broken.map_partitions(
-        lambda df:
-        df.sort_values("r", ascending=True).groupby(
-            ["scaffold_index", "b"]).head(1).rename(columns={"bin": "breakpoint"},
-                                                    errors="raise"))
-
+    broken = broken.sort_values("r", ascending=True).groupby(["scaffold_index", "b"]).head(1)
+    broken = broken.rename(columns={"bin": "breakpoint"}, errors="raise")
     if broken.index.name is not None:
         broken = broken.reset_index(drop=False)
+    dask_logger.debug("%s Extracted breakpoints, reindexing", time.ctime())
     broken = broken.drop_duplicates(subset=["scaffold_index", "breakpoint"])
     broken = broken.set_index("scaffold_index")
+    dask_logger.debug("%s Found breakpoints", time.ctime())
     return broken
