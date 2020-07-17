@@ -53,8 +53,6 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> str:
     assert cssaln_down.index.isna().any() == False
     cssaln_down["pos"] = cssaln_down.eval("orig_pos - orig_start + 1")
     cssaln_down = cssaln_down.drop("orig_start", axis=1)
-    cssaln_down = cssaln_down.categorize().reset_index(drop=False).astype({"scaffold_index": int})
-    cssaln_up = cssaln_up.categorize().reset_index(drop=False).astype({"scaffold_index": int})
     original_columns = cssaln.columns[:]
 
     try:
