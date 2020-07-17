@@ -178,7 +178,7 @@ def add_molecule_cov(assembly: dict, save_dir, client: Client, scaffolds=None, b
         assembly["mol_binsize"] = binsize
         for key in ["info", "molecule_cov"]:
             # dask_logger.warning("%s Starting to rebalance %s", ctime(), key)
-            assembly[key] = assembly[key].repartition(partition_size="100MB")
+            assembly[key] = assembly[key].repartition(partition_size="10MB")
             # dask_logger.warning("%s Finished rebalancing %s", ctime(), key)
             if save_dir is not None:
                 fname = os.path.join(save_dir, key + "_10x")

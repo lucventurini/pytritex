@@ -198,7 +198,7 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
         fpairs = pd.DataFrame().assign(**dict((column, list()) for column in final_columns))
         fpairs = dd.from_pandas(fpairs, chunksize=1)
 
-    fpairs = fpairs.repartition(partition_size="100MB")
+    fpairs = fpairs.repartition(partition_size="10MB")
     fpairs_name = os.path.join(save_dir, "anchored_hic_links")
     dd.to_parquet(fpairs, fpairs_name, compute=True, engine="pyarrow", compression="gzip")
     return fpairs_name

@@ -222,7 +222,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assembly["innerDist"] = innerDist
         for key in ["info", "cov"]:
             # dask_logger.warning("%s Rebalancing %s for HiC", ctime(), key)
-            assembly[key] = assembly[key].repartition(partition_size="100MB")
+            assembly[key] = assembly[key].repartition(partition_size="10MB")
             # dask_logger.warning("%s Rebalanced %s for HiC", ctime(), key)
             if save_dir is not None:
                 fname = os.path.join(save_dir, key + "_hic")

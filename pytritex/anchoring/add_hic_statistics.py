@@ -1,9 +1,12 @@
-from ..utils import second_agg
+from ..utils import second
 import dask.dataframe as dd
 from dask.distributed import Client
 from dask.delayed import delayed
 import numpy as np
 import dask.array as da
+import time
+import logging
+dask_logger = logging.getLogger("dask")
 
 
 def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, client: Client, verbose=False):
@@ -21,41 +24,50 @@ def add_hic_statistics(anchored_css: dd.DataFrame, fpairs: dd.DataFrame, client:
     #   info[is.na(Nhic), Nhic := 0]
     #   info[is.na(hic_N1), hic_N1 := 0]
     #   info[is.na(hic_N2), hic_N2 := 0]
-    anchored0 = anchored_css.query("popseq_chr == sorted_chr")[["popseq_chr"]]  # .compute().reset_index(drop=False)
+    dask_logger.warning("%s Starting to add the HiC statistics", time.ctime())
+    anchored0 = anchored_css.query("popseq_chr == sorted_chr")[
+        ["popseq_chr"]].compute().reset_index(drop=False)
     anchored0 = anchored0.rename(columns={"popseq_chr": "chr"}).astype({"chr": str})
     anchored1 = anchored0[:].rename(columns={"chr": "chr1"})
     anchored1.index = anchored1.index.rename("scaffold_index1")
+    dask_logger.warning("%s Merging anchored_css to fpairs", time.ctime())
     fpairs1 = delayed(dd.merge)(
         client.scatter(fpairs), client.scatter(anchored1), on="scaffold_index1", how="left")
     anchored2 = anchored0[:].rename(columns={"chr": "chr2"})
     anchored2.index = anchored2.index.rename("scaffold_index2")
     fpairs2 = delayed(dd.merge)(fpairs1, client.scatter(anchored2), on="scaffold_index2", how="left")
     anchored_hic_links = client.compute(fpairs2).result()
+    dask_logger.warning("%s Merged anchored_css to fpairs", time.ctime())    
     assert isinstance(anchored_hic_links, dd.DataFrame)
 
+    dask_logger.warning("%s Creating the index columns", time.ctime())
     anchored_hic_links["hic_index"] = da.from_array(
         np.arange(1, anchored_hic_links.shape[0].compute() + 1),
         chunks=tuple(anchored_hic_links.map_partitions(len).compute().values.tolist()))
+    dask_logger.warning("%s Indexing", time.ctime())    
     anchored_hic_links = anchored_hic_links.set_index("hic_index")
+    dask_logger.warning("%s Indexed", time.ctime())
 
     hic_stats = anchored_hic_links.query("chr1 == chr1").rename(
         columns={"scaffold_index2": "scaffold_index", "chr1": "hic_chr"})
     assert "scaffold_index" in hic_stats.columns
-    hic_stats = hic_stats.groupby(
-        ["scaffold_index", "hic_chr"]).size().to_frame("N").reset_index(drop=False)
+    dask_logger.warning("%s Calculating hic_stats", time.ctime())    
+    hic_stats = hic_stats.groupby(["scaffold_index", "hic_chr"]).size().to_frame("N")
+    hic_stats = hic_stats.reset_index(drop=False).compute()
     # grouped_hic_stats = hic_stats.sort_values(["scaffold_index", "N"], ascending=[True, False])
-    hic_ns = hic_stats.groupby("scaffold_index")["N"].sum(split_out=hic_stats.npartitions).to_dask_array()
-    meta = dict(hic_stats.dtypes)
-    grouped_hic_stats = hic_stats.groupby("scaffold_index").apply(
-        lambda df: df.nlargest(2, "N"), meta=meta).reset_index(drop=True).groupby("scaffold_index")
-    hic_stats = grouped_hic_stats.agg({"hic_chr": ["first", second_agg], "N": ["first", second_agg]},
-                                      split_out=hic_stats.npartitions)
+    hic_ns = hic_stats.groupby("scaffold_index")["N"].sum()
+    # meta = dict(hic_stats.dtypes)
+    hic_stats = hic_stats.sort_values("N", ascending=False).groupby("scaffold_index").head(2)
+    hic_stats = hic_stats.groupby("scaffold_index").agg({"hic_chr": ["first", second], "N": ["first", second]})
     hic_stats.columns = ["hic_chr", "hic_chr2", "hic_N1", "hic_N2"]
-    hic_stats["Nhic"] = hic_ns
+    hic_stats["Nhic"] = hic_ns    
     # Now merge back to anchored_css
     hic_stats["hic_pchr"] = hic_stats["hic_N1"].div(hic_stats["Nhic"], fill_value=0)
     hic_stats["hic_p12"] = hic_stats["hic_N2"].div(hic_stats["hic_N1"], fill_value=0)
-    func = delayed(dd.merge)(client.scatter(hic_stats),
-                             client.scatter(anchored_css), on="scaffold_index", how="right")
+    dask_logger.warning("%s Calculated hic_stats", time.ctime())
+    func = delayed(dd.merge)(client.scatter(anchored_css),
+                             hic_stats, on="scaffold_index", how="left")
     anchored_css = client.compute(func).result()
+    dask_logger.warning("%s Merged hic_stats back into anchored_css", time.ctime())    
+    assert isinstance(anchored_css, dd.DataFrame)
     return anchored_css, anchored_hic_links

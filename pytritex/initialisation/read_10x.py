@@ -36,6 +36,7 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, clien
     molecules = client.gather(molecules)
     print(time.ctime(), "Concatenating 10X files")
     mol = dd.concat(molecules)
+    mol = mol.repartition(partition_size="10MB")
     print(time.ctime(), "Concatenated 10X files")
     mol = client.scatter(mol)
     print(time.ctime(), "Scattered 10X files")

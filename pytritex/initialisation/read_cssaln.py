@@ -62,7 +62,7 @@ def read_morexaln_minimap(paf: str,
     morex["orig_scaffold_index"] = morex.index.values
     morex["orig_pos"] = morex["pos"]
     fname = os.path.join(save_dir, "cssaln")
-    morex = morex.repartition(partition_size="100MB")
+    morex = morex.repartition(partition_size="10MB")
     dd.to_parquet(morex, fname, compression="gzip", compute=True, engine="pyarrow")
     buf.close()
     os.remove(buf.name)

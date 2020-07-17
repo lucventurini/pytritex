@@ -35,56 +35,70 @@ def fai_reader(fasta, save_dir):
 
 
 def column_switcher(fpairs: dd.DataFrame):
-    fpairs = fpairs.reset_index(drop=True)
     query = "scaffold1 == scaffold2 & pos1 > pos2"
+    dask_logger.warning("%s Extracting the positions for column switching", time.ctime())
     values = fpairs[["pos1", "pos2"]].to_dask_array(lengths=True)
+    dask_logger.warning("%s Extracted the positions for column switching", time.ctime())    
     if values.shape[0] == 0:
         return fpairs
+    dask_logger.warning("%s Creating the mask", time.ctime())
     mask = np.repeat(fpairs.eval(query).compute().to_numpy(), 2).reshape(values.shape)
+    dask_logger.warning("%s Created the mask, creating the values", time.ctime())
     values = np.where(mask, values[:, [1, 0]], values)
+    dask_logger.warning("%s Created the values, switching columns", time.ctime())    
     fpairs["pos1"] = values[:, 0]
     fpairs["pos2"] = values[:, 1]
+    dask_logger.warning("%s Switched columns, dropping duplicates", time.ctime())
     fpairs = fpairs.drop_duplicates()
+    dask_logger.warning("%s Dropped duplicates, finished", time.ctime())
     return fpairs
 
 
 def read_fpairs(hic, fai, save_dir):
     fpairs_command = 'find {} -type f | grep "_fragment_pairs.tsv.gz$"'.format(hic)
     fpairs = [fname.decode().rstrip() for fname in sp.Popen(fpairs_command, shell=True, stdout=sp.PIPE).stdout]
-
+    fnames = []
+    
     if len(fpairs) > 0:
-        dask_logger.warning("%s Starting to read the CSV.", time.ctime())
-        fpairs = dd.read_csv(fpairs, sep="\t", header=None, names=["scaffold1", "pos1", "scaffold2", "pos2"],
-                             compression="gzip", blocksize=None)
+        dask_logger.warning("%s Decompressing the FPAIRS file(s)")
+        for num, fname in enumerate(fpairs, 1):
+            buf = open(os.path.join(save_dir, "{}.tsv".format(num)), "wb")
+            fnames.append(buf.name)
+            command = "zcat {fname}".format(**locals())
+            reader = sp.Popen(command, shell=True, stdout=buf)
+            reader.communicate()
+            buf.close()
+        
+        dask_logger.warning("%s Starting to read the CSV(s): %s.", time.ctime(), ",".join(fnames))
+        fpairs = dd.read_csv(fnames, sep="\t", header=None, names=["scaffold1", "pos1", "scaffold2", "pos2"], blocksize=10**7)
         dask_logger.warning("%s Switching columns.", time.ctime())
         fpairs = column_switcher(fpairs)
         dask_logger.warning("%s Switched columns, repartitioning.", time.ctime())
-        fpairs = fpairs.repartition(partition_size="100MB")
+        fpairs = fpairs.repartition(partition_size="10MB")
         dask_logger.warning("%s Merging on scaffold1.", time.ctime())        
         # Now let us change the scaffold1 and scaffold2
-        left = fai[["scaffold"]].reset_index(drop=False).set_index("scaffold")
-        left1 = left[:]
-        left1.index = left1.index.rename("scaffold1")
-        left1 = left1.rename(columns={"scaffold_index": "scaffold_index1"})
+        left = fai[["scaffold"]].reset_index(drop=False)
+        left1 = left[:].rename(columns={"scaffold_index": "scaffold_index1", "scaffold": "scaffold1"})
         # assert "scaffold1" in left1.columns and "scaffold_index1" in left1.columns and left1.columns.shape[0] == 2
-        fpairs = dd.merge(left1, fpairs, how="right", on="scaffold1").drop("scaffold1", axis=1)
+        fpairs = dd.merge(left1, fpairs, how="right", on="scaffold1").drop("scaffold1", axis=1).persist()
         dask_logger.warning("%s Merging on scaffold2.", time.ctime())        
-        left2 = left[:]
-        left2.index = left2.index.rename("scaffold2")
-        left2 = left2.rename(columns={"scaffold_index": "scaffold_index2"})
+        left2 = left[:].rename(columns={"scaffold_index": "scaffold_index2", "scaffold": "scaffold2"})
         # assert "scaffold2" in left2.columns and "scaffold_index2" in left2.columns and left2.columns.shape[0] == 2
-        fpairs = dd.merge(left2, fpairs, how="right", on="scaffold2").drop("scaffold2", axis=1)
+        fpairs = dd.merge(left2, fpairs, how="right", on="scaffold2").drop("scaffold2", axis=1).persist()
         dask_logger.warning("%s Merged on scaffold2.", time.ctime())
         fpairs["orig_scaffold_index1"] = fpairs["scaffold_index1"]
         fpairs["orig_scaffold_index2"] = fpairs["scaffold_index2"]
         fpairs["orig_pos1"] = fpairs["pos1"]
         fpairs["orig_pos2"] = fpairs["pos2"]
         # Now create an index.
+        dask_logger.warning("%s Repartitioning.", time.ctime())
+        fpairs = fpairs.repartition(partition_size="10MB")        
         dask_logger.warning("%s Creating the pair_index column.", time.ctime())
         fpairs["pair_index"] = da.from_array(np.arange(1, fpairs.shape[0].compute() + 1, dtype=np.int),
                                              chunks=tuple(fpairs.map_partitions(len).compute().values.tolist()))
+        dask_logger.warning("%s Setting the index on pair_index.", time.ctime())        
         fpairs = fpairs.set_index("pair_index")
-        dask_logger.warning("%s Created and indexed with the pair_index column.", time.ctime())
+        dask_logger.warning("%s Created and indexed with the pair_index column.", time.ctime())        
         # Remove double lines.
     else:
         fpairs = pd.DataFrame().assign(pair_index=[], scaffold_index1=[], scaffold_index2=[],
@@ -93,6 +107,7 @@ def read_fpairs(hic, fai, save_dir):
         fpairs = dd.from_pandas(fpairs)
     fname = os.path.join(save_dir, "fpairs")
     dd.to_parquet(fpairs, fname, compression="gzip", compute=True, engine="pyarrow")
+    [os.remove(fname) for fname in fnames]    
     return fname
 
 

@@ -156,6 +156,6 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     assert fai.index.name == "scaffold_index", fai.head()
     dask_logger.debug("%s Finished, returning the FAI", time.ctime())
     fai_name = os.path.join(save_dir, "fai")
-    fai = fai.repartition(partition_size="100MB")
+    fai = fai.repartition(partition_size="10MB")
     dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
     return {"fai": fai_name}

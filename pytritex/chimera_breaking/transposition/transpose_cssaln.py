@@ -76,7 +76,7 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> str:
     # assert set(cols.values.tolist()) == set(cssaln.columns.values.tolist())
     dask_logger.debug("%s Finished calculating CSS-ALN, rebalancing", ctime())
 
-    cssaln = cssaln.repartition(partition_size="100MB")
+    cssaln = cssaln.repartition(partition_size="10MB")
     dask_logger.debug("%s Rebalanced CSS-ALN", ctime())
     cssaln_name = os.path.join(save_dir, "cssaln")
     dd.to_parquet(cssaln, cssaln_name, engine="pyarrow", compression="gzip", compute=True)

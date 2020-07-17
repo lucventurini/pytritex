@@ -86,7 +86,7 @@ def break_scaffolds(breaks, client: Client, save_dir: str, memory: Memory,
                     continue
                 col = new_assembly[key].dtypes.index[index]
                 new_assembly[key][col] = new_assembly[key][col].astype(np.float32)
-        new_assembly[key] = new_assembly[key].repartition(partition_size="100MB")
+        new_assembly[key] = new_assembly[key].repartition(partition_size="10MB")
         fname = os.path.join(save_dir, key)
         dd.to_parquet(new_assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
         dask_logger.debug("%s Stored %s", ctime(), key)

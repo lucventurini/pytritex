@@ -139,7 +139,7 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         molecules = dd.from_pandas(molecules, npartitions=1)
 
     assert isinstance(molecules, dd.DataFrame)
-    molecules = molecules.repartition(partition_size="100MB")
+    molecules = molecules.repartition(partition_size="10MB")
     fname = os.path.join(save_dir, "molecules")
     dd.to_parquet(molecules, fname, engine="pyarrow", compression="gzip", compute=True)
     return fname
