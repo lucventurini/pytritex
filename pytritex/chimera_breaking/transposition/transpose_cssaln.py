@@ -43,12 +43,10 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> str:
 
     dask_logger.debug("To keep: %s; derived: %s", css_up_index.shape[0], derived.shape[0].compute())
     # assert np.isnan(cssaln.orig_scaffold_index.values.compute()).any() == False, _cssaln_str
-
     _cssaln_down = _cssaln_down.drop("length", axis=1).reset_index(drop=True)
     # assert np.isnan(_cssaln_down.index.values.compute()).any() == False
     assert derived.index.isna().any().compute() == False and derived.index.name == "scaffold_index"
-    cssaln_down = rolling_join(derived.reset_index(drop=False),
-                               _cssaln_down, on="orig_scaffold_index", by="orig_pos")
+    cssaln_down = rolling_join(derived.reset_index(drop=False), _cssaln_down, on="orig_scaffold_index", by="orig_pos")
     assert "orig_scaffold_index" in cssaln_down.columns
     assert "scaffold_index" in cssaln_down.columns
     dtypes = {"scaffold_index": cssaln_up.index.dtype}
@@ -60,10 +58,10 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> str:
     cssaln_down = cssaln_down.drop("orig_start", axis=1)
     cssaln_down = cssaln_down.categorize().reset_index(drop=False).astype({"scaffold_index": int})
     cssaln_up = cssaln_up.categorize().reset_index(drop=False).astype({"scaffold_index": int})
+    original_columns = cssaln.columns[:]
 
     try:
-        cssaln = dd.concat([cssaln_up,
-                            cssaln_down[cssaln_up.columns].astype(dict(cssaln_up.dtypes))])
+        cssaln = dd.concat([cssaln_up, cssaln_down[cssaln_up.columns].astype(dict(cssaln_up.dtypes))])
     except (TypeError, ValueError):
         dask_logger.critical("Up: %s, %s", cssaln_up.index.dtype, cssaln_up.dtypes)
         dask_logger.critical("Down: %s, %s", cssaln_down.index.dtype, cssaln_down.dtypes)
@@ -73,6 +71,7 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> str:
 
     assert isinstance(cssaln, dd.DataFrame)
     cssaln = cssaln.reset_index(drop=False).set_index("scaffold_index")
+    cssaln = cssaln[original_columns]
     # assert set(cols.values.tolist()) == set(cssaln.columns.values.tolist())
     dask_logger.debug("%s Finished calculating CSS-ALN, rebalancing", ctime())
     cssaln_name = os.path.join(save_dir, "cssaln")

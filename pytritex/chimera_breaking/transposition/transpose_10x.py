@@ -93,6 +93,7 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         molecules_down = molecules_down.drop("orig_pos", axis=1).drop("s_length", axis=1)
         # assert molecules_up.index.name == "scaffold_index", molecules_up.compute().head()
         nparts = molecules.npartitions
+        orig_columns = molecules.columns[:]
         molecules = dd.concat([molecules_up,
                                molecules_down]).reset_index(drop=False)
         assert molecules.scaffold_index.isna().any().compute() == False
@@ -101,6 +102,7 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         molecules = molecules.astype(dict((key, np.int) for key in
                                           ["start", "end", "length", "orig_scaffold_index", "orig_start", "orig_end"]))
         molecules = molecules.repartition(npartitions=nparts)
+        molecules = molecules[orig_columns]
         assert isinstance(molecules, dd.DataFrame)
         dask_logger.warning("%s Finished transposing the molecules; npartitions: %s",
                             time.ctime(), molecules.npartitions)
