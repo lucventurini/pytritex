@@ -27,8 +27,7 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
     anchored_css = cssaln[~cssaln["sorted_chr"].isna()]
     dask_logger.debug("%s Assigning CARMA - calculating N", time.ctime())
     combined_stats = anchored_css.astype({"sorted_chr": int}).groupby(
-        by=["scaffold_index", "sorted_chr"]).size().to_frame("N")
-    combined_stats = client.persist(combined_stats)
+        by=["scaffold_index", "sorted_chr"]).size().to_frame("N").compute()
     # anchored_css_grouped = anchored_css.reset_index(drop=False).groupby(["scaffold_index", "sorted_alphachr"])
     # combined_stats = anchored_css_grouped.compute().reset_index(level=1)
     combined_stats = combined_stats.reset_index(drop=False)
@@ -36,15 +35,12 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
     dask_logger.debug("%s Assigning CARMA - calculating Ncss", time.ctime())    
     nsum = combined_stats.groupby("scaffold_index")["N"].sum().to_frame("Ncss")
     dask_logger.debug("%s Assigning CARMA - calculating Ncss1, Ncss2", time.ctime())
-    combined_stats = combined_stats[["scaffold_index", "N", "sorted_chr"]].compute()
+    combined_stats = combined_stats[["scaffold_index", "N", "sorted_chr"]]
     combined_stats = combined_stats.sort_values("N", ascending=False).groupby("scaffold_index").head(2)
-    combined_stats = combined_stats.groupby("scaffold_index").agg({"N": ["first", second], "sorted_chr": ["first", second]})
-    # Back to dask
-    combined_stats = dd.from_pandas(combined_stats, npartitions=anchored_css.npartitions)
-    # Now assign first, second
+    combined_stats = combined_stats.groupby("scaffold_index").agg(
+        {"N": ["first", second], "sorted_chr": ["first", second]})
     combined_stats.columns = ["sorted_Ncss1", "sorted_Ncss2", "sorted_chr", "sorted_chr2"]
-    combined_stats = dd.merge(combined_stats, nsum, on="scaffold_index", npartitions=combined_stats.npartitions)
-    assert isinstance(combined_stats, dd.DataFrame)
+    combined_stats = pd.merge(combined_stats, nsum, on="scaffold_index")
     dask_logger.debug("%s Assigning CARMA - percentages pchr, p12", time.ctime())    
     combined_stats["sorted_pchr"] = combined_stats["sorted_Ncss1"].div(combined_stats["Ncss"], fill_value=0)
     combined_stats["sorted_p12"] = combined_stats["sorted_Ncss2"].div(combined_stats["sorted_Ncss1"], fill_value=0)
@@ -62,18 +58,14 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
 
     dask_logger.debug("%s Assigning CARMA - calculating arm counts", time.ctime())
     short_arm_counts = anchored_css.query("(sorted_arm == 'S')").groupby(
-            ["scaffold_index", "sorted_chr"])["sorted_arm"].size().to_frame("NS").reset_index(drop=False)
+            ["scaffold_index", "sorted_chr"])["sorted_arm"].size().to_frame("NS").reset_index(drop=False).compute()
 
     long_arm_counts = anchored_css.query("(sorted_arm == 'L')").groupby(
-        ["scaffold_index", "sorted_chr"])["sorted_arm"].size().to_frame("NL").reset_index(drop=False)
+        ["scaffold_index", "sorted_chr"])["sorted_arm"].size().to_frame("NL").reset_index(drop=False).compute()
 
     dask_logger.debug("%s Assigning CARMA - merging arm counts back", time.ctime())
-    combined_stats = dd.merge(combined_stats,
-                             long_arm_counts, on=["scaffold_index", "sorted_chr"], how="left",
-                             npartitions=combined_stats.npartitions)
-    combined_stats = dd.merge(combined_stats, short_arm_counts, on=["scaffold_index", "sorted_chr"], how="left",
-                              npartitions=combined_stats.npartitions)
-    assert isinstance(combined_stats, dd.DataFrame)
+    combined_stats = pd.merge(combined_stats, long_arm_counts, on=["scaffold_index", "sorted_chr"], how="left")
+    combined_stats = pd.merge(combined_stats, short_arm_counts, on=["scaffold_index", "sorted_chr"], how="left")
 
     dask_logger.debug("%s Assigning CARMA - assigning arm", time.ctime())
     combined_stats["sorted_arm"] = (combined_stats["NS"] > combined_stats["NL"])
@@ -103,23 +95,23 @@ def assign_carma(cssaln: dd.DataFrame, fai: dd.DataFrame, wheatchr: pd.DataFrame
     combined_stats.index = combined_stats.index.astype(int)
 
     dask_logger.debug("%s Combined stats: %s; wheatchr: %s", time.ctime(),
-                        combined_stats.shape[0].compute(), wheatchr.shape[0])
-    info2 = dd.merge(combined_stats,
-        wheatchr.copy().rename(columns={"chr": "sorted_chr", "alphachr": "sorted_alphachr"}),
-        how="left", on="sorted_chr", npartitions=combined_stats.npartitions)
+                        combined_stats.shape[0], wheatchr.shape[0])
+    info2 = pd.merge(combined_stats,
+                     wheatchr.copy().rename(columns={"chr": "sorted_chr", "alphachr": "sorted_alphachr"}),
+                     how="left", on="sorted_chr")
 
-    info2 = dd.merge(info2,
+    info2 = pd.merge(info2,
                      wheatchr.copy().rename(columns={"chr": "sorted_chr2", "alphachr": "sorted_alphachr2"}),
-                     how="left", on="sorted_chr2", npartitions=combined_stats.npartitions)
+                     how="left", on="sorted_chr2")
 
     assert info2.scaffold_index.dtype == fai.index.dtype
     info2 = info2.set_index("scaffold_index")
     
     dask_logger.debug("%s Finished with info2 (%s), now merging with FAI (%s)",
-                      time.ctime(), info2.shape[0].compute(), fai.shape[0].compute())
+                      time.ctime(), info2.shape[0], fai.shape[0].compute())
 
     info = dd.merge(fai, info2, on="scaffold_index", how="right",
-                    npartitions=info2.npartitions).drop("scaffold", axis=1)
+                    npartitions=anchored_css.npartitions).drop("scaffold", axis=1)
     info = info.reset_index(drop=False).set_index("scaffold_index")
     dask_logger.debug("%s Finished with info (%s)", time.ctime(), info.shape[0].compute())
     assert isinstance(info, dd.DataFrame)
