@@ -25,9 +25,9 @@ def _group_analyser(group: pd.DataFrame, binsize, cores=1):
     return assigned
 
 
-def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200):
+def add_molecule_cov(assembly: dict, save_dir, binsize=200):
 
-    dask_logger.warning("%s Begin add molecule coverage (10X)", ctime())
+    dask_logger.debug("%s Begin add molecule coverage (10X)", ctime())
     info = assembly["info"]
     if not isinstance(info, dd.DataFrame):
         info = dd.read_parquet(info, infer_divisions=True)
@@ -48,35 +48,6 @@ def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200):
     else:
         raise TypeError(("molecules", type(assembly["molecules"])))
 
-    if scaffolds is None:
-        null = True
-    else:
-        dask_logger.debug("%s Extracting relevant scaffolds (10X)", ctime())
-        present = info.index.compute().intersection(scaffolds).values
-        info = info.loc[present].copy()
-        dask_logger.debug("%s Extracted from info (10X)", ctime())
-        try:
-            dask_logger.debug("%s Calculating the index of molecules", time.ctime())
-            idx = molecules.index.compute()
-            dask_logger.debug("%s Calculating present", time.ctime())
-            present = np.unique(idx.intersection(scaffolds))
-            dask_logger.debug("%s Calculated present (size: %s)", time.ctime(), present.shape[0])
-        except ValueError:
-            print(molecules.index.head())
-            print(type(scaffolds))
-            print(scaffolds[:20])
-            raise
-        dask_logger.debug("%s Extracting from molecules (10X)", ctime())
-        assert molecules.index.name == "scaffold_index"
-        if molecules.known_divisions == False:
-            dask_logger.warning("%s Molecules not indexed properly, reindexing", ctime())
-            molecules = molecules.reset_index(drop=False).set_index("scaffold_index")
-            dask_logger.warning("%s Molecules not indexed properly, reindexed", ctime())
-            assert molecules.known_divisions == True
-        molecules = molecules.loc[present].copy()
-        dask_logger.debug("%s Extracted from molecules (10X)", ctime())
-        null = False
-
     if molecules.index.name == "scaffold_index":
         index = molecules.index.compute().values
     elif "scaffold_index" in molecules.columns:
@@ -84,7 +55,7 @@ def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200):
     else:
         raise KeyError("I cannot find the scaffold_index column in molecules!")
 
-    # dask_logger.warning("%s Creating the temp dataframe (10X)", ctime())
+    # dask_logger.debug("%s Creating the temp dataframe (10X)", ctime())
     dask_logger.debug("%s Calculating the temp DF", time.ctime())
     temp_dataframe = pd.DataFrame().assign(
         scaffold_index=index,
@@ -114,21 +85,25 @@ def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200):
     if shape > 0:
         # info[,.(scaffold, length)][ff, on = "scaffold"]->ff
         dask_logger.debug("%s Merging on coverage DF (10X)", ctime())
-        assert info.index.name == coverage_df.index.name
+        assert info.index.name == coverage_df.index.name == "scaffold_index"
         info_length = info[["length"]]
-        # coverage_df = dd.merge(info_length, coverage_df,
-        #          left_index=True, right_index=True,
-        #          how="right", chunksize=5000)
-        coverage_df = dd.merge(info_length, coverage_df, left_index=True, right_index=True,
+        coverage_df = dd.merge(info_length, coverage_df, on="scaffold_index",
                                how="right", npartitions=coverage_df.npartitions)
         dask_logger.debug("%s Merged on coverage DF (10X)", ctime())
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
+        if coverage_df.query("length != length").shape[0].compute() > 0:
+            dask_logger.critical(
+                "Something went very wrong with merging the dataframes. The length column must always be populated.")
+            dask_logger.critical("Assembly: %s", assembly)
+            raise AssertionError
+
         arr = coverage_df[["bin", "length"]].to_dask_array(lengths=True)
         distance = dd.from_array(np.minimum(
             arr[:, 0],
             (arr[:, 1] - arr[:, 0]) // binsize * binsize)).to_frame("d")
         distance.index = coverage_df.index
         coverage_df = coverage_df.assign(d=distance["d"])
+        assert coverage_df.query("d != d").shape[0].compute() == 0
         nbins = coverage_df.groupby(coverage_df.index.name)["d"].transform("size", meta=int)
         assert nbins.shape[0].compute() == coverage_df.shape[0].compute()
         coverage_df["nbin"] = nbins
@@ -138,33 +113,17 @@ def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200):
         dask_logger.debug("%s Calculated the distance metric (10X)", ctime())
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         # Get the average coverage ACROSS ALL SCAFFOLDS by distance to the end of the bin.
-        mn = coverage_df.groupby("d")["n"].mean().to_frame("mn")
+        mn = coverage_df.reset_index(drop=True)[["d", "n"]].groupby("d")["n"].mean().to_frame("mn")
         coverage_df = dd.merge(coverage_df.reset_index(drop=False),
                                mn, on="d", how="left").set_index("scaffold_index")
+        assert coverage_df.query("d != d").shape[0].compute() == 0
         coverage_df = coverage_df.eval("r = log(n / mn) / log(2)")
         dask_logger.debug("%s Calculated the mean coverage by distance (10X)", ctime())
         coverage_df["mr_10x"] = coverage_df["r"].groupby(
             coverage_df.index.name).transform("min", meta=coverage_df.r.dtype).to_dask_array()
         assert info.index.name == "scaffold_index"
         coverage_df.index = coverage_df.index.astype(info.index.dtype)
-        try:
-            info_mr = dd.merge(coverage_df[["mr_10x"]].drop_duplicates(), info, how="right", on="scaffold_index")
-        except ValueError:
-            dask_logger.critical(coverage_df[["mr_10x"]].drop_duplicates().shape[0].compute())
-            dask_logger.critical("")
-            dask_logger.critical(coverage_df[["mr_10x"]].dtypes)
-            dask_logger.critical("")
-            dask_logger.critical(info.dtypes)
-            dask_logger.critical("")
-            dask_logger.critical((coverage_df[["mr_10x"]].index.dtype, info.index.dtype))
-            dask_logger.critical("")
-            dask_logger.critical(coverage_df[["mr_10x"]].head(npartitions=-1))
-            dask_logger.critical("")
-            dask_logger.critical(info.head())
-            dask_logger.critical("")
-            import sys
-            sys.exit(1)
-
+        info_mr = dd.merge(coverage_df[["mr_10x"]].drop_duplicates(), info, how="right", on="scaffold_index")
         dask_logger.debug("%s Calculated the coverage ratio to the average (10X)", ctime())
         assert isinstance(info_mr, dd.DataFrame), type(info_mr)
         # assert isinstance(info_mr, dd.DataFrame), type(info_mr)
@@ -174,25 +133,17 @@ def add_molecule_cov(assembly: dict, save_dir, scaffolds=None, binsize=200):
         info_mr = info.drop("mr_10x", axis=1, errors="ignore")
         # info_mr.drop("mr_10x", inplace=True, errors="ignore", axis=1)
 
-    if null is True:
-        assembly["info"] = info_mr
-        assembly["molecule_cov"] = coverage_df
-        assert isinstance(assembly["molecule_cov"], dd.DataFrame), type(assembly["molecule_cov"])
-        assert isinstance(assembly["info"], dd.DataFrame), type(assembly["info"])
-        assembly["mol_binsize"] = binsize
-        for key in ["info", "molecule_cov"]:
-            if save_dir is not None:
-                fname = os.path.join(save_dir, key + "_10x")
-                dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
-                assembly[key] = fname
-                dask_logger.debug("%s Saved %s", ctime(), key)
+    assembly["info"] = info_mr
+    assembly["molecule_cov"] = coverage_df
+    assert isinstance(assembly["molecule_cov"], dd.DataFrame), type(assembly["molecule_cov"])
+    assert isinstance(assembly["info"], dd.DataFrame), type(assembly["info"])
+    assembly["mol_binsize"] = binsize
+    for key in ["info", "molecule_cov"]:
+        if save_dir is not None:
+            fname = os.path.join(save_dir, key + "_10x")
+            dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+            assembly[key] = fname
+            dask_logger.debug("%s Saved %s", ctime(), key)
 
-        dask_logger.debug("%s Finished calculating 10X coverage", ctime())
-        return assembly
-    else:
-        # TODO: this might need to be amended if we are going to checkpoint.
-        dask_logger.debug("%s Dropping index then returning", ctime())
-        info_mr = info_mr.drop("index", errors="ignore", axis=1)
-        assembly = {"info": info_mr, "molecule_cov": coverage_df}
-        dask_logger.debug("%s Finished calculating 10X coverage", ctime())
-        return assembly
+    dask_logger.debug("%s Finished calculating 10X coverage", ctime())
+    return assembly

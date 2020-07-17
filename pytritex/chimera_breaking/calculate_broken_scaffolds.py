@@ -95,7 +95,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
 
     # broken["derived_from_split"] = False
     sloppy = partial(_scaffold_breaker, slop=slop)
-    dask_logger.warning("%s calculate_broken_scaffolds -  Starting scaffold breaking", time.ctime())
+    dask_logger.debug("%s calculate_broken_scaffolds -  Starting scaffold breaking", time.ctime())
     maxid = fai.index.values.max()
     broken = dd.from_pandas(broken, npartitions=cores)
     _broken = broken.reset_index(drop=True).set_index(
@@ -135,8 +135,8 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     _broken["scaffold"] = (_broken["scaffold"].astype(str) + ":" + _broken["orig_start"].astype(str) +
                            "-" + _broken["orig_end"].astype(str))
 
-    dask_logger.warning("%s calculate_broken_scaffolds -  Finished scaffold breaking", time.ctime())
-    dask_logger.warning("%s calculate_broken_scaffolds -  Merging with the original FAI", time.ctime())
+    dask_logger.debug("%s calculate_broken_scaffolds -  Finished scaffold breaking", time.ctime())
+    dask_logger.debug("%s calculate_broken_scaffolds -  Merging with the original FAI", time.ctime())
     try:
         nparts = fai.npartitions
         fai = dd.concat([fai.reset_index(drop=False),
@@ -151,7 +151,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     assert fai.index.name == "scaffold_index", fai.head()
     fai = fai.astype(original_types)
     fai = fai.astype({"previous_iteration": int})
-    dask_logger.warning("%s calculate_broken_scaffolds -  Finished, returning the FAI", time.ctime())
+    dask_logger.debug("%s calculate_broken_scaffolds -  Finished, returning the FAI", time.ctime())
     fai_name = os.path.join(save_dir, "fai")
     dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
     return {"fai": fai_name}

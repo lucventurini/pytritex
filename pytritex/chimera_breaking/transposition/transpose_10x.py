@@ -66,7 +66,7 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         orig_shape = 0
 
     if molecules is not None and orig_shape > 0:
-        dask_logger.warning("%s Starting transposing the molecules; npartitions: %s",
+        dask_logger.debug("%s Starting transposing the molecules; npartitions: %s",
                             time.ctime(), molecules.npartitions)
         molecules_index = molecules.index.unique().compute()
         mol_up_index = np.unique(
@@ -104,8 +104,7 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         molecules = molecules.repartition(npartitions=nparts)
         molecules = molecules[orig_columns]
         assert isinstance(molecules, dd.DataFrame)
-        dask_logger.warning("%s Finished transposing the molecules; npartitions: %s",
-                            time.ctime(), molecules.npartitions)
+        dask_logger.debug("%s Finished transposing the molecules; npartitions: %s", time.ctime(), molecules.npartitions)
 
     elif molecules is None:
         molecules = pd.DataFrame().assign(

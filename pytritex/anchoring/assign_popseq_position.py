@@ -126,7 +126,7 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
     pop2 = client.compute(pop2).result().set_index("scaffold_index")
     del pop1
     dask_logger.debug("%s Assigning PopSeq - merging anchored_css with popseq_stats", time.ctime())
-    anchored_css = dd.merge(anchored_css, pop2, on="scaffold_index", how="right", npartitions=anchored_css.npartitions)
+    anchored_css = dd.merge(anchored_css, pop2, on="scaffold_index", how="left", npartitions=anchored_css.npartitions)
     # anchored_css = anchored_css.set_index("scaffold_index")
     if anchored_css.index.name != "scaffold_index":
         print(anchored_css.columns)

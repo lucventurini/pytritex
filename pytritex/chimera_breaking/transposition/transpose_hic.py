@@ -75,6 +75,7 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
         assert fpairs.known_divisions is True
 
     if fpairs is not None and fpairs.shape[0].compute() > 0:
+        nparts = fpairs.npartitions
         fai_index = fai[fai.to_use == True].index.compute()
         # derived = fai[fai["derived_from_split"] == True]
         # "Scaffold_index" is the index name
@@ -166,6 +167,7 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
         fpairs = fpairs.astype(dict((_, np.int) for _ in
                                     ["orig_scaffold_index1", "orig_scaffold_index2", "orig_pos1", "orig_pos2",
                                      'scaffold_index1', 'pos1']))
+        fpairs = fpairs.repartition(npartitions=nparts)
         dask_logger.debug("%s Finished fpairs", time.ctime())
     else:
         fpairs = pd.DataFrame().assign(**dict((column, list()) for column in final_columns))
