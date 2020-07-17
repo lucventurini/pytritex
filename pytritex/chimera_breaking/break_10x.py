@@ -54,9 +54,11 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
         if intermediate is True:
             assemblies[cycle] = assembly
         dask_logger.warning("%s Finished cycle %s of %s; finding new breaks",
-                            time.ctime(), cycle, maxcycle, breaks.shape[0])
+                            time.ctime(), cycle, maxcycle)
         breaks = memory.cache(find_10x_breaks)(assembly.get("molecule_cov", None),
                                                interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
+        dask_logger.warning("%s Finished cycle %s of %s; new breaks: %s",
+                            time.ctime(), cycle, maxcycle, None if breaks is None else breaks.shape[0])
 
     if intermediate is False:
         return {"assembly": assembly}   # , "breaks": lbreaks[cycle]}

@@ -98,7 +98,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
 
     # broken["derived_from_split"] = False
     sloppy = partial(_scaffold_breaker, slop=slop)
-    dask_logger.debug("%s Starting scaffold breaking", time.ctime())
+    dask_logger.warning("%s calculate_broken_scaffolds -  Starting scaffold breaking", time.ctime())
     maxid = fai.index.values.max()
     _broken = broken.reset_index(drop=True).set_index(
         "scaffold_index").groupby("scaffold_index").apply(sloppy, meta=np.int).compute().values
@@ -137,12 +137,12 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     _broken["scaffold"] = (_broken["scaffold"].astype(str) + ":" + _broken["orig_start"].astype(str) +
                            "-" + _broken["orig_end"].astype(str))
 
-    dask_logger.debug("%s Finished scaffold breaking", time.ctime())
+    dask_logger.warning("%s calculate_broken_scaffolds -  Finished scaffold breaking", time.ctime())
     # _broken = dd.from_pandas(broken, npartitions=100).groupby("scaffold_index").apply(sloppy).compute()
     # assert (_broken["start"].compute() == 1).all()
     # assert _broken["derived_from_split"].compute().all()
 
-    dask_logger.debug("%s Merging with the original FAI", time.ctime())
+    dask_logger.warning("%s calculate_broken_scaffolds -  Merging with the original FAI", time.ctime())
     try:
         fai = dd.concat([fai.reset_index(drop=False),
                          _broken.reset_index(drop=False)]).astype(
@@ -154,7 +154,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
         raise
     # assert fai[fai["derived_from_split"] == True].shape[0].compute() >= _broken.shape[0].compute()
     assert fai.index.name == "scaffold_index", fai.head()
-    dask_logger.debug("%s Finished, returning the FAI", time.ctime())
+    dask_logger.warning("%s calculate_broken_scaffolds -  Finished, returning the FAI", time.ctime())
     fai_name = os.path.join(save_dir, "fai")
     dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
     return {"fai": fai_name}

@@ -57,31 +57,31 @@ def anchor_scaffolds(assembly: dict,
     #     anchored_css = assembly["anchored_css"]
     #
     # else:
-    dask_logger.warning("%s Assigning CARMA. CSS partitions, FAI partitions: %s, %s", time.ctime(),
+    dask_logger.debug("%s Assigning CARMA. CSS partitions, FAI partitions: %s, %s", time.ctime(),
                         cssaln.npartitions, fai.npartitions)
     anchored_css = assign_carma(cssaln, fai, wheatchr, client)
-    dask_logger.warning("%s Assigned CARMA. Anchored_CSS partitions: %s", time.ctime(), anchored_css.npartitions)
-    dask_logger.warning("%s Assigning PopSeq position", time.ctime())
+    dask_logger.debug("%s Assigned CARMA. Anchored_CSS partitions: %s", time.ctime(), anchored_css.npartitions)
+    dask_logger.debug("%s Assigning PopSeq position", time.ctime())
     anchored_css = assign_popseq_position(
         cssaln=cssaln, popseq=popseq, client=client,
         anchored_css=anchored_css, wheatchr=wheatchr)
-    dask_logger.warning("%s Assigned PopSeq position. Anchored CSS partitions: %s",
+    dask_logger.debug("%s Assigned PopSeq position. Anchored CSS partitions: %s",
                         time.ctime(), anchored_css.npartitions)
     if hic is True:
-        dask_logger.warning("%s Adding HiC stats", time.ctime())
+        dask_logger.debug("%s Adding HiC stats", time.ctime())
         anchored_css, anchored_hic_links = add_hic_statistics(anchored_css, fpairs)
         measure = ["popseq_chr", "hic_chr", "sorted_chr"]
-        dask_logger.warning("%s Finished adding HiC stats", time.ctime())
+        dask_logger.debug("%s Finished adding HiC stats", time.ctime())
     else:
         measure = ["popseq_chr", "sorted_chr"]
         anchored_hic_links = None
-    dask_logger.warning("%s Finding wrong assignments", time.ctime())
+    dask_logger.debug("%s Finding wrong assignments", time.ctime())
     anchored_css = find_wrong_assignments(
         anchored_css, measure, sorted_percentile=sorted_percentile, hic_percentile=hic_percentile,
         popseq_percentile=popseq_percentile, hic=hic)
     assert isinstance(anchored_css, dd.DataFrame), (type(anchored_css))
     assert isinstance(anchored_css, dd.DataFrame)
-    dask_logger.warning("%s Saving to disk", time.ctime())
+    dask_logger.debug("%s Saving to disk", time.ctime())
 
     if save is not None:
         dd.to_parquet(anchored_css, os.path.join(save, "anchored_css"), compute=True)
@@ -95,5 +95,5 @@ def anchor_scaffolds(assembly: dict,
         else:
             assembly["fpairs"] = anchored_hic_links
 
-    dask_logger.warning("%s Finished anchoring.", time.ctime())
+    dask_logger.debug("%s Finished anchoring.", time.ctime())
     return assembly
