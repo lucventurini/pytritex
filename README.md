@@ -5,7 +5,7 @@ This port is not yet complete. Specifically, we are currently missing:
 - the plots
 - the last part of the pipeline, when HiC data is used to create the final pseudomolecules.
 
-The latter part is due to our 
+We might finalise the porting of the latter part of the pipeline later; for the time being, we instead recommend using remapping the scaffolds onto a reference genome (e.g. using [ragtag](https://github.com/malonge/ragtag)) and then using standard methods to find and correct misplacements, e.g. [Juicer](https://github.com/aidenlab/juicer) 
 
 ## General structure
 

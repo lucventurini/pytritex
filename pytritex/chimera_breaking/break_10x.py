@@ -38,15 +38,17 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
     if intermediate is True:
         assemblies = {0: assembly}
 
+    orig_assembly = assembly.copy()
     base = os.path.join(save_dir, "joblib", "pytritex", "chimera_breaking")
     while breaks is not None and breaks.shape[0] > 0 and cycle <= maxcycle:
         cycle += 1
         save_dir = os.path.join(base, str(cycle))
         dask_logger.warning("%s Starting cycle %s of %s, with %s breaks",
                             time.ctime(), cycle, maxcycle, breaks.shape[0])
+        orig_assembly["fai"] = assembly["fai"]
         assembly = break_scaffolds(breaks=breaks, save_dir=save_dir,
                                    client=client,
-                                   assembly=assembly, slop=slop, cores=cores, species=species)
+                                   assembly=orig_assembly, slop=slop, cores=cores, species=species)
         # dd.to_parquet(breaks, os.path.join(save_dir, "breaks"), compute=True,
         #               engine="pyarrow", compression="gzip")
         # for key in ['fai', 'cssaln', 'fpairs', 'molecules', 'info', 'molecule_cov', 'cov']:
