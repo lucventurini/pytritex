@@ -3,33 +3,46 @@ import numpy as np
 import dask.dataframe as dd
 import os
 from functools import partial
-import dask.array as da
+from ..utils import assign_to_use_column
 import logging
 dask_logger = logging.getLogger("dask")
 import time
 
 
 def _scaffold_breaker(group, slop):
+    # breakpoints = group["breakpoint"].values + group["orig_start"].values
     breakpoints = group["breakpoint"].values
     previous_iteration = group["previous_iteration"].values
     previous_iteration = np.concatenate([np.repeat(previous_iteration, 2), [previous_iteration[-1]]])
     assert breakpoints.shape[0] == np.unique(breakpoints).shape[0], group[["scaffold_index", "breakpoint"]]
     # starts, ends = [1], [breakpoints[0] - slop]
     length = group["length"].unique()[0]
-    orig_starts = np.vstack([breakpoints - slop + 1, breakpoints + slop + 1]).T.flatten()
-    orig_starts = np.concatenate([[group["orig_start"].min()], orig_starts])
-    orig_ends = np.vstack([breakpoints - slop, breakpoints + slop]).T.flatten()
-    orig_ends = np.concatenate([orig_ends, [length + orig_starts[0] - 1]])
-    ends = orig_ends - orig_starts + 1
+    scaffold_starts = np.vstack([breakpoints - slop + 1, breakpoints + slop + 1]).T.flatten()
+    scaffold_starts = np.concatenate([[1], scaffold_starts])
+    scaffold_ends = np.vstack([breakpoints - slop, breakpoints + slop]).T.flatten()
+    scaffold_ends = np.concatenate([scaffold_ends, [length + scaffold_starts[0] - 1]])
+    ends = scaffold_ends - scaffold_starts + 1
     final = np.vstack([
-        np.repeat(1, orig_ends.shape[0]).T,  # start
+        np.repeat(1, scaffold_ends.shape[0]).T,  # start
         ends.T,  # end = length
-        orig_starts.T,
-        orig_ends.T,
+        scaffold_starts.T,
+        scaffold_ends.T,
         previous_iteration.T
     ]).T
     final = np.unique(final, axis=0)
     return final
+
+
+def _fai_checker(fai):
+    """This function will check that the derived scaffolds are coherent, ie, that each broken scaffolds will have final
+    segments that *completely cover* the original scaffold, without any internal overlapping."""
+    dev = fai.query("to_use == True & derived_from_split==True").compute()
+    orig = fai.loc[dev.orig_scaffold_index.unique()].compute()
+    imputed = (dev.groupby("orig_scaffold_index")["orig_end"].sum() - dev.groupby("orig_scaffold_index")[
+        "orig_start"].sum() + dev.groupby("orig_scaffold_index").size()).to_frame("imputed")
+    merged = pd.merge(imputed, orig[["length"]], left_index=True, right_index=True)
+    assert merged.shape[0] == imputed.shape[0] == orig.shape[0]
+    return (merged.query("imputed != length").shape[0] == 0)
 
 
 def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, slop: float, cores=1) -> dict:
@@ -76,71 +89,75 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     # If they do, we need to change the coordinates.
     assert broken.shape[0] == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0]
     broken["previous_iteration"] = broken["scaffold_index"]
-    bait = (broken["derived_from_split"] == True)
-    broken["breakpoint"] = broken["breakpoint"].mask(bait, broken["breakpoint"] + broken["orig_start"] - 1)
+    # bait = (broken["derived_from_split"] == True)
+    broken.loc[:, "original_breakpoint"] = broken.loc[:, ["breakpoint", "orig_start"]].sum(axis=1) - 1
 
     # Now go back to the fai. We need to keep memory of the index we start with.
     # Also we need to *remove* from the FAI the scaffolds we are breaking further, I think?
     right = fai[["scaffold"]].rename(columns={"scaffold": "orig_scaffold"})
     broken = dd.merge(broken.reset_index(drop=False), right, left_on="orig_scaffold_index",
                       right_on="scaffold_index")
-    broken = broken.drop("idx", axis=1).set_index("scaffold_index").compute()
-    broken["scaffold"] = broken["scaffold"].mask(bait, broken["orig_scaffold"])
-
-    broken = broken.drop("orig_scaffold", axis=1)
+    broken = broken.compute().drop("idx", axis=1).set_index("scaffold_index")
+    broken = broken.drop("scaffold", axis=1).rename(columns={"orig_scaffold": "scaffold"})
+    assert "scaffold" in broken.columns, broken.columns
     broken["scaffold_index"] = broken.index
     broken.index = broken.index.rename("old_scaffold_index")
-    broken["scaffold_index"] = broken["scaffold_index"].mask(bait, broken["orig_scaffold_index"])
-    broken = broken.drop_duplicates(subset=["scaffold_index", "breakpoint"], keep="first")
+    broken.loc[:, "scaffold_index"] = broken.loc[:, "orig_scaffold_index"]
+    broken = broken.drop_duplicates(subset=["orig_scaffold_index", "original_breakpoint"], keep="first")
 
     # broken["derived_from_split"] = False
     sloppy = partial(_scaffold_breaker, slop=slop)
     dask_logger.debug("%s calculate_broken_scaffolds -  Starting scaffold breaking", time.ctime())
     maxid = fai.index.values.max()
     broken = dd.from_pandas(broken, npartitions=cores)
-    _broken = broken.reset_index(drop=True).set_index(
-        "scaffold_index").groupby("scaffold_index").apply(sloppy, meta=np.int).compute().values
-    _broken = np.vstack(_broken)
+    assert "orig_scaffold_index" in broken.columns
+    grouped_breaks = broken.groupby("old_scaffold_index")
+    new_scaffolds = np.vstack(grouped_breaks.apply(sloppy, meta=np.int).compute().values)
     # _broken is a numpy array list of the form
     # start, end, orig_start, orig_ends, orig_scaffold_index
-    if len(_broken.shape) != 2 or _broken.shape[1] != 5:
+    if len(new_scaffolds.shape) != 2 or new_scaffolds.shape[1] != 5:
         dask_logger.critical("Wrong number of columns in _broken")
-        dask_logger.critical(_broken)
+        dask_logger.critical(new_scaffolds)
         raise AssertionError
-    assert _broken.shape[1] == 5
-    _broken = pd.DataFrame().assign(
-        start=_broken[:, 0],
-        end=_broken[:, 1],
-        length=_broken[:, 1],
-        orig_start=_broken[:, 2],
-        orig_end=_broken[:, 3],
-        previous_iteration=_broken[:, 4],
+    assert new_scaffolds.shape[1] == 5
+    new_scaffolds = pd.DataFrame().assign(
+        start=new_scaffolds[:, 0],
+        end=new_scaffolds[:, 1],
+        length=new_scaffolds[:, 1],
+        scaffold_start=new_scaffolds[:, 2],
+        scaffold_end=new_scaffolds[:, 3],
+        previous_iteration=new_scaffolds[:, 4],
         # previous_iteration=_broken[:, 5],
         derived_from_split=True,
-        scaffold_index=np.arange(maxid + 1, maxid + _broken.shape[0] + 1, dtype=np.int)
+        scaffold_index=np.arange(maxid + 1, maxid + new_scaffolds.shape[0] + 1, dtype=np.int)
     )
-    orig_shape = _broken.shape[0]
-    assert "scaffold_index" in _broken.columns
-    _broken = dd.merge(_broken,
-                       broken[["orig_scaffold_index", "previous_iteration", "scaffold"]
+    new_scaffolds = new_scaffolds.astype(dict((key, int) for key in new_scaffolds.columns if key != "derived_from_split"))
+    orig_shape = new_scaffolds.shape[0]
+    assert "scaffold_index" in new_scaffolds.columns
+    new_scaffolds = dd.merge(new_scaffolds,
+                       broken[["orig_scaffold_index", "previous_iteration", "scaffold", "orig_start"]
                        ].reset_index(drop=True).drop_duplicates(),
                        how="left",
                        on="previous_iteration")
-    new_shape = _broken.shape[0].compute()
+    new_scaffolds["orig_start"] = new_scaffolds["scaffold_start"] + new_scaffolds["orig_start"] - 1
+    new_scaffolds["orig_end"] = new_scaffolds["end"] + new_scaffolds["orig_start"] - 1
+    new_shape = new_scaffolds.shape[0].compute()
+    assert new_scaffolds.query("length <= 0").shape[0].compute() == 0
     assert new_shape == orig_shape, (orig_shape, new_shape)
-    assert "scaffold_index" in _broken.columns, (_broken.columns, broken.columns)
-    _broken = _broken.reset_index(drop=True).set_index("scaffold_index")
-    _broken = _broken[fai.columns]
-    broken = broken.astype({"orig_start": int, "orig_end": int})
-    _broken["scaffold"] = (_broken["scaffold"].astype(str) + ":" + _broken["orig_start"].astype(str) +
-                           "-" + _broken["orig_end"].astype(str))
+    assert "scaffold_index" in new_scaffolds.columns, (new_scaffolds.columns, broken.columns)
+    new_scaffolds = new_scaffolds.reset_index(drop=True).set_index("scaffold_index")
+    assert "previous_iteration" in new_scaffolds.columns, new_scaffolds.columns
+    assert "orig_scaffold_index" in new_scaffolds.columns, new_scaffolds.columns
+    new_scaffolds = new_scaffolds[fai.columns]
+    new_scaffolds["scaffold"] = (new_scaffolds["scaffold"].astype(str) + ":" + new_scaffolds["orig_start"].astype(str) +
+                           "-" + new_scaffolds["orig_end"].astype(str))
 
     dask_logger.debug("%s calculate_broken_scaffolds -  Finished scaffold breaking", time.ctime())
     dask_logger.debug("%s calculate_broken_scaffolds -  Merging with the original FAI", time.ctime())
     try:
         nparts = fai.npartitions
         fai = dd.concat([fai.reset_index(drop=False),
-                         _broken.reset_index(drop=False)]).astype(
+                         new_scaffolds.reset_index(drop=False)]).astype(
             {"scaffold_index": np.int}).set_index("scaffold_index")
         fai = fai.repartition(npartitions=nparts)
     except NotImplementedError:
@@ -149,9 +166,16 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
         print(broken.head())
         raise
     assert fai.index.name == "scaffold_index", fai.head()
+    assert "orig_scaffold_index" in fai.columns, fai.columns
     fai = fai.astype(original_types)
     fai = fai.astype({"previous_iteration": int})
     dask_logger.debug("%s calculate_broken_scaffolds -  Finished, returning the FAI", time.ctime())
     fai_name = os.path.join(save_dir, "fai")
     dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
+    # Final check
+    valid = _fai_checker(assign_to_use_column(fai))
+    if valid is False:
+        dask_logger.critical("%s Bungled FAI - we have created overlapping fragments. Check %s", fai_name)
+        import sys
+        sys.exit(1)
     return {"fai": fai_name}
