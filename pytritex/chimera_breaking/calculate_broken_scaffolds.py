@@ -10,12 +10,11 @@ import time
 
 
 def _scaffold_breaker(group, slop):
-    # breakpoints = group["breakpoint"].values + group["orig_start"].values
+    group = group.sort_values("breakpoint", ascending=True)
     breakpoints = group["breakpoint"].values
     previous_iteration = group["previous_iteration"].values
     previous_iteration = np.concatenate([np.repeat(previous_iteration, 2), [previous_iteration[-1]]])
     assert breakpoints.shape[0] == np.unique(breakpoints).shape[0], group[["scaffold_index", "breakpoint"]]
-    # starts, ends = [1], [breakpoints[0] - slop]
     length = group["length"].unique()[0]
     scaffold_starts = np.vstack([breakpoints - slop + 1, breakpoints + slop + 1]).T.flatten()
     scaffold_starts = np.concatenate([[1], scaffold_starts])
@@ -108,11 +107,6 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     new_scaffolds = np.vstack(grouped_breaks.apply(sloppy, meta=np.int).compute().values)
     # _broken is a numpy array list of the form
     # start, end, orig_start, orig_ends, orig_scaffold_index
-    if len(new_scaffolds.shape) != 2 or new_scaffolds.shape[1] != 5:
-        dask_logger.critical("Wrong number of columns in _broken")
-        dask_logger.critical(new_scaffolds)
-        raise AssertionError
-    assert new_scaffolds.shape[1] == 5
     new_scaffolds = pd.DataFrame().assign(
         start=new_scaffolds[:, 0], end=new_scaffolds[:, 1], length=new_scaffolds[:, 1],
         scaffold_start=new_scaffolds[:, 2], scaffold_end=new_scaffolds[:, 3], previous_iteration=new_scaffolds[:, 4],
