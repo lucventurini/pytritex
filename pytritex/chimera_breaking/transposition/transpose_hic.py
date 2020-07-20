@@ -96,9 +96,9 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
         stable1_unstable2_index = np.intersect1d(bait1[bait1 == False].index.values, bait2[bait2 == True].index.values)
 
         stable_pairs = fpairs.loc[stable_index, final_columns].reset_index(drop=False)
-        unstable_pairs = fpairs.loc[unstable_index, final_columns].reset_index(drop=False)
-        unstable_1_stable_2 = fpairs.loc[unstable1_stable2_index, final_columns].reset_index(drop=False)
-        stable_1_unstable_2 = fpairs.loc[stable1_unstable2_index, final_columns].reset_index(drop=False)
+        unstable_pairs = fpairs.loc[unstable_index, final_columns].reset_index(drop=False).persist()
+        unstable_1_stable_2 = fpairs.loc[unstable1_stable2_index, final_columns].reset_index(drop=False).persist()
+        stable_1_unstable_2 = fpairs.loc[stable1_unstable2_index, final_columns].reset_index(drop=False).persist()
 
         final_columns = [fpairs.index.name] + final_columns
 

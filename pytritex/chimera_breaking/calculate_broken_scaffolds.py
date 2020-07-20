@@ -73,6 +73,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     if broken.index.name == "scaffold_index":
         broken = broken.reset_index(drop=False)
     broken = broken.assign(idx=np.arange(1, broken.shape[0] + 1, dtype=int)).set_index("idx")
+    broken = broken.sort_values(["scaffold_index", "breakpoint"], ascending=[True, True])
     assert broken.shape[0] == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0]
     assert "scaffold_index" in broken.columns
     grouped = broken.groupby("scaffold_index")
@@ -162,12 +163,13 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     fai_name = os.path.join(save_dir, "fai")
     fai = assign_to_use_column(fai)
     new_indices = fai.index.compute().difference(original_indices).values
-    dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
     # Final check
     valid = _fai_checker(fai)
     if valid is False:
+        dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
         dask_logger.critical("%s Bungled FAI - we have created overlapping fragments. Check %s",
                              time.ctime(), fai_name)
         import sys
         sys.exit(1)
+    dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
     return fai, fai_name, new_indices

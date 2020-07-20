@@ -72,9 +72,9 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         mol_up_index = np.unique(
             molecules_index.intersection(fai.loc[fai["to_use"] == True].index.compute().values).values)
         mol_down_index = molecules_index.difference(mol_up_index).values
-        molecules_up = molecules.loc[mol_up_index]
+        molecules_up = molecules.loc[mol_up_index].persist()
         assert molecules_up.index.name == "scaffold_index"
-        molecules_down = molecules.loc[mol_down_index].reset_index(drop=True).set_index("orig_scaffold_index")
+        molecules_down = molecules.loc[mol_down_index].reset_index(drop=True).set_index("orig_scaffold_index").persist()
         derived = fai.loc[
             (fai.orig_scaffold_index.isin(fai.loc[mol_down_index, "orig_scaffold_index"].values.compute())) & (
                         fai["to_use"] == True), ["orig_scaffold_index", "orig_start", "length"]][:]
