@@ -11,31 +11,6 @@ dask_logger = logging.getLogger("dask")
 import time
 
 
-def _transpose_molecule_cov(new_assembly,
-                            fai: dd.DataFrame,
-                            save_dir: str,
-                            scaffolds: np.ndarray,
-                            assembly, client: Client, cores=1):
-
-    molecules = assembly.get("molecule_cov", None)
-    info = new_assembly["info"]
-    assert isinstance(info, dd.DataFrame)
-    if isinstance(molecules, str):
-        molecules = dd.read_parquet(molecules, infer_divisions=True)
-    if molecules is not None and molecules.shape[0].compute() > 0:
-
-        assert "mr_10x" not in info.columns
-        dask_logger.debug("%s Starting molecule cov", time.ctime())
-        coverage = add_molecule_cov(
-            new_assembly, save_dir=save_dir, scaffolds=None,
-            binsize=assembly["mol_binsize"])
-        dask_logger.debug("%s Finished molecule cov", time.ctime())
-        return coverage
-    else:
-        new_assembly["molecule_cov"] = pd.DataFrame()
-    return new_assembly
-
-
 def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: str) -> str:
     # if("molecules" %in% names(assembly) && nrow(molecules) > 0){
     #   cat("Transpose molecules\n")

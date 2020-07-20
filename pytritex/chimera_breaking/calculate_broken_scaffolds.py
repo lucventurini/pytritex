@@ -77,7 +77,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     assert broken.shape[0] == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0]
     assert "scaffold_index" in broken.columns
     grouped = broken.groupby("scaffold_index")
-    check = (grouped["breakpoint"].shift(0) - grouped["breakpoint"].shift(1) <= 4 * slop)
+    check = (grouped["breakpoint"].shift(0) - grouped["breakpoint"].shift(1) <= 3 * slop)
     while check.any():
         broken = broken.loc[broken.index.values[~check]]
         grouped = broken.groupby("scaffold_index")
@@ -113,7 +113,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
         scaffold_start=new_scaffolds[:, 2], scaffold_end=new_scaffolds[:, 3], previous_iteration=new_scaffolds[:, 4],
         derived_from_split=True, scaffold_index=np.arange(maxid + 1, maxid + new_scaffolds.shape[0] + 1, dtype=np.int)
     )
-    assert new_scaffolds.query("length < 2 * @slop").shape[0] == 0
+    assert new_scaffolds.query("length < @slop").shape[0] == 0
     new_scaffolds = new_scaffolds.astype(dict((key, int) for key in new_scaffolds.columns
                                               if key != "derived_from_split"))
     orig_shape = new_scaffolds.shape[0]
@@ -127,7 +127,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     new_scaffolds["orig_end"] = new_scaffolds["end"] + new_scaffolds["orig_start"] - 1
     new_scaffolds["length_check"] = new_scaffolds.eval("orig_end - orig_start + 1")
     assert new_scaffolds.query("length_check != length").shape[0].compute() == 0
-    assert new_scaffolds.query("length_check < 2 * @slop", local_dict={"slop": slop}).shape[0].compute() == 0
+    assert new_scaffolds.query("length_check < @slop", local_dict={"slop": slop}).shape[0].compute() == 0
     new_scaffolds = new_scaffolds.drop("length_check", axis=1)
     new_shape = new_scaffolds.shape[0].compute()
     assert new_shape == orig_shape, (orig_shape, new_shape)
@@ -162,7 +162,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     dask_logger.debug("%s calculate_broken_scaffolds -  Finished, returning the FAI", time.ctime())
     fai_name = os.path.join(save_dir, "fai")
     fai = assign_to_use_column(fai)
-    new_indices = fai.index.compute().difference(original_indices).values
+    # new_indices = fai.index.compute().difference(original_indices).values
     # Final check
     valid = _fai_checker(fai)
     if valid is False:
@@ -172,4 +172,4 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
         import sys
         sys.exit(1)
     dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
-    return fai, fai_name, new_indices
+    return fai, fai_name

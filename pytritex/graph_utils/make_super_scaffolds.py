@@ -94,12 +94,8 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
         columns={"popseq_chr": "chr", "popseq_cM": "cM"})
     assert _to_concatenate.shape[0].compute() == len(bait_index)
 
-    chunks = client.compute(delayed(
-        lambda df: df.map_partitions(len))(_to_concatenate)).result()
-    chunks = tuple(chunks.compute().values.tolist())
-
-    sup_column = da.from_array(
-        maxidx + pd.Series(range(1, len(bait_index) + 1)), chunks=chunks)
+    chunks = tuple(_to_concatenate.map_partitions(len).compute().values.tolist())
+    sup_column = da.from_array(maxidx + pd.Series(range(1, len(bait_index) + 1)), chunks=chunks)
 
     excl_vector = np.in1d(bait_index, excluded_scaffolds)
     if excl_vector.shape[0] != len(bait_index):
