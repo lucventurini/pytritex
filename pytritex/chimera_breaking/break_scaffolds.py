@@ -1,4 +1,3 @@
-# import pandas as pd
 import numpy as np
 from .transposition import _transpose_cssaln, _transpose_molecules, _transpose_fpairs
 from ..sequencing_coverage import add_hic_cov, add_molecule_cov
@@ -6,10 +5,7 @@ from .calculate_broken_scaffolds import calculate_broken_scaffolds
 from ..anchoring import anchor_scaffolds
 from time import ctime
 import dask.dataframe as dd
-import os
-from joblib import Memory
 from dask.distributed import Client
-from ..utils import assign_to_use_column
 import logging
 dask_logger = logging.getLogger("dask")
 import time
@@ -18,33 +14,26 @@ import time
 def break_scaffolds(breaks, client: Client, save_dir: str,
                     assembly, slop, cores=1, species="wheat") -> dict:
 
-    fai = assembly["fai"]
-    if isinstance(fai, str):
-        fai = dd.read_parquet(fai, infer_divisions=True)
     dask_logger.debug("%s Calculating broken scaffolds", time.ctime())
-    new_assembly = calculate_broken_scaffolds(breaks, fai=fai, slop=slop, save_dir=save_dir, cores=cores)
+    fai, fai_name, new_indices = calculate_broken_scaffolds(
+        breaks, fai=assembly["fai"], slop=slop, save_dir=save_dir, cores=cores)
+    new_assembly = {"fai": fai_name}
     for key in ["binsize", "innerDist", "minNbin", "popseq", "mol_binsize"]:
         new_assembly[key] = assembly[key]
     # Now extract the correct rows and columns from the FAI:
     # ie excluding the rows of the original scaffolds that have since been split.
-    dask_logger.debug("%s Assigning the to_use columns", time.ctime())
-    trimmed_fai = assign_to_use_column(new_assembly["fai"])
-    new_indices = trimmed_fai.index.compute().difference(fai.index.values.compute()).values
-    # old_indices = trimmed_fai[trimmed_fai.to_use == True].index.compute().intersection(
-    #     fai.index.values.compute())
-
     dask_logger.debug("%s Transposing the CSS alignment", ctime())
-    new_assembly["cssaln"] = _transpose_cssaln(assembly["cssaln"], trimmed_fai, save_dir)
+    new_assembly["cssaln"] = _transpose_cssaln(assembly["cssaln"], fai, save_dir)
     # Do the same with HiC pairs
     dask_logger.debug("%s Transposing the HiC alignment", ctime())
-    new_assembly["fpairs"] = _transpose_fpairs(assembly.get("fpairs", None), trimmed_fai, save_dir)
+    new_assembly["fpairs"] = _transpose_fpairs(assembly.get("fpairs", None), fai, save_dir)
 
     dask_logger.debug("%s Transposing the 10X alignment", ctime())
-    new_assembly["molecules"] = _transpose_molecules(assembly.get("molecules", None), trimmed_fai, save_dir)
+    new_assembly["molecules"] = _transpose_molecules(assembly.get("molecules", None), fai, save_dir)
 
     dask_logger.debug("%s Anchoring the transposed data", ctime())
     # Extract the relevant for the anchoring.
-    # fai_to_anchor = trimmed_fai.loc[new_indices]
+    # fai_to_anchor = fai.loc[new_indices]
     # partial_assembly = dict((key, value) for key, value in new_assembly.items()
     #                         if key != "fai")
     # partial_assembly["fai"] = fai_to_anchor

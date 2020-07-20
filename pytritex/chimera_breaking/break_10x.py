@@ -35,6 +35,7 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
     dask_logger.warning("%s Finding initial breaks", time.ctime())
     breaks = find_10x_breaks(molecule_cov, interval=interval, minNbin=minNbin, dist=dist, ratio=ratio)
     dask_logger.warning("%s Found initial breaks", time.ctime())
+    assemblies = dict()
     if intermediate is True:
         assemblies = {0: assembly}
 
@@ -46,13 +47,9 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
         dask_logger.warning("%s Starting cycle %s of %s, with %s breaks",
                             time.ctime(), cycle, maxcycle, breaks.shape[0])
         orig_assembly["fai"] = assembly["fai"]
-        assembly = break_scaffolds(breaks=breaks, save_dir=save_dir,
-                                   client=client,
-                                   assembly=orig_assembly, slop=slop, cores=cores, species=species)
-        # dd.to_parquet(breaks, os.path.join(save_dir, "breaks"), compute=True,
-        #               engine="pyarrow", compression="gzip")
-        # for key in ['fai', 'cssaln', 'fpairs', 'molecules', 'info', 'molecule_cov', 'cov']:
-        #     assembly[key] = dd.read_parquet(assembly[key], infer_divisions=True)
+        assembly = memory.cache(break_scaffolds, ignore=["client", "cores"])(
+            breaks=breaks, save_dir=save_dir,
+            client=client, assembly=orig_assembly, slop=slop, cores=cores, species=species)
         if intermediate is True:
             assemblies[cycle] = assembly
         dask_logger.warning("%s Finished cycle %s of %s; finding new breaks",
@@ -63,6 +60,6 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
                             time.ctime(), cycle, maxcycle, None if breaks is None else breaks.shape[0])
 
     if intermediate is False:
-        return {"assembly": assembly}   # , "breaks": lbreaks[cycle]}
+        return {"assembly": assembly}
     else:
-        return {"assemblies": assemblies}   #, "breaks": lbreaks}
+        return {"assemblies": assemblies}
