@@ -68,23 +68,21 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
 
     broken = breaks.copy()
     assert fai.index.dtype == broken.index.dtype == int
-    broken = dd.merge(fai, broken.drop("length", axis=1, errors="ignore"), on="scaffold_index", how="right")
-    broken = broken.compute()
+    broken = dd.merge(fai, broken.drop("length", axis=1, errors="ignore"), on="scaffold_index", how="right").compute()
+
+    # Remove spurious breaks
     if broken.index.name == "scaffold_index":
         broken = broken.reset_index(drop=False)
-    broken["idx"] = np.arange(1, broken.shape[0] + 1)
-    broken = broken.set_index("idx")
+    broken = broken.assign(idx=np.arange(1, broken.shape[0] + 1, dtype=int)).set_index("idx")
     assert broken.shape[0] == broken[["scaffold_index", "breakpoint"]].drop_duplicates().shape[0]
     assert "scaffold_index" in broken.columns
-
-    # First step: find out if any breakpoint has to be removed.
     grouped = broken.groupby("scaffold_index")
-    # Check whether any two breakpoints are at less than "slop" distance.
-    check = (grouped["breakpoint"].shift(0) - grouped["breakpoint"].shift(1) <=2 * slop)
+    check = (grouped["breakpoint"].shift(0) - grouped["breakpoint"].shift(1) <= 4 * slop)
     while check.any():
         broken = broken.loc[broken.index.values[~check]]
         grouped = broken.groupby("scaffold_index")
         check = (grouped["breakpoint"].shift(0) - grouped["breakpoint"].shift(1) <= 2 * slop)
+    assert broken["scaffold_index"].unique().shape[0] == breaks.index.unique().shape[0]
 
     # Now we are guaranteed that all the breaks are at the correct distance.
     # Next up: ensure that none of these breaks happened in non-original scaffolds.
@@ -116,17 +114,13 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
         raise AssertionError
     assert new_scaffolds.shape[1] == 5
     new_scaffolds = pd.DataFrame().assign(
-        start=new_scaffolds[:, 0],
-        end=new_scaffolds[:, 1],
-        length=new_scaffolds[:, 1],
-        scaffold_start=new_scaffolds[:, 2],
-        scaffold_end=new_scaffolds[:, 3],
-        previous_iteration=new_scaffolds[:, 4],
-        derived_from_split=True,
-        scaffold_index=np.arange(maxid + 1, maxid + new_scaffolds.shape[0] + 1, dtype=np.int)
+        start=new_scaffolds[:, 0], end=new_scaffolds[:, 1], length=new_scaffolds[:, 1],
+        scaffold_start=new_scaffolds[:, 2], scaffold_end=new_scaffolds[:, 3], previous_iteration=new_scaffolds[:, 4],
+        derived_from_split=True, scaffold_index=np.arange(maxid + 1, maxid + new_scaffolds.shape[0] + 1, dtype=np.int)
     )
     assert new_scaffolds.query("length < 2 * @slop").shape[0] == 0
-    new_scaffolds = new_scaffolds.astype(dict((key, int) for key in new_scaffolds.columns if key != "derived_from_split"))
+    new_scaffolds = new_scaffolds.astype(dict((key, int) for key in new_scaffolds.columns
+                                              if key != "derived_from_split"))
     orig_shape = new_scaffolds.shape[0]
     assert "scaffold_index" in new_scaffolds.columns
     new_scaffolds = dd.merge(new_scaffolds,
@@ -144,6 +138,8 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     assert new_shape == orig_shape, (orig_shape, new_shape)
     assert "scaffold_index" in new_scaffolds.columns, (new_scaffolds.columns, broken.columns)
     new_scaffolds = new_scaffolds.reset_index(drop=True).set_index("scaffold_index")
+    assert (np.sort(new_scaffolds["previous_iteration"].unique().values.compute()) ==
+            np.sort(breaks.index.unique().values)).all() == True
     assert "previous_iteration" in new_scaffolds.columns, new_scaffolds.columns
     assert "orig_scaffold_index" in new_scaffolds.columns, new_scaffolds.columns
     new_scaffolds = new_scaffolds[fai.columns.intersection(new_scaffolds.columns).values]
