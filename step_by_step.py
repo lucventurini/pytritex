@@ -63,8 +63,10 @@ def grid_evaluation(assembly, args, client, memory):
     print("Starting grid evaluation")
     results = []
     for _index, row in grid.iterrows():
-        client.restart()
-        # worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
+        client.close()
+        worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
+        client = Client(set_as_default=True, timeout=60, direct_to_workers=False, memory_limit=worker_mem,
+                        nanny=True, address=None)
         # DO IT TWICE, sometimes the first time is not enough.
         client.cluster.scale(args.procs)
         result = dispatcher(
@@ -108,7 +110,7 @@ def main():
     ne.set_num_threads(args.procs)
     worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
     client = Client(set_as_default=True, timeout=60, direct_to_workers=False, memory_limit=worker_mem,
-                    nanny=False, dashboard_address=None)
+                    nanny=True, address=None)
     client.cluster.scale(args.procs)
     # DO IT TWICE, sometimes the first time is not enough.
     client.cluster.scale(args.procs)
