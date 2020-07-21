@@ -76,7 +76,13 @@ def make_super(hl: dd.DataFrame,
     # hl = hl.loc[(hl["cluster1"].isin(
     #     cluster_info.loc[~cluster_info["excluded"]].index.values))
     #     & (hl["cluster2"].isin(cluster_info.loc[~cluster_info["excluded"]].index.values))]
-    edge_list = hl.query("cluster1 < cluster2")[["cluster1", "cluster2", "weight"]].compute()
+    try:
+        edge_list = hl.query("cluster1 < cluster2")[["cluster1", "cluster2", "weight"]].compute()
+    except ValueError:
+        logger.critical(hl.dtypes)
+        logger.critical(hl.head(npartitions=-1))
+        raise
+
     # Unique cluster IDs
     cidx = np.unique(edge_list[["cluster1", "cluster2"]].values.flatten())
     cidx = np.vstack([cidx, np.arange(cidx.shape[0])])
