@@ -82,7 +82,7 @@ def assign_popseq_position(cssaln: pd.DataFrame, popseq: pd.DataFrame,
     keys = ["popseq_chr", "N", "popseq_cM", "popseq_cM_sd", "popseq_cM_mad"]
     best_locations = best_locations.groupby("scaffold_index").agg(dict((key, ["first", second]) for key in keys))
     columns = ["popseq_chr", "popseq_chr2", "popseq_Ncss1", "popseq_Ncss2"]
-    columns += list(it.chain(*[[key + "1", key + "2"] for key in keys if key not in ("popseq_chr", "N")]))
+    columns += list(it.chain(*[[key, key + "2"] for key in keys if key not in ("popseq_chr", "N")]))
     best_locations.columns = columns
 
     dask_logger.debug("%s Assigning PopSeq - merging popseq_stats with best_locations", time.ctime())
