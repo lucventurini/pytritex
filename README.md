@@ -17,7 +17,7 @@ The pipeline has the following structure:
 - In the third step, the 10X and HiC data are analysed to derive coverage statistics for each scaffold. At this stage we are interested in obtaining a per-bin coverage: that is, determine in a windowed analysis the coverage of the data (`sequencing_coverage`).
   - An important secondary step will be to assign to each scaffold a "distance" `d` value, ie its (binned) distance from the nearest scaffold edge. The 10X and HiC coverage will be averaged for all scaffolds *based on the distance value*.
   - Using this value, we also calculate the ratio of the observed coverage vs average coverage for bins at that distance. The deviation is normalised as a `log2(ratio)` and assigned to the `r` column.
-- In the fourth step, pytritex will try to find and break chimeric scaffolds. This is an **iterative procedure**, which is repeated unti l no novel breakpoints are found:
+- In the fourth step, pytritex will try to find and break chimeric scaffolds. This is an **iterative procedure**, which is repeated until no novel breakpoints are found:
   - First, chimeric breakpoints are identified as follows (`find_10x_breaks`):
     - Assign each binned coverage value to a super-bin (using the `interval` parameter).
     - Exclude scaffolds that have less than `minNbin` binned values (these are deemed to be too small to infer anything).
@@ -25,4 +25,5 @@ The pipeline has the following structure:
     - Exclude bins that are located at less than `dist` basepairs from the scaffold edge (default 5000, for wheat we use **2000**)
     - **The remaining bins with low coverage are the chimeric breakpoints.**
   - Secondly, the scaffolds are broken up using the breakpoints as a guide.
-    - If we are in the second (or further) iteration, breakpoints in scaffolds that had already been broken up previously will be reconducted to the **original** scaffolds. This ensures that when the cycle ends,  
+    - If we are in the second (or further) iteration, breakpoints in scaffolds that had already been broken up previously will be reconducted to the **original** scaffolds. This ensures that when the cycle ends, the ultimate scaffolds will be directly trackable to the original assembly.
+    

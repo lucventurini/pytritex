@@ -84,13 +84,14 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
         new_assembly[key] = assembly[key]
     new_assembly["molecules"] = molecules
     new_assembly["molecule_cov"] = molecule_cov
-    new_assembly["fai"] = fai_name
+
     dask_logger.debug("%s Transposing the CSS alignment", time.ctime())
     new_assembly["cssaln"] = _transpose_cssaln(orig_assembly["cssaln"], fai, save_dir)
     dask_logger.debug("%s Transposing the HiC alignment", time.ctime())
     new_assembly["fpairs"] = _transpose_fpairs(orig_assembly.get("fpairs", None), fai, save_dir)
     dask_logger.debug("%s Anchoring the transposed data", time.ctime())
     new_indices = fai.query("to_use == True & derived_from_split == True").index.values.compute()
+    new_assembly["fai"] = fai.query("to_use == True")
     new_assembly = anchor_scaffolds(new_assembly, scaffolds=new_indices,
                                     save=save_dir, species=species, client=client)
     info = dd.read_parquet(new_assembly["info"], infer_divisions=True)
@@ -112,10 +113,8 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
     info["derived_from_split"] = info["derived_from_split"].fillna(False)
     dd.to_parquet(info, info_name, engine="pyarrow", compute=True, compression="gzip")
     dask_logger.debug("%s Finished transposing", time.ctime())
-    if "to_use" in fai.columns:
-        fai = fai.query("to_use == True").drop("to_use", axis=1)
-        dd.to_parquet(fai, fai_name, compute=True, engine="pyarrow", compression="gzip")
-    new_assembly["fai"] = fai_name
+    # This is necessary to reput the correct FAI index folder into the dictionary.
+    new_assembly["fai"] = fai_name[:]
 
     if intermediate is False:
         return {"assembly": new_assembly}

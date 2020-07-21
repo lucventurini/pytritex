@@ -23,7 +23,7 @@ def _calculate_link_pos(molecules: str, fai: str, save_dir: str,
     movf = molecules_over_filter
     assert isinstance(movf, dd.DataFrame)
     fai = dd.read_parquet(fai, infer_divisions=True, engine="auto")
-    lengths = fai[["length"]]
+    lengths = fai.query("to_use == True")[["length"]]
     lengths.columns = ["scaffold_length"]
     movf = dd.merge(movf, lengths, left_index=True, right_index=True, how="left", npartitions=movf.npartitions)
     assert isinstance(movf, dd.DataFrame)
