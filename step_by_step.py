@@ -63,7 +63,8 @@ def grid_evaluation(assembly, args, client, memory):
     print("Starting grid evaluation")
     results = []
     for _index, row in grid.iterrows():
-        worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
+        client.restart()
+        # worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
         # DO IT TWICE, sometimes the first time is not enough.
         client.cluster.scale(args.procs)
         result = dispatcher(
