@@ -56,7 +56,7 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
         save_dir = os.path.join(base, str(cycle))
         dask_logger.warning("%s Starting cycle %s of %s, with %s breaks",
                             time.ctime(), cycle, maxcycle, breaks.shape[0])
-        dd.to_parquet(dd.from_pandas(breaks, chunksize=1e5), os.path.join(save_dir, "breaks"), compute=True,
+        dd.to_parquet(dd.from_pandas(breaks, chunksize=10 ** 5), os.path.join(save_dir, "breaks"), compute=True,
                       compression="gzip", engine="pyarrow")
         fai, fai_name = calculate_broken_scaffolds(fai=fai_name, breaks=breaks, slop=slop, save_dir=save_dir, cores=cores)
         molecules = _transpose_molecules(orig_assembly["molecules"], fai, save_dir=save_dir)
