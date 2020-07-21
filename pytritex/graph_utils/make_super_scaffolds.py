@@ -10,6 +10,7 @@ import logging
 from typing import Union
 logger = logging.getLogger("distributed.worker")
 import time
+import sys
 
 
 def get_previous_groups(membership):
@@ -59,7 +60,6 @@ def prepare_tables(links, info, membership, excluded):
     assert len(set(iindex)) == iindex.shape[0]
     if not len(set.difference(set(excluded_scaffolds), set(iindex))) == 0:
         logger.error("Some excluded scaffolds do not have a match! ERROR!")
-        import sys
         sys.exit(1)
     excl_column = da.from_array(np.in1d(iindex, excluded_scaffolds, assume_unique=True),
                                 chunks=tuple(cluster_info.map_partitions(len).compute().values.tolist()))
@@ -70,7 +70,7 @@ def prepare_tables(links, info, membership, excluded):
     return links, info, membership, excluded_scaffolds, cluster_info, hl
 
 
-def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
+def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client, save_dir):
     # _to_concatenate <- info[!m$scaffold, on = "scaffold"]
     # _to_concatenate <- _to_concatenate[,.(
     # scaffold, bin=1, rank=0, backbone=T, chr=popseq_chr, cM=popseq_cM, length=length,
@@ -82,7 +82,6 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
     indices = membership.index.values.compute()
     if indices.shape[0] > len(set(indices)):
         logger.error("Something went wrong in the calculation, we have duplicated indices.")
-        import sys
         sys.exit(1)
 
     assert membership.index.name == "scaffold_index"
@@ -100,7 +99,6 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
     excl_vector = np.in1d(bait_index, excluded_scaffolds)
     if excl_vector.shape[0] != len(bait_index):
         logger.error("Wrong length of excl_vector")
-        import sys
         sys.exit(1)
     excl_column = da.from_array(excl_vector, chunks=chunks)
 
@@ -118,7 +116,17 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
     if _to_concatenate.shape[0].compute() > 0:
         assert _to_concatenate.index.dtype == membership.index.dtype
         func = delayed(dd.concat)([membership, _to_concatenate])
-        new_membership = client.compute(func).result()
+        try:
+            new_membership = client.compute(func).result()
+        except (ValueError, TypeError) as exc:
+            dd.to_parquet(membership, os.path.join(save_dir, "membership"), compute=True,
+                          engine="pyarrow", compression="gzip")
+            dd.to_parquet(_to_concatenate, os.path.join(save_dir, "_to_concatenate"), compute=True,
+                          engine="pyarrow", compression="gzip")
+            logger.critical("Error in concatenating: %s", exc)
+            logger.critical("See %s and %s", os.path.join(save_dir, "membership"),
+                            os.path.join(save_dir, "_to_concatenate"))
+            sys.exit(1)
     else:
         new_membership = membership
 
@@ -132,7 +140,12 @@ Membership: %s
 To add: %s
 Concatenated: %s""", info_index.shape[0], indices.shape[0], _to_concatenate.shape[0].compute(),
                      new_membership.shape[0].compute())
-        import sys
+        dd.to_parquet(membership, os.path.join(save_dir, "membership"), compute=True,
+                      engine="pyarrow", compression="gzip")
+        dd.to_parquet(_to_concatenate, os.path.join(save_dir, "_to_concatenate"), compute=True,
+                      engine="pyarrow", compression="gzip")
+        logger.critical("See %s and %s", os.path.join(save_dir, "membership"),
+                        os.path.join(save_dir, "_to_concatenate"))
         sys.exit(1)
 
     return new_membership
@@ -201,7 +214,7 @@ def make_super_scaffolds(links: Union[str, dd.DataFrame],
     assert super_scaffolds["super_info"].index.name == "super"
     maxidx = super_scaffolds["super_info"].index.values.max().compute()
     logger.warning("%s Starting add_missing_scaffolds", time.ctime())
-    membership = add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client)
+    membership = add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client, save_dir)
     logger.warning("%s Finished add_missing_scaffolds, starting add_statistics", time.ctime())    
     membership, res = add_statistics(membership, client)
     logger.warning("%s Finished add_statistics", time.ctime())        

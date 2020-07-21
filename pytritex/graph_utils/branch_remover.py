@@ -78,7 +78,7 @@ def _initial_branch_remover(client: Client,
     # add["super"] = add["super"] + maxidx
     # out["membership"] = dd.concat([out["membership"], add]).persist()
     out["membership"] = add_missing_scaffolds(info, out["membership"],
-                                              maxidx, excluded, client)
+                                              maxidx, excluded, client, save_dir)
     out["membership"], out["info"] = add_statistics(out["membership"], client)
 
     dd.to_parquet(out["membership"], os.path.join(save_dir, "membership"), compute=True, compression="gzip", engine="pyarrow")

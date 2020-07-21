@@ -1,8 +1,5 @@
 import pandas as pd
 import numpy as np
-# import graph_tool
-# import graph_tool as gt
-# import graph_tool.clustering
 from dask.delayed import delayed
 import time
 import networkit as nk
@@ -11,6 +8,7 @@ from pytritex.graph_utils.make_super_path import make_super_path
 from dask.distributed import Client
 import logging
 logger = logging.getLogger("distributed.worker")
+import sys
 
 
 def _concatenator(edges, membership, known_ends=False, maxiter=100, verbose=False):
@@ -64,7 +62,6 @@ def make_super(hl: dd.DataFrame,
                cores=1, paths=True, path_max=0, known_ends=False,
                maxiter=100, verbose=True):
 
-    #  hl[cluster1 %in% cluster_info[excluded == F]$cluster & cluster2 %in% cluster_info[excluded == F]$cluster]->hl
     hl = hl.copy()
     non_excluded = cluster_info.loc[cluster_info["excluded"] == False].index.values.compute()
     logger.warning("Retaining %s scaffolds out of %s",
@@ -73,9 +70,6 @@ def make_super(hl: dd.DataFrame,
     bait1 = hl["cluster1"].isin(non_excluded)
     bait2 = hl["cluster2"].isin(non_excluded)
     hl = hl.loc[bait1 & bait2, :]
-    # hl = hl.loc[(hl["cluster1"].isin(
-    #     cluster_info.loc[~cluster_info["excluded"]].index.values))
-    #     & (hl["cluster2"].isin(cluster_info.loc[~cluster_info["excluded"]].index.values))]
     try:
         edge_list = hl.query("cluster1 < cluster2")[["cluster1", "cluster2", "weight"]].compute()
     except ValueError:
@@ -113,7 +107,6 @@ def make_super(hl: dd.DataFrame,
 
     if len(cidx_list) > len(set(cidx_list)):
         logger.error("The clustering into components is NOT unique.")
-        import sys
         sys.exit(1)
     # Create a dataframe of cluster/super-scaffolds relationship
     num_supers = len(ssuper)
@@ -123,13 +116,11 @@ def make_super(hl: dd.DataFrame,
         cidx.reset_index(drop=False), on=["cidx"], how="outer").set_index("cluster")
     if raw_membership.shape[0] != length:
         logger.error("Duplicated indices after merging")
-        import sys
         sys.exit(1)
     membership = cluster_info.merge(raw_membership, left_index=True,
                                     right_index=True, how="right")
     if membership.shape[0].compute() != length:
         logger.error("Duplicated indices after merging with cluster_info")
-        import sys
         sys.exit(1)
 
     # Where is each super-scaffold located?
@@ -145,19 +136,16 @@ def make_super(hl: dd.DataFrame,
     assert membership.index.name == "cluster"
     edge_list = membership[["super"]]
     edge_list.index = edge_list.index.rename("cluster1")
-
     edge_list = edge_list.merge(hl, on="cluster1", how="right")
 
     super_object = {"super_info": info,
                     "membership": membership, "graph": graph, "edges": edge_list}
 
     if paths is True:
-        cms = membership.loc[:, ["super", "cM"]
-              ].copy().reset_index(drop=False).set_index("super").rename(
+        cms = membership.loc[:, ["super", "cM"]].copy().reset_index(drop=False).set_index("super").rename(
                   columns={"scaffold_index": "cluster"})
         if "cluster" not in cms.columns:
             logger.critical("\n\n%s\n\n", cms.head())
-            import sys
             sys.exit(1)
         assert "cluster" in cms.columns, cms.head()
         if path_max > 0:
@@ -167,55 +155,20 @@ def make_super(hl: dd.DataFrame,
             idx = np.unique(super_object["super_info"].index.values.compute())
         edges = super_object["edges"].set_index("super")
 
-        # grouped_edges = super_object["edges"].groupby("super")
-        # grouped_membership = cms.groupby("super")
         order = membership
         # Removing the useless index (=cluster)
         order = order.loc[order["super"].isin(idx),
                           ["super", "chr"]].drop_duplicates().compute().sort_values(["chr"]).reset_index(drop=True)
-        results = []
         to_skip, previous_results = find_previous_results(raw_membership, previous_membership)
         # First thing: let's check whether we have previous hits. We will consider these separately.
-        # pool = mp.Pool(cores)
-        total = order.shape[0]
-        analysed, cached = 0, 0
-        for chrom in sorted(np.unique(order["chr"].values)):
-            chrom_analysed, chrom_cached = 0, 0
-            chrom_results = []
-            subset = order[order["chr"] == chrom]
-            chrom_total = subset.shape[0]
-            logger.debug("%s Starting chromosome %s", time.ctime(), chrom)
-            for row in subset.itertuples(name=None):
-                index, ssuper, popseq_chr = row
-                if ssuper in to_skip:
-                    logger.debug("%s Using cached result for super %s on chromosome %s",
-                                 time.ctime(), ssuper, popseq_chr)
-                    chrom_cached += 1
-                    continue
-                chrom_analysed += 1
-                logger.debug("%s Analysing super %s on chromosome %s", time.ctime(), ssuper, popseq_chr)
-                my_edges = edges.loc[ssuper]
-                my_membership = cms.loc[ssuper]
-                func = delayed(_concatenator)(my_edges, my_membership, known_ends, maxiter, verbose)
-                chrom_results.append(client.compute(func))
-                if len(chrom_results) > 100:
-                    chrom_results = client.gather(chrom_results)
-                    assert isinstance(chrom_results[0], np.ndarray)
-                    results.extend(chrom_results)
-                    chrom_results = []
-
-            logger.debug("%s Finished chr. %s (%s, %s%%), analysed %s, cached %s",
-                           time.ctime(), chrom, chrom_total,
-                           round(100 * chrom_total / total, 2),
-                           chrom_analysed, chrom_cached
-                           )
-            analysed += chrom_analysed
-            cached += chrom_cached
-            chrom_results = client.gather(chrom_results)
-            if len(chrom_results) > 0:
-                assert isinstance(chrom_results[0], np.ndarray)
-                results.extend(chrom_results)
-
+        results = []
+        for row in order[~order.ssuper.isin(to_skip)].itertuples():
+            index, ssuper, popseq_chr = row
+            my_edges = edges.loc[ssuper]
+            my_membership = cms.loc[ssuper]
+            func = delayed(_concatenator)(my_edges, my_membership, known_ends, maxiter, verbose)
+            results.append(client.compute(func))
+        results = client.gather(results)
         logger.warning("%s Finished make_super_scaffolds", time.ctime())
         results = np.vstack(results + previous_results)
         results = pd.DataFrame().assign(

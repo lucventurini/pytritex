@@ -175,7 +175,7 @@ def orient_scaffolds(info: str, res: str,
     membership["super_pos"] = membership["super_pos"].fillna(1)
     # Now add back missing scaffolds
     excluded_scaffolds = membership[membership["excluded"] == True].index.values.compute()
-    membership = add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client)
+    membership = add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client, save_dir)
     logger.warning("%s Added the super_pos columns", time.ctime())
 
     # Now we have to assign the genetic positions, ie anchor
