@@ -8,10 +8,12 @@ from dask.distributed import Client
 import numpy as np
 import logging
 dask_logger = logging.getLogger("dask")
+from typing import Union
 import time
 
 
-def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: str) -> str:
+def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame,
+                         save_dir: Union[str, None]) -> Union[str, dd.DataFrame]:
     # if("molecules" %in% names(assembly) && nrow(molecules) > 0){
     #   cat("Transpose molecules\n")
     #   copy(molecules) -> z
@@ -88,6 +90,9 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame, save_dir: s
         molecules = dd.from_pandas(molecules, npartitions=1)
 
     assert isinstance(molecules, dd.DataFrame)
-    fname = os.path.join(save_dir, "molecules")
-    dd.to_parquet(molecules, fname, engine="pyarrow", compression="gzip", compute=True)
-    return fname
+    if save_dir is not None:
+        fname = os.path.join(save_dir, "molecules")
+        dd.to_parquet(molecules, fname, engine="pyarrow", compression="gzip", compute=True)
+        return fname
+    else:
+        return molecules

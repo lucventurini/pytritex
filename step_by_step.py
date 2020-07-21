@@ -123,8 +123,8 @@ def main():
     assembly = memory.cache(add_molecule_cov)(assembly, binsize=200, save_dir=cov_base)
     assembly = memory.cache(add_hic_cov)(assembly, save_dir=cov_base,
                                          binsize=5e3, binsize2=5e4, minNbin=50, innerDist=3e5)
-    assembly_v1 = memory.cache(break_10x, ignore=["cores", "client", "memory"])(
-        assembly, client=client, memory=memory,
+    assembly_v1 = memory.cache(break_10x, ignore=["cores", "client"])(
+        assembly, client=client,
         ratio=-3, interval=5e4, minNbin=20, dist=2e3, save_dir=args.save_prefix,
         slop=2e2, species="wheat", intermediate=False, cores=args.procs)["assembly"]
     results = grid_evaluation(assembly_v1, args, client=client, memory=memory)

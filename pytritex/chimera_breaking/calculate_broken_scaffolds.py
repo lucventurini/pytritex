@@ -7,6 +7,7 @@ from ..utils import assign_to_use_column
 import logging
 dask_logger = logging.getLogger("dask")
 import time
+from typing import Union
 
 
 def _scaffold_breaker(group, slop):
@@ -44,8 +45,8 @@ def _fai_checker(fai):
     return (merged.query("imputed != length").shape[0] == 0)
 
 
-def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, slop: float,
-                               cores=1) -> (dd.DataFrame, str, np.ndarray):
+def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: Union[str, None], slop: float,
+                               cores=1) -> (dd.DataFrame, Union[str, None], np.ndarray):
 
     """
     This function will take the position of the breaks found by `find_10x_breaks` and
@@ -160,16 +161,19 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: str, sl
     fai = fai.astype(original_types)
     fai = fai.astype({"previous_iteration": int})
     dask_logger.debug("%s calculate_broken_scaffolds -  Finished, returning the FAI", time.ctime())
-    fai_name = os.path.join(save_dir, "fai")
     fai = assign_to_use_column(fai)
+    if save_dir is not None:
+        fai_name = os.path.join(save_dir, "fai")
+        dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
+    else:
+        fai_name = None
     # new_indices = fai.index.compute().difference(original_indices).values
     # Final check
     valid = _fai_checker(fai)
     if valid is False:
-        dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
         dask_logger.critical("%s Bungled FAI - we have created overlapping fragments. Check %s",
                              time.ctime(), fai_name)
         import sys
         sys.exit(1)
-    dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
+
     return fai, fai_name

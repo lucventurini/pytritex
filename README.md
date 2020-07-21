@@ -11,10 +11,18 @@ We might finalise the porting of the latter part of the pipeline later; for the 
 
 The pipeline has the following structure:
 
-- Data from the original assembly, 10X alignments, HiC alignments, and the CSS alignments is hoovered into parquet data stores (`initialisation`).
-- Using the data coming from the CSS alignments and the PopSeq reference data, each scaffold is assigned to a different chromosomal location if possible. If a scaffold is compatible with more than one location, PyTritex will keep count of the best location, the runner-up, and the proportion of both the best location towards the total, as well as the runner-up vs the best location (`anchoring`).
-  - Using the data at this stage, pytritex will try to determine if some locations are iffy (e.g. too many locations are possible).
-- In the third step, the 10X and HiC data are analysed to derive coverage statistics for each scaffold. At this stage we are interested in obtaining a per-bin coverage: that is, determine in a windowed analysis the coverage of the data (`sequencing_coverage`).
+1. Data from the original assembly, 10X alignments, HiC alignments, and the CSS alignments is hoovered into parquet data stores (`initialisation`).
+1. Using the data coming from the CSS alignments and the PopSeq reference data, each scaffold is assigned to a different chromosomal location if possible. If a scaffold is compatible with more than one location, PyTritex will keep count of the best location, the runner-up, and the proportion of both the best location towards the total, as well as the runner-up vs the best location (`anchoring`).
+1. In the third step, the 10X and HiC data are analysed to derive coverage statistics for each scaffold. At this stage we are interested in obtaining a per-bin coverage: that is, determine in a windowed analysis the coverage of the data (`sequencing_coverage`).
+1. In the fourth step, pytritex will try to find and break chimeric scaffolds. This is an **iterative procedure**, which is repeated until no novel breakpoints are found. Chimeric breakpoints are identified by looking for significant drops in coverage compared to the windowed baseline (obtained in point 3)
+1. In the fifth step, PyTritex merges the superscaffolds according to the 10X links, filtered by two paramers:
+   1. the scaffolds must have been assigned to the same chromosome
+   1. the genetic distance (in *cM*) must be lower than `max_dist` (default 5 *cM*)
+
+## Initialisation
+
+
+
   - An important secondary step will be to assign to each scaffold a "distance" `d` value, ie its (binned) distance from the nearest scaffold edge. The 10X and HiC coverage will be averaged for all scaffolds *based on the distance value*.
   - Using this value, we also calculate the ratio of the observed coverage vs average coverage for bins at that distance. The deviation is normalised as a `log2(ratio)` and assigned to the `r` column.
 - In the fourth step, pytritex will try to find and break chimeric scaffolds. This is an **iterative procedure**, which is repeated until no novel breakpoints are found:
