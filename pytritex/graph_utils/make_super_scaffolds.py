@@ -115,13 +115,17 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client):
         _to_concatenate = _to_concatenate.reset_index(drop=False)
         _to_concatenate[name] = _to_concatenate[name].astype(membership.index.dtype)
         _to_concatenate = _to_concatenate.set_index(name)
-    assert _to_concatenate.index.dtype == membership.index.dtype
-    func = delayed(dd.concat)([membership, _to_concatenate])
-    new_membership = client.compute(func).result()
+    if _to_concatenate.shape[0].compute() > 0:
+        assert _to_concatenate.index.dtype == membership.index.dtype
+        func = delayed(dd.concat)([membership, _to_concatenate])
+        new_membership = client.compute(func).result()
+    else:
+        new_membership = membership
+
     new_membership = new_membership.reset_index(drop=False)
     assert "scaffold_index" in new_membership.columns
     sis = new_membership["scaffold_index"].compute()
-    if sis.shape[0] > len(set(sis.values)):
+    if sis.shape[0] != len(set(sis.values)):
         logger.error("""Duplicated indices after concatenating.
 Original size: %s
 Membership: %s
