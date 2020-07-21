@@ -50,14 +50,15 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
     fai_name = assembly["fai"][:]
     molecules = assembly["molecules"][:]
     molecule_cov = assembly["molecule_cov"][:]
-    fai = dd.read_parquet(assembly["fai"], infer_divisions=True)
+    fai = dd.read_parquet(fai_name, infer_divisions=True)
     while breaks is not None and breaks.shape[0] > 0 and cycle <= maxcycle:
         cycle += 1
         save_dir = os.path.join(base, str(cycle))
         dask_logger.warning("%s Starting cycle %s of %s, with %s breaks",
                             time.ctime(), cycle, maxcycle, breaks.shape[0])
-        fai, fai_name = calculate_broken_scaffolds(
-            fai=fai, breaks=breaks, slop=slop, save_dir=save_dir, cores=cores)
+        dd.to_parquet(dd.from_pandas(breaks, chunksize=1e5), os.path.join(save_dir, "breaks"), compute=True,
+                      compression="gzip", engine="pyarrow")
+        fai, fai_name = calculate_broken_scaffolds(fai=fai_name, breaks=breaks, slop=slop, save_dir=save_dir, cores=cores)
         molecules = _transpose_molecules(orig_assembly["molecules"], fai, save_dir=save_dir)
         dask_logger.debug("%s Transposing the 10X alignment", time.ctime())
         molecule_cov = add_molecule_cov(
@@ -83,7 +84,7 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
         new_assembly[key] = assembly[key]
     new_assembly["molecules"] = molecules
     new_assembly["molecule_cov"] = molecule_cov
-    new_assembly["fai"] = fai
+    new_assembly["fai"] = fai_name
     dask_logger.debug("%s Transposing the CSS alignment", time.ctime())
     new_assembly["cssaln"] = _transpose_cssaln(orig_assembly["cssaln"], fai, save_dir)
     dask_logger.debug("%s Transposing the HiC alignment", time.ctime())
