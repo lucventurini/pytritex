@@ -87,8 +87,10 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client, 
     assert membership.index.name == "scaffold_index"
     # TODO: this part of the code is probably causing the double counting
     info_index = info.index.values.compute()
+    logger.debug("%s size of the info index: %s; indices: %s", time.ctime(), info_index.shape[0], indices.shape[0])
     bait_index = sorted(set.difference(set(info_index), set(indices)))
-
+    logger.debug("%s size of the bait index: %s", time.ctime(), len(bait_index))
+    
     _to_concatenate = info.loc[bait_index, ["popseq_chr", "popseq_cM", "length"]].rename(
         columns={"popseq_chr": "chr", "popseq_cM": "cM"})
     assert _to_concatenate.shape[0].compute() == len(bait_index)
@@ -128,6 +130,7 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client, 
                             os.path.join(save_dir, "_to_concatenate"))
             sys.exit(1)
     else:
+        logger.debug("%s Adding no scaffolds to the membership", time.ctime())
         new_membership = membership
 
     new_membership = new_membership.reset_index(drop=False)

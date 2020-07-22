@@ -97,7 +97,7 @@ def make_super(hl: dd.DataFrame,
     graph = nk.Graph(n=cidx.shape[0], weighted=True, directed=False)
     edge_list.apply(lambda row: graph.addEdge(row["cidx1"], row["cidx2"], row["weight"]), axis=1)
     components = nk.components.ConnectedComponents(graph)
-    # Get the connected components
+    # Get the connected componentsx
     components.run()
     cidx_list, ssuper = [], []
     # Aggregate into super-scaffolds
@@ -162,12 +162,22 @@ def make_super(hl: dd.DataFrame,
         to_skip, previous_results = find_previous_results(raw_membership, previous_membership)
         # First thing: let's check whether we have previous hits. We will consider these separately.
         results = []
-        for row in order[~order.ssuper.isin(to_skip)].itertuples():
+        submitted = []
+        for row in order[~order.super.isin(to_skip)].itertuples():
             index, ssuper, popseq_chr = row
-            my_edges = edges.loc[ssuper]
-            my_membership = cms.loc[ssuper]
-            func = delayed(_concatenator)(my_edges, my_membership, known_ends, maxiter, verbose)
-            results.append(client.compute(func))
+            my_edges = edges.loc[ssuper].compute()
+            my_membership = cms.loc[ssuper].compute()
+            submitted.append(client.submit(_concatenator, my_edges, my_membership, known_ends, maxiter, verbose))
+            # if len(submitted) > 100:
+            #     submitted = client.gather(submitted)
+            #     assert isinstance(submitted[0], np.ndarray), (type(submitted[0]), submitted[0])
+            #     results.extend(submitted)
+            #     submitted = []
+                
+        submitted = client.gather(submitted)
+        assert isinstance(submitted[0], np.ndarray), (type(submitted[0]), submitted[0])
+        results.extend(submitted)
+        submitted = []        
         results = client.gather(results)
         logger.warning("%s Finished make_super_scaffolds", time.ctime())
         results = np.vstack(results + previous_results)
@@ -178,6 +188,8 @@ def make_super(hl: dd.DataFrame,
         super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster")
         assert super_object["membership"].index.name == "cluster"
 
-    super_object["membership"] = super_object["membership"].drop("cidx", axis=1)
+    super_object["membership"] = super_object["membership"].drop("cidx", axis=1).persist()
     logger.warning("%s Finished make_super run", time.ctime())
+    logger.warning("%s Membership size and dtypes: %s, %s", time.ctime(), super_object["membership"].shape[0].compute(),
+                   super_object["membership"].dtypes)
     return super_object
