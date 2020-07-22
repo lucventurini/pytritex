@@ -13,21 +13,6 @@ def _remove_bifurcations(links: dd.DataFrame,
                          info: dd.DataFrame,
                          client: Client, save_dir: str,
                          min_dist=minimum_distance, ncores=1):
-    # resolve length-one-bifurcations at the ends of paths
-    #    m[rank > 0][bin == 2 | super_nbin - 1 == bin ][,
-    #    .(super, super_nbin, type = bin == 2, scaffold, length, bin0=bin)]->x
-    #    unique(rbind(
-    #    m[x[type == T, .(super, bin0, bin=1)], on=c("super", "bin")],
-    #    m[x[type == F, .(super, bin0, bin=super_nbin)], on=c("super", "bin")]
-    #    ))->a
-    #    a[, .(super, bin0, scaffold2=scaffold, length2=length)][
-    #    x, on=c("super", "bin0")][, ex := ifelse(length >= length2, scaffold2, scaffold)]$ex -> add
-    #
-    #    if(length(add) > 0){
-    #     ex <- c(ex, add)
-    #     make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=ex, ncores=ncores) -> out
-    #     out$membership -> m
-    #    }
 
     if isinstance(membership, str):
         membership = dd.read_parquet(membership, infer_divisions=True)
@@ -55,26 +40,22 @@ def _remove_bifurcations(links: dd.DataFrame,
     # m[x[type == T,.(super, bin0, bin=1)], on = c("super", "bin")],
     left = membership.reset_index(drop=False).astype({"super": np.int})
     upper = bifurcated.loc[bifurcated.type, ["super", "bin0"]].assign(bin=1)
-    func = delayed(dd.merge)(left, upper, on=key)
-    upper = client.compute(func).result()
+    upper = dd.merge(left, upper, on=key)
     upper_size = upper.shape[0].compute()
     assert "scaffold_index" in upper.columns
     # m[x[type == F,.(super, bin0, bin=super_nbin)], on = c("super", "bin")]
     lower = bifurcated.loc[~bifurcated.type, ["super", "bin0", "super_nbin"]].rename(
         columns={"super_nbin": "bin"})
-    func = delayed(dd.merge)(left, lower, on=key)
-    lower = client.compute(func).result()
+    lower = dd.merge(left, lower, on=key)
     lower_size = lower.shape[0].compute()
     assert max(lower_size, upper_size) > 0
     assert "scaffold_index" in lower.columns
-    func = delayed(dd.concat)([upper, lower])
-    a = client.compute(func).result()
+    a = dd.concat([upper, lower])
     assert isinstance(a, dd.DataFrame)
     # assert a.shape[0].compute() > 0
     a = a.drop_duplicates().rename(columns={"length": "length2", "scaffold_index": "scaffold_index2"})
     # Now merge with "x" to find places to exclude
-    func = delayed(dd.merge)(a, bifurcated, on=["super", "bin0"], how="right")
-    a = client.compute(func).result().compute()
+    a = dd.merge(a, bifurcated, on=["super", "bin0"], how="right").compute()
     add = np.where((a.length >= a.length2), a.scaffold_index2, a.scaffold_index)
     out = {"membership": membership, "info": None}
     if add.shape[0] > 0:

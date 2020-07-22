@@ -142,7 +142,7 @@ def make_super(hl: dd.DataFrame,
                     "membership": membership, "graph": graph, "edges": edge_list}
 
     if paths is True:
-        cms = membership.loc[:, ["super", "cM"]].copy().reset_index(drop=False).set_index("super").rename(
+        cms = membership.loc[:, ["super", "chr", "cM"]].copy().reset_index(drop=False).set_index("super").rename(
                   columns={"scaffold_index": "cluster"})
         if "cluster" not in cms.columns:
             logger.critical("\n\n%s\n\n", cms.head())
@@ -163,17 +163,15 @@ def make_super(hl: dd.DataFrame,
         # First thing: let's check whether we have previous hits. We will consider these separately.
         results = []
         submitted = []
+        logger.warning("%s Starting to analyse %s rows", time.ctime(), order[~order.super.isin(to_skip)].shape[0])
         for row in order[~order.super.isin(to_skip)].itertuples():
             index, ssuper, popseq_chr = row
             my_edges = edges.loc[ssuper]
             my_membership = cms.loc[ssuper]
-            submitted.append(client.submit(_concatenator, my_edges, my_membership, known_ends, maxiter, verbose))
-            if len(submitted) > 1000:
-                submitted = client.gather(submitted)
-                assert isinstance(submitted[0], np.ndarray), (type(submitted[0]), submitted[0])
-                results.extend(submitted)
-                submitted = []
-                
+            submitted.append(client.submit(_concatenator, client.scatter(my_edges),
+                                           client.scatter(my_membership), known_ends, maxiter, verbose))
+
+        logger.warning("%s Retrieving final results", time.ctime())
         submitted = client.gather(submitted)
         assert isinstance(submitted[0], np.ndarray), (type(submitted[0]), submitted[0])
         results.extend(submitted)

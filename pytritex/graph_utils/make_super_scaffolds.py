@@ -177,6 +177,10 @@ def add_statistics(membership, client):
     membership = client.compute(func).result()
     assert "scaffold_index" in membership.columns
     membership = membership.set_index("scaffold_index")
+    if not isinstance(membership, dd.DataFrame):
+        membership = dd.from_pandas(membership, chunksize=10**5)
+    if not isinstance(res, dd.DataFrame):
+        res = dd.from_pandas(res, chunksize=10**5)
     return membership, res
 
 
@@ -220,7 +224,7 @@ def make_super_scaffolds(links: Union[str, dd.DataFrame],
     membership = add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client, save_dir)
     logger.warning("%s Finished add_missing_scaffolds, starting add_statistics", time.ctime())    
     membership, res = add_statistics(membership, client)
-    logger.warning("%s Finished add_statistics", time.ctime())        
+    logger.warning("%s Finished add_statistics", time.ctime())
     # mem_copy = dd.from_pandas(mem_copy, chunksize=1000)
     if to_parquet is True:
         dd.to_parquet(membership, os.path.join(save_dir, "membership"))

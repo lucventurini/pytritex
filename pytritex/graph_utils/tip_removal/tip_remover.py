@@ -26,7 +26,7 @@ def remove_tips(links: str, excluded, out: dict, info: str,
     info = dd.read_parquet(info, infer_divisions=True)
     # membership = out["membership"]
     membership = dd.read_parquet(out["membership"], infer_divisions=True)
-    if membership.head(npartitions=-1).shape[0] == 0:
+    if membership.shape[0].compute() == 0:
         return out
 
     dask_logger.warning("%s Removing short tips", ctime())
@@ -57,7 +57,7 @@ def remove_tips(links: str, excluded, out: dict, info: str,
     else:
         assert isinstance(res, dd.DataFrame) or res is None
 
-    if membership.head(npartitions=-1).shape[0] == 0:
+    if membership.shape[0].compute() == 0:
         dask_logger.warning("%s This set of parameters leads to lose everything.", ctime())
         return membership, info, excluded
     if res is not None:
@@ -66,8 +66,7 @@ def remove_tips(links: str, excluded, out: dict, info: str,
     dask_logger.warning("%s Removing the last tips", ctime())
     degree = _calculate_degree(links, excluded)
     scattered = membership.query("rank == 1")
-    func = delayed(dd.merge)(scattered, degree, on="scaffold_index")
-    add = client.compute(func).result().query("degree == 1")
+    add = dd.merge(scattered, degree, on="scaffold_index").query("degree == 1")
     add = add.index.compute().values
     if add.shape[0] > 0:
         excluded.update(set(add.tolist()))

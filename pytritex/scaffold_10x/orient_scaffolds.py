@@ -11,35 +11,6 @@ import time
 from ..graph_utils.make_super_scaffolds import add_missing_scaffolds, add_statistics
 # from .make_agp import make_agp
 
-#  m[super_nbin > 1, .(scaffold1=scaffold, bin1=bin, super1=super)][link_pos, on="scaffold1", nomatch=0]->a
-#  m[super_nbin > 1, .(scaffold2=scaffold, bin2=bin, super2=super)][a, on="scaffold2", nomatch=0]->a
-#  a[super1 == super2 & bin1 != bin2]->a
-#  a[, d := abs(bin2 - bin1)]->a
-#  a[d <= max_dist_orientation]->a
-#  a[, .(nxt=mean(pos1[bin2 > bin1]), prv=mean(pos1[bin2 < bin1])), key=.(scaffold=scaffold1)]->aa
-#  info[, .(scaffold, length)][aa, on="scaffold"]->aa
-#  aa[!is.nan(prv) & !is.nan(nxt), orientation := ifelse(prv <= nxt, 1, -1)]
-#  aa[is.nan(prv), orientation := ifelse(length - nxt <= nxt, 1, -1)]
-#  aa[is.nan(nxt), orientation := ifelse(length - prv <= prv, -1, 1)]
-#
-#  aa[, .(orientation, scaffold)][m, on="scaffold"]->m
-#  m[, oriented := T]
-#  m[is.na(orientation), oriented := F]
-#  m[is.na(orientation), orientation := 1]
-#  setorder(m, super, bin, rank)
-#
-#  m[, super_pos := 1 + cumsum(c(0, length[-.N])), by=super]
-#
-#  if(verbose){
-#   cat("Anchoring super-scaffolds.\n")
-#  }
-#  # assign super scaffolds to genetic positions
-#  m[!is.na(chr), .(nchr=.N), key=.(chr, super)][, pchr := nchr/sum(nchr), by=super][order(-nchr)][!duplicated(super)]->y
-#  m[!is.na(cM)][y, on=c("chr", "super")]->yy
-#  y[res, on="super"]->res
-#  yy[, .(cM=mean(cM), min_cM=min(cM), max_cM=max(cM)), key=super][res, on='super']->res
-#  setorder(res, -length)
-
 
 def super_position(group):
     orig_index = group.index[:]
@@ -67,12 +38,10 @@ def _create_association(membership, info, link_pos, client, max_dist_orientation
     assert m_greater_one.shape[0].compute() > 0, membership.head()
     left = m_greater_one.loc[:, ["bin", "super"]].rename(columns={"bin": "bin1", "super": "super1"})
     left.index = left.index.rename("scaffold_index1")
-    func = delayed(dd.merge)(left, link_pos, on="scaffold_index1", how="inner")
-    association = client.compute(func).result()
+    association = dd.merge(left, link_pos, on="scaffold_index1", how="inner")
     left = m_greater_one[["bin", "super"]].rename(columns={"bin": "bin2", "super": "super2"})
     left.index = left.index.rename("scaffold_index2")
-    func = delayed(dd.merge)(left, association, on="scaffold_index2", how="inner")
-    association = client.compute(func).result()
+    association = dd.merge(left, association, on="scaffold_index2", how="inner")
     logger.warning("%s Obtained the association table", time.ctime())
     association = association.query("(super1 == super2) & (bin1 != bin2)")
     association = association.eval("d = abs(bin2 - bin1)")
@@ -104,9 +73,8 @@ def _calculate_orientation_column(membership, final_association, client):
     final_association["orientation"] = orientation
     assert isinstance(final_association, dd.DataFrame), type(final_association)
     logger.warning("%s Merging the orientation variable back into membership", time.ctime())
-    func = delayed(dd.merge)(membership, final_association[["orientation"]],
-                             left_index=True, right_index=True, how="left")
-    membership = client.compute(func).result().drop_duplicates()
+    membership = dd.merge(membership, final_association[["orientation"]],
+                          left_index=True, right_index=True, how="left").drop_duplicates()
     logger.warning("%s Merged the orientation variable back into membership", time.ctime())
     return membership
 
@@ -191,9 +159,8 @@ def orient_scaffolds(info: str, res: str,
     nchr = nchr.query("nchr == max_nchr").drop_duplicates(subset="super").drop("max_nchr", axis=1)
     # chr, super, nchr, pchr - no index
     logger.warning("%s Merging into nchr_with_cms", time.ctime())
-    func = delayed(dd.merge)(membership[~membership["cM"].isna()].reset_index(drop=False),
-                             nchr, on=["chr", "super"])
-    nchr_with_cms = client.compute(func).result().set_index("scaffold_index")
+    nchr_with_cms = dd.merge(membership[~membership["cM"].isna()].reset_index(drop=False),
+                             nchr, on=["chr", "super"]).set_index("scaffold_index")
     logger.warning("%s Merged into nchr_with_cms", time.ctime())
     grouped_nchr_with_cms = nchr_with_cms.groupby("super")
     logger.warning("%s Calculating the nchr_with_cms stats", time.ctime())
@@ -211,10 +178,8 @@ def orient_scaffolds(info: str, res: str,
     if res.index.name is None:
         res = res.set_index("super")
     nchr = nchr.set_index("super")
-    func = delayed(dd.merge)(nchr, res, on="super", how="right")
-    res = client.compute(func).result()
-    func = delayed(dd.merge)(nchr_with_cms, res, on="super", how="right")
-    res = client.compute(func).result()
+    res = dd.merge(nchr, res, on="super", how="right")
+    res = dd.merge(nchr_with_cms, res, on="super", how="right")
 
     logger.warning("%s Merged everything into res, saving", time.ctime())
     res_name = os.path.join(save_dir, "res")
