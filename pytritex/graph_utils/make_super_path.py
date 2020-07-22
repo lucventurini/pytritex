@@ -119,8 +119,7 @@ def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound, n
                     changed = True
                 # The current upper bound is now the new weight cost
                 current_upper_bound = sum(
-                    edges[path[index], path[index + 1]] for index in np.arange(path.shape[0] - 1,
-                                                                                    dtype=np.int))
+                    edges[path[index], path[index + 1]] for index in np.arange(path.shape[0] - 1, dtype=np.int))
                 internal_rounds += 1
                 if internal_rounds >= maxiter:
                     break

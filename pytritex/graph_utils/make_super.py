@@ -16,7 +16,7 @@ def _concatenator(edges, membership, known_ends=False, maxiter=100, verbose=Fals
     if known_ends:
         x = membership.query("cM == cM").sort_values("cM").index
         start, end = x.head(1), x.tail(1)
-    final = make_super_path(edges, membership,
+    final = make_super_path(edges.compute(), membership.compute(),
                             start=start, end=end,
                             maxiter=maxiter, verbose=verbose)
     return final
@@ -165,20 +165,19 @@ def make_super(hl: dd.DataFrame,
         submitted = []
         for row in order[~order.super.isin(to_skip)].itertuples():
             index, ssuper, popseq_chr = row
-            my_edges = edges.loc[ssuper].compute()
-            my_membership = cms.loc[ssuper].compute()
+            my_edges = edges.loc[ssuper]
+            my_membership = cms.loc[ssuper]
             submitted.append(client.submit(_concatenator, my_edges, my_membership, known_ends, maxiter, verbose))
-            # if len(submitted) > 100:
-            #     submitted = client.gather(submitted)
-            #     assert isinstance(submitted[0], np.ndarray), (type(submitted[0]), submitted[0])
-            #     results.extend(submitted)
-            #     submitted = []
+            if len(submitted) > 1000:
+                submitted = client.gather(submitted)
+                assert isinstance(submitted[0], np.ndarray), (type(submitted[0]), submitted[0])
+                results.extend(submitted)
+                submitted = []
                 
         submitted = client.gather(submitted)
         assert isinstance(submitted[0], np.ndarray), (type(submitted[0]), submitted[0])
         results.extend(submitted)
-        submitted = []        
-        results = client.gather(results)
+        del submitted
         logger.warning("%s Finished make_super_scaffolds", time.ctime())
         results = np.vstack(results + previous_results)
         results = pd.DataFrame().assign(
@@ -186,6 +185,8 @@ def make_super(hl: dd.DataFrame,
         assert results.cluster.unique().shape[0] == results.shape[0]
         results = results.set_index("cluster")
         super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster")
+        if not isinstance(super_object["membership"], dd.DataFrame):
+            super_object["membership"] = dd.from_pandas(super_object["membership"], chunksize=10 ** 5)
         assert super_object["membership"].index.name == "cluster"
 
     super_object["membership"] = super_object["membership"].drop("cidx", axis=1).persist()
