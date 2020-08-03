@@ -210,7 +210,10 @@ def make_super_path(origin_edge_list, cms, start=None, end=None, maxiter=100, ve
         if np.unique(_cms).shape[0] < 2:
             flip = np.nan
         else:
-            flip = scipy.stats.pearsonr(_bins, _cms)[0]
+            try:
+                flip = scipy.stats.pearsonr(_bins, _cms)[0]
+            except (ValueError, TypeError, scipy.special.sf_error.SpecialFunctionError):
+                flip = np.nan
     else:
         flip = np.nan
 

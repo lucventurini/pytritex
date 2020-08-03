@@ -1,7 +1,13 @@
+.idea
 *pickle
 *pickle.gz
 Minimal/*Rds
 Minimal/*pdf
+pytritex/graph_utils/calculate_missing.cpp
+pytritex/graph_utils/insert_nodes.cpp
+pytritex/graph_utils/k_opt_tsp.cpp
+pytritex/graph_utils/node_relocation.cpp
+pytritex/sequencing_coverage/collapse_bins.cpp
 */*.pyc
 .RData
 .Rhistory
@@ -11,3 +17,8 @@ Minimal/*pdf
 *ipynb
 pytritex/*/*so
 pytritex/*/*html
+assembly/*
+dask*/*
+build/*
+dist/*
+*egg-info/*

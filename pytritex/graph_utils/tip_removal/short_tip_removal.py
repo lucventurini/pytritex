@@ -44,6 +44,8 @@ def _remove_short_tips(links: dd.DataFrame,
                                    membership=membership,
                                    excluded=excluded, ncores=ncores)
             membership = out["membership"]
+    else:
+        out = {"membership": membership, "info": info}
 
     membership, res, excluded = _remove_bulges(links=links, excluded=excluded,
                                                membership=membership,

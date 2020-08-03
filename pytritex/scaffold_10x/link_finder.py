@@ -68,8 +68,7 @@ def _calculate_link_pos(molecules: str, fai: str, save_dir: str,
 
 def mol_counter(link_pos, min_nmol):
     mol_count = link_pos[["scaffold_index1", "scaffold_index2", "sample", "barcode_index"]].drop_duplicates()
-    mol_count = mol_count.groupby(
-        ["scaffold_index1", "scaffold_index2", "sample"])["barcode_index"].size().to_frame("nmol")
+    mol_count = mol_count.groupby(["scaffold_index1", "scaffold_index2", "sample"])["barcode_index"].size().to_frame("nmol")
     mol_count = mol_count[mol_count["nmol"] >= min_nmol]
     return mol_count
 
@@ -133,7 +132,7 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     dask_logger.warning("Arrived at merging both sides")
 
     dask_logger.warning("{} Computing the molecule counts".format(time.ctime()))
-    mol_count = mol_counter(link_pos, min_nmol).persist()
+    mol_count = mol_counter(link_pos, min_nmol)
     dask_logger.warning("{} Computed the molecule counts".format(time.ctime()))
     sample_count = sample_counter(mol_count, min_nsample)
     dask_logger.warning("{} Computed the sample counts".format(time.ctime()))
