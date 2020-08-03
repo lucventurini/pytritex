@@ -33,6 +33,7 @@ def remove_tips(links: str, excluded, out: dict, info: str,
     membership, res, excluded = _remove_short_tips(links, excluded, membership, info,
                                                    client=client, save_dir=save_dir,
                                                    min_dist=min_dist, ncores=ncores)
+
     dask_logger.warning("%s Removed short tips", ctime())    
 
     if membership.head(npartitions=-1).shape[0] == 0:
@@ -40,13 +41,14 @@ def remove_tips(links: str, excluded, out: dict, info: str,
         return membership, info, excluded
     if res is not None:
         out["info"] = res
+        out["membership"] = membership        
 
     dask_logger.warning("%s Removing bifurcations", ctime())        
     membership, res, excluded = _remove_bifurcations(links, excluded, membership, info,
                                                      client=client, save_dir=save_dir,
                                                      min_dist=min_dist, ncores=ncores)
     dask_logger.warning("%s Removed bifurcations", ctime())
-
+    
     if isinstance(membership, str):
         membership = dd.read_parquet(membership, infer_divisions=True)
     else:
@@ -62,6 +64,7 @@ def remove_tips(links: str, excluded, out: dict, info: str,
         return membership, info, excluded
     if res is not None:
         out["info"] = res
+        out["membership"] = membership        
 
     dask_logger.warning("%s Removing the last tips", ctime())
     degree = _calculate_degree(links, excluded)
@@ -97,7 +100,8 @@ def remove_tips(links: str, excluded, out: dict, info: str,
             assert isinstance(membership, dd.DataFrame)
         
     mem_name = os.path.join(save_dir, "membership")
-    dd.to_parquet(out["membership"], mem_name, compute=True, compression="gzip", engine="pyarrow")
+    if isinstance(out["membership"], dd.DataFrame):  # We have removed some stuff.
+        dd.to_parquet(out["membership"], mem_name, compute=True, compression="gzip", engine="pyarrow")
     res_name = os.path.join(save_dir, "result")
     dd.to_parquet(out["info"], res_name, compute=True, compression="gzip", engine="pyarrow")
     dask_logger.warning("%s Finished tip removal.", ctime())

@@ -105,7 +105,7 @@ def read_fpairs(hic, fai, save_dir):
         fpairs = pd.DataFrame().assign(pair_index=[], scaffold_index1=[], scaffold_index2=[],
                                        pos1=[], pos2=[], orig_pos1=[], orig_pos2=[],
                                        orig_scaffold_index1=[], orig_scaffold_index2=[]).set_index("pair_index")
-        fpairs = dd.from_pandas(fpairs)
+        fpairs = dd.from_pandas(fpairs, chunksize=10 ** 5)
     fname = os.path.join(save_dir, "fpairs")
     dd.to_parquet(fpairs, fname, compression="gzip", compute=True, engine="pyarrow")
     [os.remove(fname) for fname in fnames]    
