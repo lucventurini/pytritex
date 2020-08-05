@@ -10,7 +10,6 @@ import hashlib
 from dask.distributed import Client
 import logging
 logger = logging.getLogger("dask")
-sha = hashlib.sha256()
 import json
 
 
@@ -26,9 +25,11 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
     # print(assembly.keys())
     print(time.ctime(), "Finding initial links")
 
+    sha = hashlib.sha256()
     params = (min_npairs, max_dist, min_nmol, min_nsample, popseq_dist, max_dist_orientation, raw)
     sha.update(str(params).encode())
     hash_string = sha.hexdigest()
+    del sha
     logger.warning("%s Starting parameters %s, digest folder %s",
                                       time.ctime(), params, hash_string)
     folder = os.path.join(save_dir, "joblib", "pytritex", "scaffold_10x", hash_string)
