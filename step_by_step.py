@@ -60,9 +60,13 @@ def grid_evaluation(assembly, args, client, memory):
                                                              nmol,
                                                              nsamples,
                                                              dist))))))
-    print("Starting grid evaluation")
+    logger.info("Starting grid evaluation")
     results = []
     for _index, row in grid.iterrows():
+        if row.nsamples * row.nmol * row.npairs > args.max_min_links:
+            logger.warning("Skipping row %s as too stringent (minimum no. of links: %s)",
+                           row, row.nsamples * row.nmol * row.npairs)
+            continue
         client.close()
         worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
         client = Client(set_as_default=True, timeout=60, direct_to_workers=False, memory_limit=worker_mem,
@@ -83,6 +87,8 @@ def main():
     parser.add_argument("-p", "--processes", dest="procs", default=mp.cpu_count(), type=int)
     parser.add_argument("-s", "--save-prefix", default="assembly")
     parser.add_argument("-dc", "--dask-cache", default="dask_data", type=str)
+    parser.add_argument("--max-min-links", nargs=1, type=int, default=10,
+                        help="Maximum number for the minimum number of links (samples * nmol * npairs) to test.")
     parser.add_argument("--nsamples", nargs=2, type=int, default=[1, 2],
                         help="Inclusive range to investigate for the min_nsample parameter. Default: [2, 3]")
     parser.add_argument("--nmol", nargs=2, type=int, default=[2, 3],
