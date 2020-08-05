@@ -63,7 +63,7 @@ def grid_evaluation(assembly, args, client, memory):
     logger.info("Starting grid evaluation")
     results = []
     for _index, row in grid.iterrows():
-        if row.nsamples * row.nmol * row.npairs > args.max_min_links:
+        if row.nsample * row.nmol * row.npairs > args.max_min_links:
             logger.warning("Skipping row %s as too stringent (minimum no. of links: %s)",
                            row, row.nsamples * row.nmol * row.npairs)
             continue
