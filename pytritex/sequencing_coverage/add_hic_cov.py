@@ -214,6 +214,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         for key in ["info", "cov"]:
             if save_dir is not None:
                 fname = os.path.join(save_dir, key + "_hic")
+                assembly[key] = assembly[key].repartition(partition_size="100MB", force=True)
                 dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
                 dask_logger.debug("%s Saved %s for HiC", ctime(), key)
                 assembly[key] = fname
