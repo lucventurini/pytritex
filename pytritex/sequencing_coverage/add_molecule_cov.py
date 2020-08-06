@@ -123,8 +123,8 @@ def add_molecule_cov(assembly: dict, save_dir, binsize=200, save_info=True):
         assert isinstance(coverage_df, dd.DataFrame), type(coverage_df)
         # Get the average coverage ACROSS ALL SCAFFOLDS by distance to the end of the bin.
         mn = coverage_df.reset_index(drop=True)[["d", "n"]].groupby("d")["n"].mean().to_frame("mn")
-        coverage_df = dd.merge(coverage_df.reset_index(drop=False),
-                               mn, on="d", how="left").set_index("scaffold_index")
+        coverage_df = dd.merge(coverage_df.reset_index(drop=False).set_index("d"),
+                               mn, on="d", how="left").reset_index(drop=False).set_index("scaffold_index")
         assert coverage_df.query("d != d").shape[0].compute() == 0
         coverage_df = coverage_df.eval("r = log(n / mn) / log(2)")
         dask_logger.debug("%s Calculated the mean coverage by distance (10X)", ctime())

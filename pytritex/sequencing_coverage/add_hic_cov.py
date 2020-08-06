@@ -160,8 +160,8 @@ Supplied values: {}, {}".format(binsize, binsize2))
         dask_logger.debug("%s Calculating the mean mn metric (HiC)", ctime())
         mn = coverage_df.reset_index(drop=True)[["d", "n"]].groupby("d")["n"].mean().to_frame("mn")
         coverage_df = coverage_df.reset_index(drop=False)
-        coverage_df = coverage_df.drop("mn", axis=1, errors="ignore").merge(mn, how="left", on="d")
-        coverage_df = coverage_df.set_index("scaffold_index")
+        coverage_df = coverage_df.drop("mn", axis=1, errors="ignore").set_index("d").merge(mn, how="left", on="d")
+        coverage_df = coverage_df.reset_index(drop=False).set_index("scaffold_index")
         # Logarithm of number of pairs in bin divided by mean of number of pairs in bin?
         assert coverage_df.query("d != d").shape[0].compute() == 0
         coverage_df = coverage_df.eval("r = log(n/mn) / log(2)")
