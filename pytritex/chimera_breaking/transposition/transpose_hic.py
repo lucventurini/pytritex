@@ -113,14 +113,14 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
             unstable_pairs = rolling_join(
                 left.rename(columns=dict((_, _ + "1") for _ in left.columns)),
                 unstable_pairs, on="orig_scaffold_index1", by="orig_pos1")
-            unstable_pairs.astype(dict((key, np.int_) for key in unstable_pairs.columns))
+            unstable_pairs = unstable_pairs.astype(dict((key, np.int_) for key in unstable_pairs.columns))
             assert "scaffold_index1" in unstable_pairs.columns, unstable_pairs.compute().head()
             dask_logger.debug("%s Roll join USS: 2nd. USS: %s; left: %s",
                                 time.ctime(), unstable_pairs.shape[0].compute(), left.shape[0].compute())
             unstable_pairs = rolling_join(
                 left.rename(columns=dict((_, _ + "2") for _ in left.columns)),
                 unstable_pairs, on="orig_scaffold_index2", by="orig_pos2")
-            unstable_pairs.astype(dict((key, np.int_) for key in unstable_pairs.columns))
+            unstable_pairs = unstable_pairs.astype(dict((key, np.int_) for key in unstable_pairs.columns))
             assert "scaffold_index2" in unstable_pairs.columns, unstable_pairs.head()
             unstable_pairs["pos1"] = unstable_pairs.eval("orig_pos1 - orig_start1 + 1")
             unstable_pairs["pos2"] = unstable_pairs.eval("orig_pos2 - orig_start2 + 1")
@@ -138,7 +138,8 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
             unstable_1_stable_2 = rolling_join(
                 left.rename(columns=dict((_, _ + "1") for _ in left.columns)),
                 unstable_1_stable_2, on="orig_scaffold_index1", by="orig_pos1")
-            unstable_1_stable_2.astype(dict((key, np.int_) for key in unstable_1_stable_2.columns))
+            unstable_1_stable_2 = unstable_1_stable_2.astype(
+                dict((key, np.int_) for key in unstable_1_stable_2.columns))
             unstable_1_stable_2["pos1"] = unstable_1_stable_2.eval("orig_pos1 - orig_start1 + 1")
         unstable_1_stable_2 = unstable_1_stable_2[final_columns]
 
@@ -153,7 +154,8 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
             stable_1_unstable_2 = rolling_join(
                 left.rename(columns=dict((_, _ + "2") for _ in left.columns)),
                 stable_1_unstable_2, on="orig_scaffold_index2", by="orig_pos2")
-            stable_1_unstable_2.astype(dict((key, np.int_) for key in stable_1_unstable_2.columns))
+            stable_1_unstable_2 = stable_1_unstable_2.astype(
+                dict((key, np.int_) for key in stable_1_unstable_2.columns))
             stable_1_unstable_2["pos2"] = stable_1_unstable_2.eval("orig_pos2 - orig_start2 + 2")
         stable_1_unstable_2 = stable_1_unstable_2[final_columns]
 
