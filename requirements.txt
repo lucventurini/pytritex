@@ -7,3 +7,5 @@ networkit
 joblib
 cython
 dask
+mappy
+pafpy

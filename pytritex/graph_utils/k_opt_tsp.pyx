@@ -2,13 +2,10 @@ import numpy as np
 cimport numpy as np
 cimport cython
 np.import_array()
-from cython.parallel import parallel, prange
 from libcpp.vector cimport vector
 ctypedef np.int_t DTYPE_int
 cdef extern from "math.h":
     float INFINITY
-from cpython cimport array
-import array
 
 
 @cython.wraparound(False)
@@ -22,7 +19,7 @@ cdef double c_route_cost(double[:, :] graph, vector[long] path) nogil:
         long second = 0
 
     cost = graph[path[index], path[0]]
-    for index in prange(shape - 1):
+    for index in range(shape - 1):
         second = index + 1
         temp_cost = graph[path[index]][path[second]]
         if temp_cost == 0:
@@ -49,7 +46,7 @@ cdef vector[long] _swap(long[:] route_array, long index, long kindex) nogil:
         long mirror
         long[:] to_swap
 
-    for route_it in prange(route_array.shape[0]):
+    for route_it in range(route_array.shape[0]):
         new_route.push_back(route_array[route_it])
 
     to_swap = route_array[index:kindex + 1]
@@ -103,11 +100,10 @@ cpdef np.ndarray tsp_2_opt(np.ndarray graph, np.ndarray route, long num_threads)
     best_cost = c_route_cost(graph_array, best_found_route)
     while improved == 1:
         improved = 0
-        for index in range(1, max_index):
+        for index in range(0, max_index, 1):
             for kindex in range(index + 1, max_index):
                 # Swap internally between index and kindex
-                with nogil, parallel():
-                    new_route = _swap(route_array, index, kindex)
+                new_route = _swap(route_array, index, kindex)
                 cost = c_route_cost(graph_array, new_route)
                 if cost < best_cost:
                     best_cost = cost

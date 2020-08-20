@@ -4,6 +4,9 @@ import subprocess as sp
 import dask.dataframe as dd
 import numpy as np
 import os
+from pafpy import PafRecord
+import gzip
+import functools
 
 
 def read_cssaln(bam: str, popseq: pd.DataFrame,
@@ -38,31 +41,55 @@ def read_morexaln_minimap(paf: str,
                           popseq: pd.DataFrame,
                           fai: pd.DataFrame,
                           save_dir: str,
-                          minqual=30, minlen=500,
-                          ref=True):
-    command = "zgrep tp:A:P {paf} | awk -v l={minlen} -v q={minqual} '$2>=l && $12>=q'"
-    if ref is True:
-        names = ["css_contig", "scaffold", "pos"]
-        cols = [0, 5, 7]
+                          minqual=30,
+                          minlen=500, ref=None):
+
+    if paf.endswith("gz"):
+        opener = functools.partial(gzip.open, mode="rt")
     else:
-        names = ["scaffold", "pos", "css_contig"]
-        cols = [0, 2, 5]
-    dtypes = {"css_contig": str, "scaffold": str, "pos": np.int32}
-    buf = open(os.path.join(save_dir, "cssaln.paf"), "wb")
-    reader = sp.Popen(command.format(paf=paf, minqual=minqual, minlen=minlen), shell=True, stdout=buf)
-    reader.communicate()
-    buf.flush()
-    morex = dd.read_csv(buf.name, sep="\t", names=names, usecols=cols, dtype=dtypes).set_index("css_contig")
+        opener = functools.partial(open, mode="rt")
+
+    css_contig, scaffold, css_length, pos = [], [], [], []
+
+    with opener(paf) as pafbuf:
+        for line in pafbuf:
+            line = PafRecord.from_str(line)
+            if line.mapq < minqual or line.is_primary() is False:
+                continue
+            if ref is None:
+                if line.qname in popseq.index.values:
+                    ref = True
+                elif line.tname in popseq.index.values:
+                    ref = False
+                else:
+                    raise KeyError("Neither query nor target are in the PopSeq. Aborting.")
+            if ref is True:
+                css_contig.append(line.qname)
+                css_length.append(line.qlen)
+                scaffold.append(line.tname)
+                pos.append(line.tstart)
+            elif ref is False:
+                scaffold.append(line.qname)
+                css_contig.append(line.tname)
+                css_length.append(line.tlen)
+                pos.append(line.qstart)
+
+    morex = dd.from_pandas(pd.DataFrame().assign(**{
+        "scaffold": scaffold,
+        "css_contig": css_contig,
+        "pos": pos
+    }), chunksize=int(1e6))
+
     morex["pos"] += 1
     morex = dd.merge(popseq.set_index("css_contig"), morex, on="css_contig", how="right")
     morex = morex.reset_index(drop=True).set_index("scaffold")
     morex = dd.merge(fai[["scaffold", "length"]].reset_index(drop=False).set_index("scaffold"),
                      morex, on=["scaffold"], how="right").reset_index(drop=True).set_index("scaffold_index")
+    morex = morex.query("length >= @minlen & css_length >= @minlen",
+                        local_dict={"minlen": minlen})
     morex = morex[~morex.popseq_index.isna()]
     morex["orig_scaffold_index"] = morex.index.values
     morex["orig_pos"] = morex["pos"]
     fname = os.path.join(save_dir, "cssaln")
     dd.to_parquet(morex, fname, compression="gzip", compute=True, engine="pyarrow")
-    buf.close()
-    os.remove(buf.name)
     return fname
