@@ -4,9 +4,9 @@ import dask.dataframe as dd
 from pytritex.utils.chrnames import chrNames
 
 
-def make_agp(membership: dd.DataFrame, info: dd.DataFrame, gap_size=100):
+def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=100):
 
-    names = chrNames()
+    # names = chrNames()
     if "scaffold_index" not in membership.columns:
         assert "scaffold_index" == membership.index.name
         data = membership[["length", "super", "bin", "orientation", "rank", "chr", "cM"]].reset_index(drop=False).compute()
@@ -15,6 +15,8 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, gap_size=100):
         data = membership[
             ["scaffold_index", "length", "super", "bin", "orientation", "rank", "chr", "cM"]
         ].reset_index(drop=True).compute()
+    if names is None:
+        names = chrNames()
     data = data.sort_values(["super", "bin", "length"], ascending=[True, True, False])
     data = data.merge(names, on="chr", how="left").drop("chr", axis=1)
     data.loc[:, "index"] = pd.Series(np.arange(1, data.shape[0] + 1) * 2 - 1, index=data.index)
@@ -73,9 +75,9 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, gap_size=100):
     assert agp["super"].dtype == "object", agp["super"].head()
     agp.loc[data["gap"] == True, "orig_start"] = "scaffold"  # This is the "gap_type" column
     agp.loc[data["gap"] == True, "orig_end"] = "yes"  # This is the "linkage" column
-    agp["gap"] = agp["gap"].map({True: "U", False: "W"})
+    agp.loc[:, "gap"] = agp["gap"].map({True: "U", False: "W"})
     agp.loc[:, "orientation"] = agp["orientation"].map({1: "+", -1: "-", "paired-ends;map": "paired-ends;map"})
-    agp["ssize"] = agp.groupby("super")["original_scaffold"].transform("size")
+    agp.loc[:, "ssize"] = agp.groupby("super")["original_scaffold"].transform("size")
     agp.loc[agp["ssize"] == 1, "super"] = agp.loc[agp["ssize"] == 1, "original_scaffold"]
     bait = (agp["ssize"] == 1) & (((agp["orig_start"] != "scaffold") & (agp["orig_start"] != 1)) |
                                   ((agp["orig_end"] != agp["orig_length"]) & (agp["orig_end"] != "yes")  ))
