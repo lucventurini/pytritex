@@ -85,7 +85,7 @@ def read_morexaln_minimap(paf: str,
     morex = morex.reset_index(drop=True).set_index("scaffold")
     morex = dd.merge(fai[["scaffold", "length"]].reset_index(drop=False).set_index("scaffold"),
                      morex, on=["scaffold"], how="right").reset_index(drop=True).set_index("scaffold_index")
-    morex = morex.query("length >= @minlen & css_length >= @minlen",
+    morex = morex.query("length >= @minlen & css_contig_length >= @minlen",
                         local_dict={"minlen": minlen})
     morex = morex[~morex.popseq_index.isna()]
     morex["orig_scaffold_index"] = morex.index.values
