@@ -12,7 +12,7 @@ import logging
 dask_logger = logging.getLogger("dask")
 
 
-def _group_analyser(group, binsize, cores=1):
+def _group_analyser(group, binsize):
     """Count how many pairs cover a given bin; return into a column called "n"."""
     ##     """Count how many pairs cover a given bin; return into a column called "n"."""
     # (scaffold_index, bin_group), group = group
@@ -29,7 +29,7 @@ def _group_analyser(group, binsize, cores=1):
     # return assigned
 
     bins = group[["bin1", "bin2"]].to_numpy() + [binsize, 0]
-    counter = cbn(bins, binsize, cores)
+    counter = cbn(bins, binsize)
     counter = np.vstack([np.fromiter(counter.keys(), dtype=np.int), np.fromiter(counter.values(),
                                                                                 dtype=np.int)]).T
     assigned = np.hstack([np.repeat(group.index.to_numpy()[0],
@@ -119,7 +119,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
     dask_logger.debug("%s Created the temporary dataframe", ctime())
     temp_frame = dd.from_pandas(temp_frame, npartitions=fpairs.npartitions)
     # pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
-    _gr = functools.partial(_group_analyser, binsize=binsize, cores=2)
+    _gr = functools.partial(_group_analyser, binsize=binsize)
     # Count how many pairs cover each smaller bin within the greater bin.
     finalised = temp_frame.groupby("scaffold_index").apply(_gr, meta=int).compute().values
     dask_logger.debug("%s Calculated the coverage bins", ctime())

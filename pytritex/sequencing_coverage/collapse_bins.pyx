@@ -8,7 +8,7 @@ np.import_array()
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
-cpdef collapse_bins(np.ndarray bins, long binsize, long num_threads):
+cpdef collapse_bins(np.ndarray bins, long binsize):
     cdef cpp_map[long, long] mapper
     cdef cpp_map[long, long].iterator it
     cdef long pos1, pos2

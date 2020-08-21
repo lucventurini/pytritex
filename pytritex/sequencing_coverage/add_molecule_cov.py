@@ -25,11 +25,11 @@ def add_10x_mr(info, coverage_df):
     return info_mr
 
 
-def _group_analyser(group: pd.DataFrame, binsize, cores=1):
+def _group_analyser(group: pd.DataFrame, binsize):
     # assert group["scaffold_index"].unique().shape[0] == 1, group["scaffold_index"]
     # scaffold = group["scaffold_index"].head(1).values[0]
     bins = group.to_numpy().astype(np.int) + np.array([binsize, 0])
-    counter = cbn(bins, binsize, cores)
+    counter = cbn(bins, binsize)
     counter = np.vstack([np.fromiter(counter.keys(), dtype=np.int), np.fromiter(counter.values(),
                                                                                 dtype=np.int)]).T
     assigned = np.hstack([np.repeat([group.index[0]], counter.shape[0]).reshape(counter.shape[0], 1),
@@ -78,7 +78,7 @@ def add_molecule_cov(assembly: dict, save_dir, binsize=200, save_info=True):
     temp_dataframe = dd.from_pandas(temp_dataframe, npartitions=molecules.npartitions)
     # dask_logger.debug("%s Queried the temp dataframe (10X)", ctime())
     # Now let's persist the dataframe, and submit it to the Dask cluster
-    _gr = functools.partial(_group_analyser, binsize=binsize, cores=2)
+    _gr = functools.partial(_group_analyser, binsize=binsize)
     dask_logger.debug("%s Calculating coverage per-group (10X)", ctime())
     finalised = temp_dataframe.groupby("scaffold_index").apply(_gr, meta=int).compute().values
     dask_logger.debug("%s Calculated coverage per-group (10X)", ctime())

@@ -59,7 +59,7 @@ cdef vector[long] _swap(long[:] route_array, long index, long kindex) nogil:
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef np.ndarray tsp_2_opt(np.ndarray graph, np.ndarray route, long num_threads):
+cpdef np.ndarray tsp_2_opt(np.ndarray graph, np.ndarray route):
     """
     Approximate the optimal path of travelling salesman according to 2-opt algorithm
     Args:

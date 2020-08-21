@@ -112,7 +112,7 @@ def _local_improvement(edges, path, mst, current_upper_bound, mst_lower_bound, n
             internal_rounds = 0
             while changed:
                 prev = path[:]
-                path = tsp_2_opt(mst.toarray(), path, ncores)
+                path = tsp_2_opt(mst.toarray(), path)
                 if all(path == prev):
                     changed = False
                 else:
