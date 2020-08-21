@@ -24,6 +24,10 @@ def rank(series: Union[dd.Series, pd.Series, np.array]):
     # return np.argsort(series)
 
 
+def sort_column(col):
+    return np.sort(col.values).tolist()
+
+
 def rolling_join(left: Union[pd.DataFrame, dd.DataFrame], right: Union[pd.DataFrame, dd.DataFrame],
                  on, by, how="right") -> Union[pd.DataFrame, dd.DataFrame]:
     """Implementation of the R data.table rolling join procedure."""
@@ -53,7 +57,7 @@ def rolling_join(left: Union[pd.DataFrame, dd.DataFrame], right: Union[pd.DataFr
         left["__idx_pos"] = da.from_array(grouped[by].transform(rank).astype(int),
                                           chunks=chunks)
         assert left.shape[0].compute() > 0
-        s = grouped[by].agg(by=(by, lambda col: np.sort(col.values).tolist()))
+        s = grouped.agg(by=pd.NamedAgg(column=by, aggfunc=sort_column))[["by"]]
         s = dd.from_pandas(s, chunksize=1000)
         # assert s.index.dtype == left.index.dtype, (s.index.)
     else:
