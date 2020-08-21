@@ -155,7 +155,6 @@ Supplied values: {}, {}".format(binsize, binsize2))
         coverage_df["nbin"] = coverage_df.groupby(
             coverage_df.index.name)[_col].transform("size", meta=int).to_dask_array(lengths=True)
         assert isinstance(coverage_df, dd.DataFrame)
-        _ = coverage_df.head(npartitions=-1, n=5)
         # Mean number of pairs covering each bin (cut at the rightmost side)
         dask_logger.debug("%s Calculating the mean mn metric (HiC)", ctime())
         mn = coverage_df.reset_index(drop=True)[["d", "n"]].groupby("d")["n"].mean().to_frame("mn")
@@ -177,9 +176,7 @@ Supplied values: {}, {}".format(binsize, binsize2))
         assert coverage_df.index.name == "scaffold_index"
         assert min_ratio.index.name == coverage_df.index.name, min_ratio.index.name
         assert "r" in coverage_df.columns
-        coverage_df = coverage_df.merge(min_ratio, how="left", on=coverage_df.index.name)
-        # Test
-        _ = coverage_df.head(npartitions=-1, n=5)
+        coverage_df = coverage_df.merge(min_ratio, how="left", on=coverage_df.index.name).persist()
         assert "r" in coverage_df.columns
         # For those scaffolds where we have at least one bin which is further away from the start than "innerDist",
         # calculate the minimum coverage *for those bins only*.

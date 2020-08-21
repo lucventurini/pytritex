@@ -6,7 +6,7 @@ from libcpp.map cimport map as cpp_map
 np.import_array()
 
 
-@cython.boundscheck(False) # turn off bounds-checking for entire function
+# @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
 cpdef collapse_bins(np.ndarray bins, long binsize):
     cdef cpp_map[long, long] mapper
