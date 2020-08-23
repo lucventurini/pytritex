@@ -121,7 +121,8 @@ def load_popseq(popseq, save_dir):
     return popseq, pop_name
 
 
-def initial(popseq, fasta, css, tenx, hic, save, client, memory, ram="20GB", cores=1):
+def initial(popseq, fasta, css, tenx, hic, save, client, memory, ram="20GB", ref=None,
+            cores=1):
 
     save_dir = os.path.join(save, "joblib", "pytritex", "initialisation")
     os.makedirs(save_dir, exist_ok=True)
@@ -154,7 +155,7 @@ def initial(popseq, fasta, css, tenx, hic, save, client, memory, ram="20GB", cor
         return cssaln
 
     cssaln = memory.cache(cssaln_submitter, ignore=["fai", "css", "popseq"])(
-        fai, css, popseq, save_dir, minqual=30, minlen=500, ref=True)
+        fai, css, popseq, save_dir, minqual=30, minlen=500, ref=ref)
     print(time.ctime(), "Read the CSS alignment")
     # Read the list of Hi-C links.
     print(time.ctime(), "Reading the HiC links")
