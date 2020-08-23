@@ -131,7 +131,7 @@ def main():
     memory = Memory(os.path.join(".", args.save_prefix), compress=("zlib", 6), verbose=1)
     assembly = memory.cache(initial, ignore=["cores", "client", "memory", "ram"])(
         args.popseq, args.fasta, args.css, args.tenx, args.hic, args.save_prefix, client=client, memory=memory,
-        ram=args.mem, ref=popseq_is_target)
+        ram=args.mem, ref=(not popseq_is_target))
     assembly = memory.cache(anchor_scaffolds, ignore=["client"])(
         assembly, os.path.join(args.save_prefix, "joblib", "pytritex", "anchoring"), species="wheat", client=client)
     cov_base = os.path.join(args.save_prefix, "joblib", "pytritex", "sequencing_coverage")
