@@ -99,7 +99,7 @@ def main():
                         help="Inclusive range to investigate for the dist parameter, with step size.\
                         Default: [60,000, 90,000, 10,000]")
     parser.add_argument("--infer-ref", default=False, action="store_true")
-    parser.add_argument("--popseq-is-ref", default=False, action="store_true")
+    parser.add_argument("--popseq-is-target", default=False, action="store_true")
     # parser.add_argument("-umfs", "--use-memory_fs", default=False, action="store_true")
     parser.add_argument("--mem", default="20GB", type=str)
     parser.add_argument("--save", default=False, action="store_true")
@@ -111,9 +111,9 @@ def main():
     mp.set_start_method("spawn", force=True)
     args = parser.parse_args()
 
-    popseq_is_ref = args.popseq_is_ref
+    popseq_is_target = args.popseq_is_target
     if args.infer_ref is True:
-        popseq_is_ref = None
+        popseq_is_target = None
 
     # Initial set-up
     os.makedirs(args.dask_cache, exist_ok=True)
@@ -131,7 +131,7 @@ def main():
     memory = Memory(os.path.join(".", args.save_prefix), compress=("zlib", 6), verbose=1)
     assembly = memory.cache(initial, ignore=["cores", "client", "memory", "ram"])(
         args.popseq, args.fasta, args.css, args.tenx, args.hic, args.save_prefix, client=client, memory=memory,
-        ram=args.mem, ref=popseq_is_ref)
+        ram=args.mem, ref=popseq_is_target)
     assembly = memory.cache(anchor_scaffolds, ignore=["client"])(
         assembly, os.path.join(args.save_prefix, "joblib", "pytritex", "anchoring"), species="wheat", client=client)
     cov_base = os.path.join(args.save_prefix, "joblib", "pytritex", "sequencing_coverage")
