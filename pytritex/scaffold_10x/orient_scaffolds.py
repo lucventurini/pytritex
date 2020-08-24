@@ -84,7 +84,7 @@ def _calculate_orientation_column(membership, final_association):
 def _calculate_oriented_column(membership):
     # Now assign an "orientation" value to each (1 if + or unknown, -1 for -)
     # and an "oriented" value (strictly boolean)
-    chunks = tuple(membership.map_partitions(len).compute().values.tolist())
+    membership = membership.persist()
     orientation = membership["orientation"].compute()
     logger.warning("%s Got the orientation column", time.ctime())
     oriented = pd.Series([True] * orientation.shape[0], index=orientation.index, dtype=bool)
@@ -94,8 +94,6 @@ def _calculate_oriented_column(membership):
     oriented.loc[idx1] = False
     orientation.loc[idx1] = 1
     logger.warning("%s Creating the dask arrays", time.ctime())
-    orientation = da.from_array(orientation, chunks=chunks)
-    oriented = da.from_array(oriented, chunks=chunks)
     membership["orientation"] = orientation
     membership["oriented"] = oriented
     logger.warning("%s Calculated the orientation/oriented columns", time.ctime())
@@ -122,6 +120,7 @@ def orient_scaffolds(info: str, res: str,
     final_association = _create_association(membership, info, link_pos, max_dist_orientation=max_dist_orientation)
     membership = _calculate_orientation_column(membership, final_association)
     membership = _calculate_oriented_column(membership)
+    membership = membership.persist()
 
     # Next step: assign to each scaffold a base-pair position in the super-scaffold, "super_pos"
     # This position should be determined by bin and rank.
@@ -136,8 +135,9 @@ def orient_scaffolds(info: str, res: str,
     super_pos = grouped.apply(super_position, meta=np.int).compute()
     indices = np.concatenate([_[0, :] for _ in super_pos.values])
     pos = np.concatenate([_[1, :] for _ in super_pos.values])
-    super_pos = pd.DataFrame().assign(scaffold_index=indices, super_pos=pos).astype({"scaffold_index": np.int,
-                                                                                     "super_pos": np.float}).set_index("scaffold_index")
+    super_pos = pd.DataFrame().assign(
+        scaffold_index=indices, super_pos=pos).astype(
+        {"scaffold_index": np.int,"super_pos": np.float}).set_index("scaffold_index")
     super_pos = dd.from_pandas(super_pos, npartitions=min(10, super_pos.shape[0]))
     assert membership.index.name == "scaffold_index", (membership.index.name,)
     membership = membership.reset_index(drop=False).astype({"scaffold_index": np.int}).set_index("scaffold_index")
@@ -154,8 +154,7 @@ def orient_scaffolds(info: str, res: str,
     nchr = anchored.groupby(["chr", "super"])["length"].size().to_frame("nchr").reset_index(drop=False)
     nchr_sum = nchr.groupby("super")["nchr"].transform("sum", meta=np.int)
     logger.warning("%s Calculating pchr", time.ctime())
-    nchr["pchr"] = da.from_array((nchr["nchr"] / nchr_sum).compute(),
-                                 chunks=tuple(nchr.map_partitions(len).compute().values.tolist()))
+    nchr["pchr"] = pd.Series((nchr["nchr"] / nchr_sum).compute(), index=nchr.index.values.compute())
     nchr["max_nchr"] = nchr.groupby("super")["nchr"].transform("max", meta=np.int).values
     logger.warning("%s Dropping max_nchr duplicates", time.ctime())
     nchr = nchr.query("nchr == max_nchr").drop_duplicates(subset="super").drop("max_nchr", axis=1)
