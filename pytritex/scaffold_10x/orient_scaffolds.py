@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import dask.dataframe as dd
 import dask.array as da
-from dask.delayed import delayed
 from dask.distributed import Client
 import logging
 logger = logging.getLogger("distributed.worker")
@@ -32,7 +31,7 @@ def chrom_percentage(group):
     return (group["nchr"] / chr_sum).values
 
 
-def _create_association(membership, info, link_pos, client, max_dist_orientation):
+def _create_association(membership, info, link_pos, max_dist_orientation):
     logger.warning("%s Getting scaffolds in super-scaffolds", time.ctime())
     m_greater_one = membership.query("super_nbin > 1")
     assert m_greater_one.shape[0].compute() > 0, membership.head()
@@ -48,7 +47,7 @@ def _create_association(membership, info, link_pos, client, max_dist_orientation
     association = association.query("(super1 == super2) & (bin1 != bin2)")
     association = association.eval("d = abs(bin2 - bin1)")
     association = association[association["d"] <= max_dist_orientation]
-    association = association.rename(columns={"scaffold_index1": "scaffold_index"})
+    association = association.rename(columns={"scaffold_index1": "scaffold_index"}).persist()
     assert association.shape[0].compute() > 0
     logger.warning("%s Grouping the association table by SI", time.ctime())
     association = association.set_index("scaffold_index")
@@ -57,11 +56,12 @@ def _create_association(membership, info, link_pos, client, max_dist_orientation
     nxt = ngroup["pos1"].mean().to_frame("nxt")
     prev = pgroup["pos1"].mean().to_frame("prv")
     final_association = dd.merge(prev, nxt, on="scaffold_index")
-    final_association = info[["length"]].merge(final_association, left_index=True, right_index=True)
+    final_association = info[["length"]].merge(final_association, left_index=True, right_index=True).persist()
+    logger.warning("%s Created the association table", time.ctime())
     return final_association
 
 
-def _calculate_orientation_column(membership, final_association, client):
+def _calculate_orientation_column(membership, final_association):
     logger.warning("%s Calculating the orientation variable for scaffolds", time.ctime())
     idx1 = final_association.eval("(prv == prv) & (nxt == nxt)")
     index = final_association.index.compute()
@@ -72,8 +72,6 @@ def _calculate_orientation_column(membership, final_association, client):
     idx3 = final_association.eval("(prv == prv) & (nxt != nxt)")
     orientation.loc[idx3.compute()] = final_association.loc[idx3].eval("prv < length - prv").compute()
     orientation = orientation.map({True: 1, False: -1})
-    chunks = tuple(final_association.map_partitions(len).compute().values.tolist())
-    orientation = da.from_array(orientation, chunks=chunks)
     final_association["orientation"] = orientation
     assert isinstance(final_association, dd.DataFrame), type(final_association)
     logger.warning("%s Merging the orientation variable back into membership", time.ctime())
@@ -121,8 +119,8 @@ def orient_scaffolds(info: str, res: str,
     maxidx = membership["super"].values.max().compute()
     # #  m[super_nbin > 1, .(scaffold1=scaffold, bin1=bin, super1=super)][link_pos, on="scaffold1", nomatch=0]->a
 
-    final_association = _create_association(membership, info, link_pos, client, max_dist_orientation)
-    membership = _calculate_orientation_column(membership, final_association, client)
+    final_association = _create_association(membership, info, link_pos, max_dist_orientation=max_dist_orientation)
+    membership = _calculate_orientation_column(membership, final_association)
     membership = _calculate_oriented_column(membership)
 
     # Next step: assign to each scaffold a base-pair position in the super-scaffold, "super_pos"
