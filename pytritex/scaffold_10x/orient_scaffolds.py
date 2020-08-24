@@ -85,17 +85,19 @@ def _calculate_oriented_column(membership):
     # Now assign an "orientation" value to each (1 if + or unknown, -1 for -)
     # and an "oriented" value (strictly boolean)
     membership = membership.persist()
-    orientation = membership["orientation"].compute()
+    membership = membership.reset_index(drop=(membership.index.name != "scaffold_index")).set_index("scaffold_index")
+    orientation = membership[["orientation"]].compute()
     logger.warning("%s Got the orientation column", time.ctime())
-    oriented = pd.Series([True] * orientation.shape[0], index=orientation.index, dtype=bool)
+    oriented = pd.DataFrame(index=orientation.index).assign(oriented=[True] * orientation.shape[0])
     logger.warning("%s Created the oriented column", time.ctime())
-    idx1 = orientation.isna().values
+    idx1 = orientation["orientation"].isna().values
     logger.warning("%s Calculated the idx1 variable", time.ctime())
-    oriented.loc[idx1] = False
-    orientation.loc[idx1] = 1
+    oriented.loc[idx1, "oriented"] = False
+    orientation.loc[idx1, "orientation"] = 1
+    # orientation = pd.Series(orientation.vaues, index=orientation.index)
     logger.warning("%s Creating the dask arrays", time.ctime())
-    membership["orientation"] = orientation
-    membership["oriented"] = oriented
+    membership["orientation"] = orientation["orientation"]
+    membership["oriented"] = oriented["oriented"]
     logger.warning("%s Calculated the orientation/oriented columns", time.ctime())
     return membership
 
