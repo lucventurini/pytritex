@@ -63,13 +63,15 @@ def _calculate_link_pos(molecules: str, fai: str, save_dir: str,
     link_pos_name = os.path.join(save_dir, "link_pos")
     link_pos = link_pos.persist()
     dd.to_parquet(link_pos, link_pos_name, compression="gzip", engine="pyarrow", compute=True)
+    link_pos = dd.read_parquet(link_pos_name)
     return link_pos, link_pos_name
 
 
 def mol_counter(link_pos, min_nmol):
     mol_count = link_pos[["scaffold_index1", "scaffold_index2", "sample", "barcode_index"]].drop_duplicates()
-    mol_count = mol_count.groupby(["scaffold_index1", "scaffold_index2", "sample"])["barcode_index"].size().to_frame("nmol")
-    mol_count = mol_count[mol_count["nmol"] >= min_nmol]
+    mol_count = mol_count.groupby(
+        ["scaffold_index1", "scaffold_index2", "sample"])["barcode_index"].size().to_frame("nmol")
+    mol_count = mol_count.query("nmol >= @min_nmol", local_dict={"min_nmol": min_nmol})
     return mol_count
 
 
@@ -77,8 +79,8 @@ def sample_counter(mol_count, min_nsample):
     sample_count = mol_count.reset_index(drop=False)[
         ["scaffold_index1", "scaffold_index2", "sample"]].drop_duplicates()
     sample_count = sample_count.groupby(
-        ["scaffold_index1", "scaffold_index2"])["sample"].size().rename("nsample")
-    sample_count = sample_count[sample_count >= min_nsample].to_frame("nsample")
+        ["scaffold_index1", "scaffold_index2"])["sample"].size().to_frame("nsample")
+    sample_count = sample_count.query("nsample >= min_nsample", local_dict={"min_nsample": min_nsample})
     sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index1")
     return sample_count
 
@@ -145,7 +147,7 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     left = basic.rename(columns=dict((col, col + "1") for col in basic.columns))
     left.index = left.index.rename("scaffold_index1")
     sample_count = dd.merge(left, sample_count, left_index=True, right_index=True, how="right",
-                            npartitions=sample_count.npartitions)
+                            npartitions=sample_count.npartitions).persist()
     dask_logger.warning("{} Storing the first merge of sample counts".format(time.ctime()))
     # dd.to_parquet(sample_count, sample_count_name, compression="gzip", engine="pyarrow", compute=True)
     dask_logger.warning("{} Stored the first merge of sample counts".format(time.ctime()))
@@ -155,14 +157,14 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
         columns=dict((col, col + "2") for col in basic.columns))
     left.index = left.index.rename("scaffold_index2")
     sample_count = dd.merge(left, sample_count, left_index=True, right_index=True,
-                            how="right", npartitions=sample_count.npartitions)
+                            how="right", npartitions=sample_count.npartitions).persist()
     sample_count = add_cols(sample_count.reset_index(drop=False))
     dask_logger.warning("Added the last columns to sample_count.")
     sample_count_name = os.path.join(save_dir, "sample_count")
     dd.to_parquet(sample_count, sample_count_name, compression="gzip", engine="pyarrow", compute=True)
-    # sample_count = dd.read_parquet(sample_count_name, infer_divisions=True, engine="auto")
     dask_logger.warning("Calculating the link positions.")
     if popseq_dist > 0:
+        sample_count = dd.read_parquet(sample_count_name, infer_divisions=True, engine="auto")
         links = sample_count[
                 (sample_count["same_chr"] == True) &
                 ((sample_count.eval("popseq_cM2 - popseq_cM1").astype(float)).abs() <= popseq_dist)]
