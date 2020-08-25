@@ -64,7 +64,11 @@ def grid_evaluation(assembly, args, client, memory):
     results = []
     for _index, row in grid.iterrows():
         if row.nsample * row.nmol * row.npairs > args.max_min_links:
-            logger.warning("Skipping row %s as too stringent (minimum no. of links: %s)",
+            logger.warning("Skipping row %s as too stringent (maximum no. of minimum links: %s)",
+                           row, row.nsamples * row.nmol * row.npairs)
+            continue
+        elif row.nsample * row.nmol * row.npairs < args.min_links:
+            logger.warning("Skipping row %s as too lenient (minimum no. of links: %s)",
                            row, row.nsamples * row.nmol * row.npairs)
             continue
         client.close()
@@ -87,6 +91,8 @@ def main():
     parser.add_argument("-p", "--processes", dest="procs", default=mp.cpu_count(), type=int)
     parser.add_argument("-s", "--save-prefix", default="assembly")
     parser.add_argument("-dc", "--dask-cache", default="dask_data", type=str)
+    parser.add_argument("--min-links", nargs=1, type=int, default=6,
+                        help="Minimum number of links (samples * nmol * npairs) to test.")
     parser.add_argument("--max-min-links", nargs=1, type=int, default=10,
                         help="Maximum number for the minimum number of links (samples * nmol * npairs) to test.")
     parser.add_argument("--nsamples", nargs=2, type=int, default=[1, 2],
