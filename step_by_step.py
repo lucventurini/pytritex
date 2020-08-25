@@ -65,11 +65,11 @@ def grid_evaluation(assembly, args, client, memory):
     for _index, row in grid.iterrows():
         if row.nsample * row.nmol * row.npairs > args.max_min_links:
             logger.warning("Skipping row %s as too stringent (maximum no. of minimum links: %s)",
-                           row, row.nsamples * row.nmol * row.npairs)
+                           row, row.nsample * row.nmol * row.npairs)
             continue
         elif row.nsample * row.nmol * row.npairs < args.min_links:
             logger.warning("Skipping row %s as too lenient (minimum no. of links: %s)",
-                           row, row.nsamples * row.nmol * row.npairs)
+                           row, row.nsample * row.nmol * row.npairs)
             continue
         client.close()
         worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
