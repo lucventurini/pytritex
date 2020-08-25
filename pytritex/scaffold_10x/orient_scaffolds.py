@@ -153,11 +153,12 @@ def orient_scaffolds(info: str, res: str,
     # Now we have to assign the genetic positions, ie anchor
     anchored = membership[~membership["chr"].isna()]
     logger.warning("%s Calculating nchr", time.ctime())
-    nchr = anchored.groupby(["chr", "super"])["length"].size().to_frame("nchr").reset_index(drop=False)
-    nchr_sum = nchr.groupby("super")["nchr"].transform("sum", meta=np.int)
+    nchr = anchored.groupby(["chr", "super"])["length"].size().to_frame("nchr").reset_index(drop=False).compute()
+    nchr_sum = nchr.groupby("super")["nchr"].transform("sum")
     logger.warning("%s Calculating pchr", time.ctime())
-    nchr["pchr"] = pd.Series((nchr["nchr"] / nchr_sum).compute(), index=nchr.index.values.compute())
-    nchr["max_nchr"] = nchr.groupby("super")["nchr"].transform("max", meta=np.int).values
+
+    nchr["pchr"] = pd.Series((nchr["nchr"] / nchr_sum), index=nchr.index)
+    nchr["max_nchr"] = nchr.groupby("super")["nchr"].transform("max")
     logger.warning("%s Dropping max_nchr duplicates", time.ctime())
     nchr = nchr.query("nchr == max_nchr").drop_duplicates(subset="super").drop("max_nchr", axis=1)
     # chr, super, nchr, pchr - no index
@@ -173,9 +174,9 @@ def orient_scaffolds(info: str, res: str,
     #  y[res, on="super"]->res
     #  yy[, .(cM=mean(cM), min_cM=min(cM), max_cM=max(cM)), key=super][res, on='super']->res
     #  setorder(res, -length)
-    min_cM = grouped_nchr_with_cms["cM"].apply(min, meta=np.float).to_frame("min_cM").compute()
-    max_cM = grouped_nchr_with_cms["cM"].apply(max, meta=np.float).to_frame("max_cM").compute()
-    mean_cM = grouped_nchr_with_cms["cM"].apply(np.mean, meta=np.float).to_frame("cM").compute()
+    min_cM = grouped_nchr_with_cms["cM"].min().to_frame("min_cM").compute()
+    max_cM = grouped_nchr_with_cms["cM"].max().to_frame("max_cM").compute()
+    mean_cM = grouped_nchr_with_cms["cM"].mean().to_frame("cM").compute()
     nchr_with_cms = pd.merge(mean_cM, pd.merge(min_cM, max_cM, on="super"), on="super")
     logger.warning("%s Calculated the nchr_with_cms stats", time.ctime())
     if res.index.name is None:
