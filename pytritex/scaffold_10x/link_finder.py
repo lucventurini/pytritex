@@ -81,8 +81,8 @@ def sample_counter(mol_count, min_nsample):
         ["scaffold_index1", "scaffold_index2", "sample"]].drop_duplicates()
     sample_count = sample_count.groupby(
         ["scaffold_index1", "scaffold_index2"])["sample"].size().to_frame("nsample")
-    sample_count = sample_count[sample_count["nsample"] >= min_nsample]
-    sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index1", sorted=True)
+    sample_count = sample_count.query("nsample >= @min_nsample", local_dict={"min_nsample": min_nsample})
+    sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index1")
     return sample_count
 
 
