@@ -91,7 +91,7 @@ def make_super(hl: dd.DataFrame,
     cidx2.columns = ["cidx2"]
 
     edge_list = edge_list.merge(cidx1, how="inner", on="cluster1").merge(cidx2, how="inner", on="cluster2")
-    edge_list = edge_list.reset_index(drop=False)
+    edge_list = edge_list.reset_index(drop=True)
     # Now we are ready to create the graph using the indices.
     nk.setNumberOfThreads(cores)
     graph = nk.Graph(n=cidx.shape[0], weighted=True, directed=False)
@@ -111,14 +111,16 @@ def make_super(hl: dd.DataFrame,
     # Create a dataframe of cluster/super-scaffolds relationship
     num_supers = len(ssuper)
     length = len(cidx_list)
-    raw_membership = pd.DataFrame().assign(cidx=cidx_list, super=ssuper).set_index("cidx")
+    raw_membership = pd.DataFrame().assign(cidx=cidx_list, super=ssuper).astype(
+        {"cidx": int, "super": int}).set_index("cidx")
     raw_membership = raw_membership.merge(
         cidx.reset_index(drop=False), on=["cidx"], how="outer").set_index("cluster")
     if raw_membership.shape[0] != length:
         logger.error("Duplicated indices after merging")
         sys.exit(1)
     membership = cluster_info.merge(raw_membership, left_index=True,
-                                    right_index=True, how="right")
+                                    right_index=True, how="right", npartitions=cluster_info.npartitions).persist()
+    membership = membership.reset_index(drop=False).astype({"cluster": int}).set_index("cluster").persist()
     if membership.shape[0].compute() != length:
         logger.error("Duplicated indices after merging with cluster_info")
         sys.exit(1)
@@ -136,7 +138,7 @@ def make_super(hl: dd.DataFrame,
     assert membership.index.name == "cluster"
     edge_list = membership[["super"]]
     edge_list.index = edge_list.index.rename("cluster1")
-    edge_list = edge_list.merge(hl, on="cluster1", how="right")
+    edge_list = edge_list.merge(hl, on="cluster1", how="right").persist()
 
     super_object = {"super_info": info,
                     "membership": membership, "graph": graph, "edges": edge_list}
