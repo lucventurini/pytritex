@@ -168,7 +168,8 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
         ]).reset_index(drop=True).set_index("hic_index")
         assert fpairs.known_divisions is True
         if fpairs.index.isna().any() is True:
-            dd.to_parquet(fpairs, "/tmp/fpairs", compute=True, engine="pyarrow", compression="gzip")
+            dd.to_parquet(fpairs, "/tmp/fpairs", compute=True, engine="pyarrow", compression="gzip",
+                          schema="infer")
             raise AssertionError
         fpairs = fpairs.astype(dict((_, np.int) for _ in
                                     ["orig_scaffold_index1", "orig_scaffold_index2", "orig_pos1", "orig_pos2",
@@ -180,5 +181,5 @@ def _transpose_fpairs(fpairs: dd.DataFrame, fai: dd.DataFrame, save_dir: str) ->
         fpairs = dd.from_pandas(fpairs, chunksize=1)
 
     fpairs_name = os.path.join(save_dir, "fpairs")
-    dd.to_parquet(fpairs, fpairs_name, compute=True, engine="pyarrow", compression="gzip")
+    dd.to_parquet(fpairs, fpairs_name, compute=True, engine="pyarrow", compression="gzip", schema="infer")
     return fpairs_name

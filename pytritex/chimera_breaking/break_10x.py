@@ -53,8 +53,6 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
         cycle += 1
         dask_logger.warning("%s Starting cycle %s of %s, with %s breaks",
                             time.ctime(), cycle, maxcycle, breaks.shape[0])
-        # dd.to_parquet(dd.from_pandas(breaks, chunksize=10 ** 5), os.path.join(save_dir, "breaks"), compute=True,
-        #               compression="gzip", engine="pyarrow")
         fai, _ = calculate_broken_scaffolds(fai=fai, breaks=breaks, slop=slop, save_dir=None, cores=cores)
         fai = fai.persist()
         molecules = _transpose_molecules(orig_assembly["molecules"], fai, save_dir=None).persist()
@@ -67,11 +65,13 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
             # assemblies[cycle] = assembly
             save_dir = os.path.join(base, str(cycle))
             fai_name = os.path.join(save_dir, "fai")
-            dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
+            dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow", schema="infer")
             molecules_name = os.path.join(save_dir, "molecules")
-            dd.to_parquet(molecules, molecules_name, compression="gzip", compute=True, engine="pyarrow")
+            dd.to_parquet(molecules, molecules_name, compression="gzip",
+                          compute=True, engine="pyarrow", schema="infer")
             molecules_cov_name = os.path.join(save_dir, "molecules_cov_10x")
-            dd.to_parquet(molecule_cov, molecules_cov_name, compression="gzip", compute=True, engine="pyarrow")
+            dd.to_parquet(molecule_cov, molecules_cov_name,
+                          compression="gzip", compute=True, engine="pyarrow", schema="infer")
 
         dask_logger.warning("%s Finished cycle %s of %s; finding new breaks",
                             time.ctime(), cycle, maxcycle)
@@ -83,11 +83,12 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
     dask_logger.warning("%s Broken all chimeras. Starting to save the data.", time.ctime())
     save_dir = base[:]
     fai_name = os.path.join(save_dir, "fai")
-    dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
+    dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow", schema="infer")
     molecules_name = os.path.join(save_dir, "molecules")
-    dd.to_parquet(molecules, molecules_name, compression="gzip", compute=True, engine="pyarrow")
+    dd.to_parquet(molecules, molecules_name, compression="gzip", compute=True, engine="pyarrow", schema="infer")
     molecules_cov_name = os.path.join(save_dir, "molecules_cov_10x")
-    dd.to_parquet(molecule_cov, molecules_cov_name, compression="gzip", compute=True, engine="pyarrow")
+    dd.to_parquet(molecule_cov, molecules_cov_name, compression="gzip", compute=True,
+                  engine="pyarrow", schema="infer")
 
     new_assembly = dict()
     for key in ["binsize", "innerDist", "minNbin", "popseq", "mol_binsize"]:
@@ -109,7 +110,8 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
     info = info.drop("mr", axis=1, errors="ignore")
     info = info.drop("mri", axis=1, errors="ignore")
     info = add_10x_mr(info, molecule_cov)
-    dd.to_parquet(info, os.path.join(save_dir, "info_10x"), compute=True, compression="gzip", engine="pyarrow")
+    dd.to_parquet(info, os.path.join(save_dir, "info_10x"), compute=True, compression="gzip",
+                  engine="pyarrow", schema="infer")
     new_assembly["info"] = info
     dask_logger.debug("%s Transposing the HiC coverage data", time.ctime())
     new_assembly = add_hic_cov(new_assembly,
@@ -121,7 +123,7 @@ def break_10x(assembly: dict, save_dir: str, client: Client,
     for key in ["popseq_alphachr2", "popseq_alphachr", "sorted_alphachr", "sorted_alphachr2"]:
         info[key] = info[key].map({0: np.nan})
     info["derived_from_split"] = info["derived_from_split"].fillna(False)
-    dd.to_parquet(info, info_name, engine="pyarrow", compute=True, compression="gzip")
+    dd.to_parquet(info, info_name, engine="pyarrow", compute=True, compression="gzip", schema="infer")
     dask_logger.debug("%s Finished transposing", time.ctime())
     # This is necessary to reput the correct FAI index folder into the dictionary.
     new_assembly["fai"] = fai_name[:]

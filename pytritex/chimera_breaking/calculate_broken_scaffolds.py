@@ -164,7 +164,7 @@ def calculate_broken_scaffolds(breaks: pd.DataFrame, fai: str, save_dir: Union[s
     fai = assign_to_use_column(fai)
     if save_dir is not None:
         fai_name = os.path.join(save_dir, "fai")
-        dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow")
+        dd.to_parquet(fai, fai_name, compression="gzip", compute=True, engine="pyarrow", schema="infer")
     else:
         fai_name = None
     # new_indices = fai.index.compute().difference(original_indices).values

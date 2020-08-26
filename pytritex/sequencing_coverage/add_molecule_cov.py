@@ -154,7 +154,8 @@ def add_molecule_cov(assembly: dict, save_dir, binsize=200, save_info=True):
         if save_dir is not None:
             fname = os.path.join(save_dir, key + "_10x")
             assembly[key] = assembly[key].repartition(partition_size="100MB", force=True)
-            dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True)
+            dd.to_parquet(assembly[key], fname, compression="gzip", engine="pyarrow", compute=True,
+                          schema="infer")
             assembly[key] = fname
             dask_logger.debug("%s Saved %s", ctime(), key)
 

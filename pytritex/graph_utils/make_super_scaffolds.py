@@ -122,9 +122,9 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client, 
             new_membership = client.compute(func).result()
         except (ValueError, TypeError) as exc:
             dd.to_parquet(membership, os.path.join(save_dir, "membership"), compute=True,
-                          engine="pyarrow", compression="gzip")
+                          engine="pyarrow", compression="gzip", schema="infer")
             dd.to_parquet(_to_concatenate, os.path.join(save_dir, "_to_concatenate"), compute=True,
-                          engine="pyarrow", compression="gzip")
+                          engine="pyarrow", compression="gzip", schema="infer")
             logger.critical("Error in concatenating: %s", exc)
             logger.critical("See %s and %s", os.path.join(save_dir, "membership"),
                             os.path.join(save_dir, "_to_concatenate"))
@@ -144,9 +144,9 @@ To add: %s
 Concatenated: %s""", info_index.shape[0], indices.shape[0], _to_concatenate.shape[0].compute(),
                      new_membership.shape[0].compute())
         dd.to_parquet(membership, os.path.join(save_dir, "membership"), compute=True,
-                      engine="pyarrow", compression="gzip")
+                      engine="pyarrow", compression="gzip", schema="infer")
         dd.to_parquet(_to_concatenate, os.path.join(save_dir, "_to_concatenate"), compute=True,
-                      engine="pyarrow", compression="gzip")
+                      engine="pyarrow", compression="gzip", schema="infer")
         logger.critical("See %s and %s", os.path.join(save_dir, "membership"),
                         os.path.join(save_dir, "_to_concatenate"))
         sys.exit(1)
@@ -227,9 +227,11 @@ def make_super_scaffolds(links: Union[str, dd.DataFrame],
     logger.warning("%s Finished add_statistics", time.ctime())
     # mem_copy = dd.from_pandas(mem_copy, chunksize=1000)
     if to_parquet is True:
-        dd.to_parquet(membership, os.path.join(save_dir, "membership"))
+        dd.to_parquet(membership, os.path.join(save_dir, "membership"), schema="infer", compute=True,
+                      compression="gzip")
         # res = dd.from_pandas(res, chunksize=1000)
-        dd.to_parquet(res, os.path.join(save_dir, "result"))
+        dd.to_parquet(res, os.path.join(save_dir, "result"), schema="infer", compute=True,
+                      compression="gzip")
         logger.warning("%s Finished saving the data to disk", time.ctime())
         return {"membership": os.path.join(save_dir, "membership"),
                 "info": os.path.join(save_dir, "result")}

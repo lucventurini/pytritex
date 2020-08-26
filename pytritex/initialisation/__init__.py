@@ -29,7 +29,7 @@ def fai_reader(fasta, save_dir):
     fname = os.path.join(save_dir, "fai")
     dd.to_parquet(dd.from_pandas(fai,
                                  chunksize=int(1e5)), os.path.join(save_dir, "fai"),
-                  compression="gzip", engine="pyarrow")
+                  compression="gzip", engine="pyarrow", schema="infer")
     fai = dd.read_parquet(fname, engine="pyarrow")
     return fai, fname
 
@@ -107,7 +107,7 @@ def read_fpairs(hic, fai, save_dir):
                                        orig_scaffold_index1=[], orig_scaffold_index2=[]).set_index("pair_index")
         fpairs = dd.from_pandas(fpairs, chunksize=10 ** 5)
     fname = os.path.join(save_dir, "fpairs")
-    dd.to_parquet(fpairs, fname, compression="gzip", compute=True, engine="pyarrow")
+    dd.to_parquet(fpairs, fname, compression="gzip", compute=True, engine="pyarrow", schema="infer")
     [os.remove(fname) for fname in fnames]    
     return fname
 
@@ -116,7 +116,7 @@ def load_popseq(popseq, save_dir):
     popseq = dd.from_pandas(load(popseq), npartitions=10)
     popseq.columns = popseq.columns.str.replace("morex", "css")
     pop_name = os.path.join(save_dir, "popseq")
-    dd.to_parquet(popseq, pop_name, compute=True)
+    dd.to_parquet(popseq, pop_name, compute=True, schema="infer", compression="gzip")
     popseq = dd.read_parquet(pop_name)
     return popseq, pop_name
 

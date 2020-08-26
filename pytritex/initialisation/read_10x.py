@@ -55,11 +55,11 @@ def read_10x_molecules(samples: pd.DataFrame, fai: pd.DataFrame, save_dir, clien
         barcode_index=np.arange(shape, dtype=np.int32)).set_index("barcode")
     barcodes = dd.from_pandas(barcodes, npartitions=100)
     bar_name = os.path.join(save_dir, "barcodes")
-    dd.to_parquet(barcodes, bar_name, compression="gzip", engine="pyarrow", compute=True)
+    dd.to_parquet(barcodes, bar_name, compression="gzip", engine="pyarrow", compute=True, schema="infer")
     barcodes = dd.read_parquet(bar_name)
     mol = dd.merge(barcodes, mol, how="right", on="barcode", npartitions=100)
     assert isinstance(mol, dd.DataFrame)
     mol = mol.drop("barcode", axis=1).set_index("scaffold_index")
     fname = os.path.join(save_dir, "molecules")
-    dd.to_parquet(mol, fname, compression="gzip", engine="pyarrow", compute=True)
+    dd.to_parquet(mol, fname, compression="gzip", engine="pyarrow", compute=True, schema="infer")
     return fname, bar_name

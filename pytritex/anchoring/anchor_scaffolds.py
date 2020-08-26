@@ -84,13 +84,14 @@ def anchor_scaffolds(assembly: dict,
     dask_logger.debug("%s Saving to disk", time.ctime())
 
     if save is not None:
-        dd.to_parquet(anchored_css, os.path.join(save, "anchored_css"), compute=True)
+        dd.to_parquet(anchored_css, os.path.join(save, "anchored_css"), compute=True, schema="infer")
         assembly["info"] = os.path.join(save, "anchored_css")
     else:
         assembly["info"] = anchored_css
     if hic is True:
         if save is not None:
-            dd.to_parquet(anchored_hic_links, os.path.join(save, "anchored_hic_links"), compute=True)
+            dd.to_parquet(anchored_hic_links, os.path.join(save, "anchored_hic_links"), compute=True,
+                          schema="infer")
             assembly["fpairs"] = os.path.join(save, "anchored_hic_links")
         else:
             assembly["fpairs"] = anchored_hic_links

@@ -81,9 +81,11 @@ def _initial_branch_remover(client: Client,
                                               maxidx, excluded, client, save_dir)
     out["membership"], out["info"] = add_statistics(out["membership"], client)
 
-    dd.to_parquet(out["membership"], os.path.join(save_dir, "membership"), compute=True, compression="gzip", engine="pyarrow")
+    dd.to_parquet(out["membership"], os.path.join(save_dir, "membership"),
+                  compute=True, compression="gzip", engine="pyarrow", schema="infer")
     # res = dd.from_pandas(res, chunksize=1000)
-    dd.to_parquet(out["info"], os.path.join(save_dir, "result"), compute=True, compression="gzip", engine="pyarrow")
+    dd.to_parquet(out["info"], os.path.join(save_dir, "result"), compute=True,
+                  compression="gzip", engine="pyarrow", schema="infer")
     out = {"membership": os.path.join(save_dir, "membership"),
            "info": os.path.join(save_dir, "result")}
 

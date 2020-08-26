@@ -61,8 +61,8 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> str:
     except (TypeError, ValueError):
         dask_logger.critical("Up: %s, %s", cssaln_up.index.dtype, cssaln_up.dtypes)
         dask_logger.critical("Down: %s, %s", cssaln_down.index.dtype, cssaln_down.dtypes)
-        dd.to_parquet(cssaln_down, "/tmp/down", engine="pyarrow", compute=True)
-        dd.to_parquet(cssaln_up, "/tmp/up", engine="pyarrow", compute=True)
+        dd.to_parquet(cssaln_down, "/tmp/down", engine="pyarrow", compute=True, schema="infer")
+        dd.to_parquet(cssaln_up, "/tmp/up", engine="pyarrow", compute=True, schema="infer")
         raise
 
     assert isinstance(cssaln, dd.DataFrame)
@@ -72,6 +72,6 @@ def _transpose_cssaln(cssaln: str, fai: dd.DataFrame, save_dir: str) -> str:
     dask_logger.debug("%s Finished calculating CSS-ALN, rebalancing", ctime())
     cssaln_name = os.path.join(save_dir, "cssaln")
     cssaln = cssaln.repartition(npartitions=nparts)
-    dd.to_parquet(cssaln, cssaln_name, engine="pyarrow", compression="gzip", compute=True)
+    dd.to_parquet(cssaln, cssaln_name, engine="pyarrow", compression="gzip", compute=True, schema="infer")
     dask_logger.debug("%s Saved CSS-ALN in %s", ctime(), cssaln_name)
     return cssaln_name

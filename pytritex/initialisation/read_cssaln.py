@@ -91,5 +91,5 @@ def read_morexaln_minimap(paf: str,
     morex["orig_scaffold_index"] = morex.index.values
     morex["orig_pos"] = morex["pos"]
     fname = os.path.join(save_dir, "cssaln")
-    dd.to_parquet(morex, fname, compression="gzip", compute=True, engine="pyarrow")
+    dd.to_parquet(morex, fname, compression="gzip", compute=True, engine="pyarrow", schema="infer")
     return fname

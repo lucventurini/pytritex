@@ -92,7 +92,7 @@ def _transpose_molecules(molecules: dd.DataFrame, fai: dd.DataFrame,
     assert isinstance(molecules, dd.DataFrame)
     if save_dir is not None:
         fname = os.path.join(save_dir, "molecules")
-        dd.to_parquet(molecules, fname, engine="pyarrow", compression="gzip", compute=True)
+        dd.to_parquet(molecules, fname, engine="pyarrow", compression="gzip", compute=True, schema="infer")
         return fname
     else:
         return molecules

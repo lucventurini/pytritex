@@ -101,9 +101,10 @@ def remove_tips(links: str, excluded, out: dict, info: str,
         
     mem_name = os.path.join(save_dir, "membership")
     if isinstance(out["membership"], dd.DataFrame):  # We have removed some stuff.
-        dd.to_parquet(out["membership"], mem_name, compute=True, compression="gzip", engine="pyarrow")
+        dd.to_parquet(out["membership"], mem_name, compute=True, compression="gzip", engine="pyarrow",
+                      schema="infer")
     res_name = os.path.join(save_dir, "result")
-    dd.to_parquet(out["info"], res_name, compute=True, compression="gzip", engine="pyarrow")
+    dd.to_parquet(out["info"], res_name, compute=True, compression="gzip", engine="pyarrow", schema="infer")
     dask_logger.warning("%s Finished tip removal.", ctime())
     
     return mem_name, res_name, excluded

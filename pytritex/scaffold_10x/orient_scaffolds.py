@@ -187,8 +187,8 @@ def orient_scaffolds(info: str, res: str,
 
     logger.warning("%s Merged everything into res, saving", time.ctime())
     res_name = os.path.join(save_dir, "res")
-    dd.to_parquet(res, res_name, compression="gzip", compute=True, engine="pyarrow")
+    dd.to_parquet(res, res_name, compression="gzip", compute=True, engine="pyarrow", schema="infer")
     mem_name = os.path.join(save_dir, "membership")
-    dd.to_parquet(membership, mem_name, compression="gzip", compute=True, engine="pyarrow")
+    dd.to_parquet(membership, mem_name, compression="gzip", compute=True, engine="pyarrow", schema="infer")
     logger.warning("%s Finished orient scaffolds", time.ctime())
     return mem_name, res_name
