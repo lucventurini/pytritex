@@ -133,14 +133,15 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
 
     # Reload from disk
     link_pos, link_pos_name = _calculate_link_pos(molecules, fai, save_dir, client, min_npairs, max_dist)
-    dask_logger.warning("Arrived at merging both sides")
+    dask_logger.warning("{} Arrived at merging both sides".format(time.ctime()))
 
     # link_pos = client.scatter(link_pos)
     sample_counts = []
     link_pos = link_pos.set_index("scaffold_index1")
 
     dask_logger.warning("{} Computing the molecule and sample counts".format(time.ctime()))
-    mol_count = link_pos.map_partitions(mol_counter, min_nmol)
+    mol_count = link_pos.map_partitions(mol_counter, min_nmol).persist()
+    dask_logger.warning("{} Computed the molecule counts".format(time.ctime()))
     sample_count = mol_count.map_partitions(sample_counter, min_nsample).persist()
     dask_logger.warning("{} Computed the sample counts".format(time.ctime()))
 

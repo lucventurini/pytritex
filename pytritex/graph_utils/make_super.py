@@ -163,31 +163,37 @@ def make_super(hl: dd.DataFrame,
         # First thing: let's check whether we have previous hits. We will consider these separately.
         results = []
         submitted = []
-        logger.warning("%s Starting to analyse %s rows", time.ctime(), order[~order.super.isin(to_skip)].shape[0])
-        for row in order[~order.super.isin(to_skip)].itertuples():
-            index, ssuper, popseq_chr = row
-            my_edges = edges.loc[ssuper]
-            my_membership = cms.loc[ssuper]
-            submitted.append(client.submit(_concatenator, client.scatter(my_edges),
-                                           client.scatter(my_membership), known_ends, maxiter, verbose))
+        nrows = order[~order.super.isin(to_skip)].shape[0]
+        if nrows > 0:
+            logger.warning("%s Starting to analyse %s rows", time.ctime(), order[~order.super.isin(to_skip)].shape[0])
+            for row in order[~order.super.isin(to_skip)].itertuples():
+                index, ssuper, popseq_chr = row
+                my_edges = edges.loc[ssuper]
+                my_membership = cms.loc[ssuper]
+                submitted.append(client.submit(_concatenator, client.scatter(my_edges),
+                                               client.scatter(my_membership), known_ends, maxiter, verbose))
+            logger.warning("%s Retrieving final results", time.ctime())
+            submitted = client.gather(submitted)
+            assert isinstance(submitted[0], np.ndarray), (type(submitted[0]), submitted[0])
+            results.extend(submitted)
+            del submitted
+            logger.warning("%s Finished make_super_scaffolds", time.ctime())
+            results = np.vstack(results + previous_results)
+            results = pd.DataFrame().assign(
+                cluster=results[:, 0], bin=results[:, 1], rank=results[:, 2], backbone=results[:, 3])
+            assert results.cluster.unique().shape[0] == results.shape[0]
+            results = results.set_index("cluster")
+            super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster")
+            if not isinstance(super_object["membership"], dd.DataFrame):
+                super_object["membership"] = dd.from_pandas(super_object["membership"], chunksize=10 ** 5)
+            assert super_object["membership"].index.name == "cluster"
+            super_object["membership"] = super_object["membership"].drop("cidx", axis=1).persist()
+        else:
+            super_object["membership"] = dd.merge(
+                pd.DataFrame().assign(cluster=[], bin=[], rank=[], backbone=[]),
+                super_object["membership"], on="cluster")
+            super_object["membership"] = super_object["membership"].set_index("cluster")
 
-        logger.warning("%s Retrieving final results", time.ctime())
-        submitted = client.gather(submitted)
-        assert isinstance(submitted[0], np.ndarray), (type(submitted[0]), submitted[0])
-        results.extend(submitted)
-        del submitted
-        logger.warning("%s Finished make_super_scaffolds", time.ctime())
-        results = np.vstack(results + previous_results)
-        results = pd.DataFrame().assign(
-            cluster=results[:, 0], bin=results[:, 1], rank=results[:, 2], backbone=results[:, 3])
-        assert results.cluster.unique().shape[0] == results.shape[0]
-        results = results.set_index("cluster")
-        super_object["membership"] = dd.merge(results, super_object["membership"], on="cluster")
-        if not isinstance(super_object["membership"], dd.DataFrame):
-            super_object["membership"] = dd.from_pandas(super_object["membership"], chunksize=10 ** 5)
-        assert super_object["membership"].index.name == "cluster"
-
-    super_object["membership"] = super_object["membership"].drop("cidx", axis=1).persist()
     logger.warning("%s Finished make_super run", time.ctime())
     logger.warning("%s Membership size and dtypes: %s, %s", time.ctime(), super_object["membership"].shape[0].compute(),
                    super_object["membership"].dtypes)

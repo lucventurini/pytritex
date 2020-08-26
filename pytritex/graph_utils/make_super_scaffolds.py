@@ -90,31 +90,33 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client, 
     logger.debug("%s size of the info index: %s; indices: %s", time.ctime(), info_index.shape[0], indices.shape[0])
     bait_index = sorted(set.difference(set(info_index), set(indices)))
     logger.debug("%s size of the bait index: %s", time.ctime(), len(bait_index))
-    
-    _to_concatenate = info.loc[bait_index, ["popseq_chr", "popseq_cM", "length"]].rename(
-        columns={"popseq_chr": "chr", "popseq_cM": "cM"})
-    assert _to_concatenate.shape[0].compute() == len(bait_index)
+    if len(bait_index) > 0:
+        _to_concatenate = info.loc[bait_index, ["popseq_chr", "popseq_cM", "length"]].rename(
+            columns={"popseq_chr": "chr", "popseq_cM": "cM"})
+        assert _to_concatenate.shape[0].compute() == len(bait_index)
+        chunks = tuple(_to_concatenate.map_partitions(len).compute().values.tolist())
+        sup_column = da.from_array(maxidx + pd.Series(range(1, len(bait_index) + 1)), chunks=chunks)
 
-    chunks = tuple(_to_concatenate.map_partitions(len).compute().values.tolist())
-    sup_column = da.from_array(maxidx + pd.Series(range(1, len(bait_index) + 1)), chunks=chunks)
+        excl_vector = np.in1d(bait_index, excluded_scaffolds)
+        if excl_vector.shape[0] != len(bait_index):
+            logger.error("Wrong length of excl_vector")
+            sys.exit(1)
+        excl_column = da.from_array(excl_vector, chunks=chunks)
 
-    excl_vector = np.in1d(bait_index, excluded_scaffolds)
-    if excl_vector.shape[0] != len(bait_index):
-        logger.error("Wrong length of excl_vector")
-        sys.exit(1)
-    excl_column = da.from_array(excl_vector, chunks=chunks)
+        _to_concatenate = _to_concatenate.assign(
+            bin=1, rank=0, backbone=True,
+            excluded=excl_column,
+            super=sup_column)
+        assert _to_concatenate.index.name == membership.index.name
+        if _to_concatenate.index.dtype != membership.index.dtype:
+            assert membership.index.name is not None
+            name = membership.index.name
+            _to_concatenate = _to_concatenate.reset_index(drop=False)
+            _to_concatenate[name] = _to_concatenate[name].astype(membership.index.dtype)
+            _to_concatenate = _to_concatenate.set_index(name)
+    else:
+        _to_concatenate = dd.from_pandas(pd.DataFrame(), chunksize=1000)
 
-    _to_concatenate = _to_concatenate.assign(
-        bin=1, rank=0, backbone=True,
-        excluded=excl_column,
-        super=sup_column)
-    assert _to_concatenate.index.name == membership.index.name
-    if _to_concatenate.index.dtype != membership.index.dtype:
-        assert membership.index.name is not None
-        name = membership.index.name
-        _to_concatenate = _to_concatenate.reset_index(drop=False)
-        _to_concatenate[name] = _to_concatenate[name].astype(membership.index.dtype)
-        _to_concatenate = _to_concatenate.set_index(name)
     if _to_concatenate.shape[0].compute() > 0:
         assert _to_concatenate.index.dtype == membership.index.dtype
         func = delayed(dd.concat)([membership, _to_concatenate])
@@ -219,7 +221,10 @@ def make_super_scaffolds(links: Union[str, dd.DataFrame],
     assert membership.index.name == "cluster"
     membership.index = membership.index.rename("scaffold_index")
     assert super_scaffolds["super_info"].index.name == "super"
-    maxidx = super_scaffolds["super_info"].index.values.max().compute()
+    if super_scaffolds["super_info"].shape[0].compute() > 0:
+        maxidx = super_scaffolds["super_info"].index.values.max().compute()
+    else:
+        maxidx = 0
     logger.warning("%s Starting add_missing_scaffolds", time.ctime())
     membership = add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client, save_dir)
     logger.warning("%s Finished add_missing_scaffolds, starting add_statistics", time.ctime())    
