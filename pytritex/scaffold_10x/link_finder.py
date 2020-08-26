@@ -4,6 +4,7 @@ import time
 import os
 import numpy as np
 from dask.delayed import delayed
+from dask.distributed import Client
 import logging
 dask_logger = logging.getLogger("dask")
 
@@ -80,8 +81,8 @@ def sample_counter(mol_count, min_nsample):
         ["scaffold_index1", "scaffold_index2", "sample"]].drop_duplicates()
     sample_count = sample_count.groupby(
         ["scaffold_index1", "scaffold_index2"])["sample"].size().to_frame("nsample")
-    sample_count = sample_count.query("nsample >= min_nsample", local_dict={"min_nsample": min_nsample})
-    sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index1")
+    sample_count = sample_count[sample_count["nsample"] >= min_nsample]
+    sample_count = sample_count.reset_index(drop=False).set_index("scaffold_index1", sorted=True)
     return sample_count
 
 
@@ -98,7 +99,7 @@ def add_cols(sample_count):
 
 def _initial_link_finder(info: str, molecules: str, fai: str,
                          save_dir: str,
-                         client,
+                         client: Client,
                          verbose=False, popseq_dist=5,
                          min_npairs=2, max_dist=1e5, min_nmol=2, min_nsample=2):
 
@@ -133,10 +134,12 @@ def _initial_link_finder(info: str, molecules: str, fai: str,
     link_pos, link_pos_name = _calculate_link_pos(molecules, fai, save_dir, client, min_npairs, max_dist)
     dask_logger.warning("Arrived at merging both sides")
 
-    dask_logger.warning("{} Computing the molecule counts".format(time.ctime()))
-    mol_count = mol_counter(link_pos, min_nmol)
-    dask_logger.warning("{} Computed the molecule counts".format(time.ctime()))
-    sample_count = sample_counter(mol_count, min_nsample)
+    link_pos = client.scatter(link_pos)
+    dask_logger.warning("{} Computing the molecule and sample counts".format(time.ctime()))
+    mol_count = client.submit(mol_counter, link_pos, min_nmol)
+    mol_count = client.scatter(client.gather(mol_count))
+    sample_count = client.submit(sample_counter, mol_count, min_nsample)
+    sample_count = client.gather(sample_count)
     dask_logger.warning("{} Computed the sample counts".format(time.ctime()))
     # dask_logger.warning("Storing the raw sample counts")
     # dd.to_parquet(sample_count, sample_count_name, compression="gzip", engine="pyarrow")
