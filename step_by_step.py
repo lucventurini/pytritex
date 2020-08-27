@@ -31,6 +31,7 @@ logger.setLevel(logging.ERROR)
 
 
 def dispatcher(assembly, save_dir, memory, client, row, ncores):
+    logger.warning("{ctime} Parameters: {row}".format(ctime=time.ctime(), row=row))
     membership, result = scaffold_10x(assembly,
                           memory=memory,
                           save_dir=save_dir,
@@ -38,7 +39,7 @@ def dispatcher(assembly, save_dir, memory, client, row, ncores):
                           min_npairs=row.npairs,
                           max_dist=row.dist, popseq_dist=5, max_dist_orientation=5,
                           min_nsample=row.nsample,
-                          min_nmol=row.nmol, unanchored=False, ncores=ncores)
+                          min_nmol=row.nmol, unanchored=row.unanchored, ncores=ncores)
 
     logger.warning("""{ctime} Parameters: {row}\n
 Result: {res}\n""".format(ctime=time.ctime(),
@@ -60,7 +61,14 @@ def grid_evaluation(assembly, args, client, memory):
                                                              nmol,
                                                              nsamples,
                                                              dist))))))
+    grid["unanchored"] = args.use_unanchored
     logger.info("Starting grid evaluation")
+    if isinstance(args.max_min_links, list):
+        # No idea of where this bug comes from!
+        args.max_min_links = int(args.max_min_links[0])
+    if isinstance(args.min_links, list):
+        # No idea of where this bug comes from!
+        args.min_links = int(args.min_links[0])
     results = []
     for _index, row in grid.iterrows():
         if row.nsample * row.nmol * row.npairs > args.max_min_links:
@@ -77,9 +85,13 @@ def grid_evaluation(assembly, args, client, memory):
                         nanny=True, address=None)
         # DO IT TWICE, sometimes the first time is not enough.
         client.cluster.scale(args.procs)
-        result = dispatcher(
-            assembly, save_dir=args.save_prefix,
-            memory=memory, row=row, client=client, ncores=args.procs)
+        try:
+            result = dispatcher(
+                assembly, save_dir=args.save_prefix,
+                memory=memory, row=row, client=client, ncores=args.procs)
+        except Exception:
+            client.close()
+            raise
         results.append(result)
         logger.warning("%s Finished row %s (%s)", time.ctime(), _index, row)
     return results
@@ -91,14 +103,16 @@ def main():
     parser.add_argument("-p", "--processes", dest="procs", default=mp.cpu_count(), type=int)
     parser.add_argument("-s", "--save-prefix", default="assembly")
     parser.add_argument("-dc", "--dask-cache", default="dask_data", type=str)
-    parser.add_argument("--min-links", nargs=1, type=int, default=6,
+    parser.add_argument("--min-links", type=int, default=6,
                         help="Minimum number of links (samples * nmol * npairs) to test.")
-    parser.add_argument("--max-min-links", nargs=1, type=int, default=10,
+    parser.add_argument("--max-min-links", type=int, default=10,
                         help="Maximum number for the minimum number of links (samples * nmol * npairs) to test.")
     parser.add_argument("--nsamples", nargs=2, type=int, default=[1, 2],
                         help="Inclusive range to investigate for the min_nsample parameter. Default: [2, 3]")
     parser.add_argument("--nmol", nargs=2, type=int, default=[2, 3],
                         help="Inclusive range to investigate for the min_nmol parameter. Default: [2, 3]")
+    parser.add_argument("--use-unanchored", action="store_true", default=False,
+                        help="Boolean flag. If set, try to bring unanchored scaffolds that bridge two superscaffolds back into the super-assembly.")
     parser.add_argument("--npairs", nargs=2, type=int, default=[2, 3],
                         help="Inclusive range to investigate for the min_npairs parameter. Default: [2, 3]")
     parser.add_argument("--dist", nargs=3, type=int, default=[6 * 10**4, 9 * 10**4, 10**4],

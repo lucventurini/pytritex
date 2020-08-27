@@ -119,7 +119,7 @@ def make_super(hl: dd.DataFrame,
         logger.error("Duplicated indices after merging")
         sys.exit(1)
     membership = cluster_info.merge(raw_membership, left_index=True,
-                                    right_index=True, how="right", npartitions=cluster_info.npartitions).persist()
+                                    right_index=True, how="right", npartitions=cluster_info.npartitions)
     membership = membership.reset_index(drop=False).astype({"cluster": int}).set_index("cluster").persist()
     if membership.shape[0].compute() != length:
         logger.error("Duplicated indices after merging with cluster_info")
@@ -138,8 +138,12 @@ def make_super(hl: dd.DataFrame,
     assert membership.index.name == "cluster"
     edge_list = membership[["super"]]
     edge_list.index = edge_list.index.rename("cluster1")
-    edge_list = edge_list.merge(hl, on="cluster1", how="right").persist()
-
+    hl = hl.astype({"cluster1": int, "cluster2": int}).set_index("cluster1").persist()
+    edge_list = edge_list.merge(hl, on="cluster1", how="right").reset_index(drop=False).persist()
+    assert edge_list.query("super != super").shape[0].compute() == 0  # Check no undefined row is present
+    # Check we have the same supers
+    assert (edge_list["super"].unique().compute() == membership["super"].unique().compute()).all()
+    
     super_object = {"super_info": info,
                     "membership": membership, "graph": graph, "edges": edge_list}
 
