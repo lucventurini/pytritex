@@ -21,6 +21,19 @@ def _scaffold_unanchored(links: str,
     if verbose:
         print(time.ctime(), "Starting to unanchor unassigned scaffolds")
 
+    # # use unanchored scaffolds to link super-scaffolds
+    # ww2[is.na(popseq_chr1), .(scaffold_link=scaffold1, link_length=length1, scaffold1=scaffold2)]->x
+    # ww2[is.na(popseq_chr1), .(scaffold_link=scaffold1, scaffold2=scaffold2)]->y
+    # x[y, on="scaffold_link", allow.cartesian=T][scaffold1 != scaffold2]->xy
+    #
+    # m[, .(scaffold1=scaffold, super1=super, chr1=chr, cM1=cM, size1=super_nbin, d1 = pmin(bin - 1, super_nbin - bin))][xy, on="scaffold1"]->xy
+    # m[, .(scaffold2=scaffold, super2=super, chr2=chr, cM2=cM, size2=super_nbin, d2 = pmin(bin - 1, super_nbin - bin))][xy, on="scaffold2"]->xy
+    # xy[super2 != super1 & d1 == 0 & d2 == 0 & size1 > 1 & size2 > 1 & chr1 == chr2]->xy
+    # xy[scaffold1 < scaffold2, .(nscl=.N), scaffold_link][xy, on="scaffold_link"]->xy
+    # xy[nscl == 1] -> xy
+    # xy[super1 < super2][, c("n", "g"):=list(.N, .GRP), by=.(super1, super2)][order(-link_length)][!duplicated(g)]->zz
+
+
     sample_count = dd.read_parquet(sample_count, infer_divisions=True)
     links = dd.read_parquet(links, infer_divisions=True)
     membership = dd.read_parquet(membership, infer_divisions=True)
@@ -45,24 +58,22 @@ def _scaffold_unanchored(links: str,
     linkages = dd.merge(linkages.set_index("scaffold_index1"), left1, on="scaffold_index1")
     left2 = distances.copy().rename(columns=dict((col, col + "2") for col in distances.columns))
     left2.index = left2.index.rename(distances.index.name + "2")
-    linkages = dd.merge(linkages.reset_index(drop=False).set_index(
-        "scaffold_index2"), left2, on="scaffold_index2").reset_index(drop=False)
+    linkages = dd.merge(linkages.reset_index(drop=False).set_index("scaffold_index2"),
+                        left2, on="scaffold_index2").reset_index(drop=False)
 
     linkages = linkages.query(
         "super2 != super1 & d1 == 0 & d2 == 0 & super_nbin1 > 1 & super_nbin2 > 1 & chr1 == chr2")
     # Only keep unambiguous links
     linkages = linkages.merge(
         linkages.query("scaffold_index1 < scaffold_index2").groupby("scaffold_link").size().to_frame("nscl"),
-        on="scaffold_link").query("nscl == 1")
+        on="scaffold_link").query("nscl == 1 & super1 < super2")
 
     # xy[super1 < super2][, c("n", "g"):=list(.N, .GRP), by=.(super1, super2)][order(-link_length)][!duplicated(g)]->zz
-    #
-    #         sel <- zz[, .(scaffold1=c(scaffold_link, scaffold_link, scaffold1, scaffold2),
-    #      	  scaffold2=c(scaffold1, scaffold2, scaffold_link, scaffold_link))]
-    #         rbind(links, ww2[sel, on=c("scaffold1", "scaffold2")])->links2
-    nr_linkages = linkages.query("super1 < super2").compute()
-    grouped = nr_linkages.groupby(["super1", "super2"])
-    ngroups = grouped.ngroups
+    # sel <- zz[, .(scaffold1=c(scaffold_link, scaffold_link, scaffold1, scaffold2),
+    # scaffold2=c(scaffold1, scaffold2, scaffold_link, scaffold_link))]
+    # rbind(links, ww2[sel, on=c("scaffold1", "scaffold2")])->links2
+    sizes = linkages.groupby(["super1", "super2"]).size().to_frame("n")
+    sizes["g"] = range(1, sizes.shape[0].compute() + 1)
 
 
 

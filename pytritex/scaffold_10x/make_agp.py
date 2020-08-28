@@ -85,5 +85,16 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
         lambda row: row["original_scaffold"] + ":" + str(row["orig_start"]) + "-" + str(row["orig_end"]), axis=1)
     
     agp = agp.drop("ssize", axis=1).drop("orig_length", axis=1)
-    
-    return {"agp": agp}
+    # z[, .(scaffold=scaffold, bed_start=0, bed_end=scaffold_length,
+    # name=scaffold, score=1, strand=ifelse(is.na(orientation) | orientation == 1, "+", "-"), agp_chr=agp_chr)]->agp_bed
+    agp_bed = agp[:][["scaffold", "scaffold_length",
+                      "orientation", "alphachr"]].rename(columns={"scaffold_length": "bed_end",
+                                                                  "orientation": "strand"})
+    agp_bed["bed_start"] = 0
+    agp_bed["name"] = agp_bed["scaffold"][:]
+    agp_bed["score"] = 1
+    agp_bed["strand"] = agp["orientation"].mask(agp["orientation"] == 1, "+")
+    agp_bed["strand"] = agp["orientation"].mask(agp["orientation"] == -1, "-")
+    agp_bed = agp_bed.drop(["orientation"], axis=1).persist()
+
+    return {"agp": agp, "agp_bed": agp_bed}

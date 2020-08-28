@@ -3,6 +3,38 @@ import pandas as pd
 import numpy as np
 from ..utils import rolling_join
 
+# # Read BED files with positions of restriction fragments on the input assembly, lift coordinates to updated assemblies
+# read_fragdata<-function(info, map_10x=NULL, assembly_10x=NULL, file){
+#  fragbed<-fread(file, head=F, col.names=c("orig_scaffold", "start", "end"))
+#  fragbed[, length := end - start]
+#  fragbed[, start := start + 1]
+#  info[, .(scaffold, start=orig_start, orig_start, orig_scaffold)][fragbed, on=c("orig_scaffold", "start"), roll=T]->fragbed
+#  fragbed[, start := start - orig_start + 1]
+#  fragbed[, end := end - orig_start + 1]
+#  fragbed[, orig_start := NULL]
+#  fragbed[, orig_scaffold := NULL]
+#  if(!is.null(assembly_10x)){
+#   map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][fragbed, on="scaffold"]->fragbed
+#   fragbed[orientation == 1, start := super_start - 1 + start]
+#   fragbed[orientation == 1, end := super_start - 1 + end]
+#   fragbed[orientation == -1, start := super_end - end + 1]
+#   fragbed[orientation == -1, end := super_end - start + 1]
+#   fragbed[, c("orientation", "super_start", "super_end", "scaffold") := list(NULL, NULL, NULL, NULL)]
+#   setnames(fragbed, "super", "orig_scaffold")
+#
+#   assembly_10x$info[, .(scaffold, start=orig_start, orig_start, orig_scaffold)][fragbed, on=c("orig_scaffold", "start"), roll=T]->fragbed
+#   fragbed[, start := start - orig_start + 1]
+#   fragbed[, end := end - orig_start + 1]
+#   fragbed[, orig_start := NULL]
+#   fragbed[, orig_scaffold := NULL]
+#
+#   fragbed[, .(nfrag = .N), keyby=scaffold][assembly_10x$info, on="scaffold"][is.na(nfrag), nfrag := 0]->z
+#  } else {
+#   fragbed[, .(nfrag = .N), keyby=scaffold][info, on="scaffold"][is.na(nfrag), nfrag := 0]->z
+#  }
+#  list(bed=fragbed[], info=z[])
+# }
+
 
 def read_fragdata(fai, fragfile, info, assembly_10x=None):
 
@@ -32,7 +64,11 @@ def read_fragdata(fai, fragfile, info, assembly_10x=None):
     # Now concatenate for the final frag file.
     frags = dd.concat([frags_to_keep, frags_to_roll]).astype({"start": np.int32, "end": np.int32})
     if assembly_10x is not None:
+        # map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][fragbed, on="scaffold"]->fragbed
+        left = assembly_10x["agp"].query("gap == False")[["super", "orientation", "super_start", "super_end"]]
+        fragbed = dd.merge(left, frags, on="scaffold_index")
+        
+
         raise NotImplementedError()
     else:
         nfrags = frags.groupby("scaffold_index").size()
-        
