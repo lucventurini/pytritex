@@ -77,6 +77,7 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
                 links,
                 excluded, membership, info,
                 sample_count,
+                popseq_dist=popseq_dist,
                 save_dir=os.path.join(folder, "unanchored"), client=client,
                 ncores=1, verbose=False)
 

@@ -16,6 +16,7 @@ def _scaffold_unanchored(links: str,
                          save_dir: str,
                          client: Client,
                          ncores=1,
+                         popseq_dist=5,
                          verbose=False):
 
     if verbose:
@@ -35,38 +36,47 @@ def _scaffold_unanchored(links: str,
 
 
     sample_count = dd.read_parquet(sample_count, infer_divisions=True)
-    links = dd.read_parquet(links, infer_divisions=True)
+    # links = dd.read_parquet(links, infer_divisions=True)
     membership = dd.read_parquet(membership, infer_divisions=True)
-    info = dd.read_parquet(info, infer_divisions=True)
+    # info = dd.read_parquet(info, infer_divisions=True)
 
-    left_linkage = sample_count[sample_count["popseq_chr1"].isna()][["scaffold_index1", "length1", "scaffold_index2"]]
+    query = "(scaffold_index1 not in @clustered) & (scaffold_index1 not in @excluded) & (scaffold_index2 in @clustered)"
+    excluded = membership.query("excluded == True").index.compute().values
+    clustered = membership.query("super_size > 1").index.compute().values
+    left_linkage = sample_count.query(
+        query, local_dict={"excluded": excluded, "clustered": clustered})[
+        ["scaffold_index1", "length1", "scaffold_index2", "popseq_chr1"]]
     left_linkage = left_linkage.rename(
         columns={"scaffold_index1": "scaffold_link",
+                 "popseq_chr1": "popseq_chr_link",
                  "length1": "link_length",
                  "scaffold_index2": "scaffold_index1"})
-    right_linkage = sample_count[sample_count["popseq_chr1"].isna()][
+    right_linkage = sample_count.query(
+        query, local_dict={"excluded": excluded, "clustered": clustered})[
         ["scaffold_index1", "scaffold_index2"]].rename(
         columns={"scaffold_index1": "scaffold_link"})
-    linkages = dd.merge(left_linkage, right_linkage, on="scaffold_link")
+
+    linkages = dd.merge(left_linkage, right_linkage, on="scaffold_link").persist()
 
     distances = membership[["super", "chr", "cM", "super_nbin", "bin"]]
-    distances["d"] = da.from_array(
-        np.minimum(distances["bin"].compute() - 1, (distances["super_nbin"] - distances["bin"]).compute()),
-        chunks=tuple(distances.map_partitions(len).compute().values.tolist()))
+    distances["d"] = np.minimum(distances["bin"].compute() - 1, (distances["super_nbin"] - distances["bin"]).compute())
     left1 = distances.copy().rename(columns=dict((col, col + "1") for col in distances.columns))
     left1.index = left1.index.rename(distances.index.name + "1")
     linkages = dd.merge(linkages.set_index("scaffold_index1"), left1, on="scaffold_index1")
     left2 = distances.copy().rename(columns=dict((col, col + "2") for col in distances.columns))
     left2.index = left2.index.rename(distances.index.name + "2")
-    linkages = dd.merge(linkages.reset_index(drop=False).set_index("scaffold_index2"),
-                        left2, on="scaffold_index2").reset_index(drop=False)
+    linkages = linkages.reset_index(drop=False).set_index("scaffold_index2")
+    linkages = dd.merge(linkages, left2, on="scaffold_index2").reset_index(drop=False).persist()
+    linkages = linkages.query("scaffold_index1 < scaffold_index2 & chr1 == chr2 & \
+                              (popseq_chr_link != popseq_chr_link | popseq_chr_link == chr1)").persist()
+    super_links = linkages.query(
+        "super2 != super1 & d1 == 0 & d2 == 0 & super_nbin1 > 1 & super_nbin2 > 1 & \
+        (cM1 - cM2 <= @popdist & cM1 - cM2 >= -1 * @popdist)", local_dict={"popdist": abs(popseq_dist)})
 
-    linkages = linkages.query(
-        "super2 != super1 & d1 == 0 & d2 == 0 & super_nbin1 > 1 & super_nbin2 > 1 & chr1 == chr2")
-    # Only keep unambiguous links
-    linkages = linkages.merge(
-        linkages.query("scaffold_index1 < scaffold_index2").groupby("scaffold_link").size().to_frame("nscl"),
-        on="scaffold_link").query("nscl == 1 & super1 < super2")
+    internal_additions = linkages.query(
+        "super2 == super1 & (bin1 - bin2 <= 1 & bin1 - bin2 >= -1) & super_nbin1 > 1 & super_nbin2 > 1")
+
+    new_linkages = dd.concat([super_links, internal_additions]).persist()
 
     # xy[super1 < super2][, c("n", "g"):=list(.N, .GRP), by=.(super1, super2)][order(-link_length)][!duplicated(g)]->zz
     # sel <- zz[, .(scaffold1=c(scaffold_link, scaffold_link, scaffold1, scaffold2),

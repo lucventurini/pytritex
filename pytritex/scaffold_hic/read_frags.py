@@ -36,7 +36,7 @@ from ..utils import rolling_join
 # }
 
 
-def read_fragdata(fai, fragfile, info, assembly_10x=None):
+def read_fragdata(fai, fragfile, info, map_10x):
 
     frags = dd.read_csv(fragfile, names=["orig_scaffold", "start", "end"])
     frags["length"] = frags.eval("end - start")
@@ -63,12 +63,22 @@ def read_fragdata(fai, fragfile, info, assembly_10x=None):
 
     # Now concatenate for the final frag file.
     frags = dd.concat([frags_to_keep, frags_to_roll]).astype({"start": np.int32, "end": np.int32})
-    if assembly_10x is not None:
-        # map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][fragbed, on="scaffold"]->fragbed
-        left = assembly_10x["agp"].query("gap == False")[["super", "orientation", "super_start", "super_end"]]
+    if map_10x is not None:
+        left = map_10x["agp"].query("gap == False")[["super", "orientation", "super_start", "super_end"]]
         fragbed = dd.merge(left, frags, on="scaffold_index")
+        # map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][fragbed, on="scaffold"]->fragbed
+        bait = (fragbed["orientation"] == 1)
+        fragbed.loc[bait, ["start"]] = fragbed.loc[bait]["super_start"] - 1 + fragbed.loc[bait]["start"]
+        fragbed.loc[bait, ["end"]] = fragbed.loc[bait]["super_start"] - 1 + fragbed.loc[bait]["end"]
+        bait = (fragbed["orientation"] == -1)
+        fragbed.loc[bait, ["start"]] = fragbed.loc[bait]["super_end"] + 1 - fragbed.loc[bait]["end"]
+        fragbed.loc[bait, ["end"]] = fragbed.loc[bait]["super_end"] + 1 - fragbed.loc[bait]["start"]
+        fragbed = fragbed.drop(["orientation", "super_start", "super_end", "scaffold"], axis=1)
+        fragbed = fragbed.rename(columns={"super": "orig_scaffold"})
+        #   assembly_10x$info[, .(scaffold, start=orig_start, orig_start, orig_scaffold)][fragbed, on=c("orig_scaffold", "start"), roll=T]->fragbed
         
 
-        raise NotImplementedError()
+
+
     else:
         nfrags = frags.groupby("scaffold_index").size()

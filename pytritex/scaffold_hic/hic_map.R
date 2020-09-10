@@ -3,6 +3,23 @@
 # Created by: lucve
 # Created on: 28/08/2020
 
+make_hic_map<-function(hic_info, links, ncores=1, maxiter=100, known_ends=T){
+
+ copy(links)->hl
+ copy(hic_info)->info
+
+ setnames(hl, c("scaffold1", "scaffold2"), c("cluster1", "cluster2"))
+ setnames(info, "scaffold", "cluster")
+ setkey(info, "cluster")
+ chrs <- info[!is.na(chr), unique(chr)]
+
+ make_hic_info(info,
+  super_global<-make_super(hl, cluster_info=info, cores=ncores, maxiter=maxiter,
+			   known_ends=known_ends, path_max=length(chrs)), chrs=chrs)->res
+ res[order(chr, hic_bin)][, .(scaffold=cluster, chr, cM, hic_bin, hic_backbone, hic_rank)][!is.na(hic_bin)]
+}
+
+
 # Call Hi-C function for ordering, orient by ordering parts of scaffolds, create AGP table
 hic_map<-function(info, assembly, frags, species, ncores=1, min_nfrag_scaffold=50, max_cM_dist = 20,
 		  binsize=5e5, min_nfrag_bin=30, gap_size=100, maxiter=100, orient=T, agp_only=F,

@@ -80,9 +80,9 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     agp.loc[:, "ssize"] = agp.groupby("super")["original_scaffold"].transform("size")
     agp.loc[agp["ssize"] == 1, "super"] = agp.loc[agp["ssize"] == 1, "original_scaffold"]
     bait = (agp["ssize"] == 1) & (((agp["orig_start"] != "scaffold") & (agp["orig_start"] != 1)) |
-                                  ((agp["orig_end"] != agp["orig_length"]) & (agp["orig_end"] != "yes")  ))
-    agp.loc[bait, "super"] = agp.loc[bait, ["original_scaffold", "orig_start", "orig_end"]].apply(
-        lambda row: row["original_scaffold"] + ":" + str(row["orig_start"]) + "-" + str(row["orig_end"]), axis=1)
+                                  ((agp["orig_end"] != agp["orig_length"]) & (agp["orig_end"] != "yes")))
+    agp.loc[bait, "super"] = agp.loc[bait, ["original_scaffold", "orig_start", "orig_end"]].astype(str).apply(
+        lambda row: row["original_scaffold"] + ":" + row["orig_start"] + "-" + row["orig_end"], axis=1)
     
     agp = agp.drop("ssize", axis=1).drop("orig_length", axis=1)
     # z[, .(scaffold=scaffold, bed_start=0, bed_end=scaffold_length,
