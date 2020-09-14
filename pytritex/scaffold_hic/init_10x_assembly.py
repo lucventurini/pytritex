@@ -94,10 +94,9 @@ def transfer_hic(fpairs, map_10x):
     #   z <- NULL
     #  }
 
-    super_fpairs = fpairs[:].drop(["orig_scaffold_index1", "orig_pos1", "orig_scaffold_index2", "orig_pos2",
-                                   "chr1", "chr2"], axis=1)
+    super_fpairs = fpairs[:][["scaffold_index1", "scaffold_index2", "pos1", "pos2", "chr1", "chr2"]][:]
     super_fpairs = super_fpairs.set_index("scaffold_index1").persist()
-    left = map_10x["agp"][:][["scaffold_index", "super", "super_start", "super_end", "orientation"]]
+    left = map_10x["agp"][:][["scaffold_index", "super", "super_start", "super_end", "orientation"]].set_index("scaffold_index")
     left.index = left.index.rename("scaffold_index1")
     super_fpairs = dd.merge(left, super_fpairs, on="scaffold_index1", how="right")
     super_fpairs["pos1"] = super_fpairs["pos1"].mask(super_fpairs["orientation"] == 1,
