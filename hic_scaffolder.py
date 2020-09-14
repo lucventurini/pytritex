@@ -31,7 +31,7 @@ def main():
     parser.add_argument("-p", "--processes", dest="procs", default=mp.cpu_count(), type=int)
     parser.add_argument("-dc", "--dask-cache", default="dask_data", type=str)
     parser.add_argument("-um", "--use-molecules", dest="use_mols", action="store_true", default=False)
-    parser.add_argument("--min-length", type=int, default=3e5,
+    parser.add_argument("--min-length", type=int, default=5e4,
                         help="Minimum length of scaffolds/super-scaffolds to combine using HiC.")
     parser.add_argument("--mem", default="20GB", type=str)
     parser.add_argument("--save", default=False, action="store_true")
@@ -56,7 +56,7 @@ def main():
     # This is a STUPID hack, but I should have thought of dumping the results in a different way earlier ..
     assembly = sorted([(_, os.stat(_).st_mtime) for _ in
             glob.glob(f"{args.save_prefix}/joblib/pytritex/chimera_breaking/break_10x/break_10x/*/output.pkl")],
-           key=operator.itemgetter(1), reverse=True)
+           key=operator.itemgetter(1), reverse=True)[0][0]
     assembly = joblib.load(assembly)["assembly"]
     dirs = [os.path.dirname(_) for _ in
             glob.glob(f"{args.save_prefix}/joblib/pytritex/scaffold_10x/*/orientation/res/_metadata")]

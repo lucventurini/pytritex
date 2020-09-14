@@ -27,7 +27,7 @@ def transfer_molecules(molecules, map_10x):
     #  }
 
     super_molecules = molecules[:].drop(["orig_scaffold_index", "orig_start"], axis=1)
-    super_molecules = dd.merge(map_10x["agp"][["super", "super_start", "super_end", "orientation"]],
+    super_molecules = dd.merge(map_10x["agp"][["scaffold_index", "super", "super_start", "super_end", "orientation"]],
                                super_molecules, on="scaffold_index", how="right")
     super_molecules["start"] = super_molecules["start"].mask(
         super_molecules["orientation"] == 1, super_molecules["super_start"] - 1 + super_molecules["start"])
@@ -40,7 +40,6 @@ def transfer_molecules(molecules, map_10x):
     super_molecules = super_molecules.reset_index(drop=True).set_index("super").drop(
         ["super_start", "super_end", "orientation"], axis=1)
     return super_molecules
-
 
 
 def transfer_cssaln(cssaln, map_10x):
@@ -60,14 +59,14 @@ def transfer_cssaln(cssaln, map_10x):
     #  super$info[, .(scaffold=super, scaffold_length=length)][z, on="scaffold"]->z
     #  z->s_cssaln
 
-    cssaln = cssaln.drop(["orig_scaffold", "orig_scaffold_length", "orig_pos", "scaffold_length"], axis=1)
-    cssaln = dd.merge(map_10x["agp"][["super", "super_start", "super_end", "orientation"]],
+    cssaln = cssaln.drop(["orig_scaffold_index", "orig_pos"], axis=1)
+    cssaln = dd.merge(map_10x["agp"][["scaffold_index", "super", "super_start", "super_end", "orientation"]],
                       cssaln, on="scaffold_index")
     cssaln["pos"] = cssaln["pos"].mask(cssaln["orientation"] == 1, cssaln["super_start"] - 1 + cssaln["pos"])
     cssaln["pos"] = cssaln["pos"].mask(cssaln["orientation"] == -1, cssaln["super_end"] + 1 - cssaln["pos"])
     cssaln = cssaln.reset_index(drop=True).set_index("super").drop(
         ["super_start", "super_end", "orientation"], axis=1)
-    super_cssaln = map_10x["info"].rename(columns={"length": "super_length"}).merge(cssaln, on="super", how="right")
+    super_cssaln = map_10x["result"].rename(columns={"length": "super_length"}).merge(cssaln, on="super", how="right")
     return super_cssaln
 
 
@@ -98,7 +97,7 @@ def transfer_hic(fpairs, map_10x):
     super_fpairs = fpairs[:].drop(["orig_scaffold_index1", "orig_pos1", "orig_scaffold_index2", "orig_pos2",
                                    "chr1", "chr2"], axis=1)
     super_fpairs = super_fpairs.set_index("scaffold_index1").persist()
-    left = map_10x["agp"][:][["super", "super_start", "super_end", "orientation"]]
+    left = map_10x["agp"][:][["scaffold_index", "super", "super_start", "super_end", "orientation"]]
     left.index = left.index.rename("scaffold_index1")
     super_fpairs = dd.merge(left, super_fpairs, on="scaffold_index1", how="right")
     super_fpairs["pos1"] = super_fpairs["pos1"].mask(super_fpairs["orientation"] == 1,
@@ -199,7 +198,7 @@ def _init_assembly(fai, cssaln, molecules, fpairs):
         """).drop(["scaffold_index1", "scaffold_index2"], axis=1)
     else:
         tcc = pd.DataFrame()
-    return {"info": info, "cssaln": cssaln, "fpairs": tcc, "molecules": ini_molecules}
+    return {"info": info, "cssaln": ini_cssaln, "fpairs": tcc, "molecules": ini_molecules}
 
 
 def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=None):
@@ -228,13 +227,18 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
     if isinstance(map_10x["result"], str):
         map_10x["result"] = dd.read_parquet(map_10x["result"])
 
-    map_10x.update(make_agp(map_10x["membership"], info=assembly["info_10x"], gap_size=gap_size))
+    if isinstance(assembly["fai"], str):
+        fai = dd.read_parquet(assembly["fai"])
+    else:
+        fai = assembly["fai"]
+
+    map_10x.update(make_agp(map_10x["membership"], info=fai, gap_size=gap_size))
     cssaln = assembly["cssaln"]
     if isinstance(cssaln, str):
         cssaln = dd.read_parquet(cssaln, infer_divisions=True)
     super_cssaln = transfer_cssaln(cssaln, map_10x)
     if molecules is True:
-        super_molecules = transfer_molecules(assembly["molecules"], map_10x)
+        super_molecules = transfer_molecules(dd.read_parquet(assembly["molecules"]), map_10x)
     else:
         super_molecules = None
     super_hic = transfer_hic(assembly["fpairs"], map_10x)
