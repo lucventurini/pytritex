@@ -2,6 +2,7 @@ import dask.dataframe as dd
 import pandas as pd
 import numpy as np
 from ..utils import rolling_join
+import os
 
 # # Read BED files with positions of restriction fragments on the input assembly, lift coordinates to updated assemblies
 # read_fragdata<-function(info, map_10x=NULL, assembly_10x=NULL, file){
@@ -36,7 +37,7 @@ from ..utils import rolling_join
 # }
 
 
-def read_fragdata(fai, fragfile, info, map_10x):
+def read_fragdata(fai, fragfile, map_10x, savedir=None):
 
     frags = dd.read_csv(fragfile, names=["orig_scaffold", "start", "end"])
     frags["length"] = frags.eval("end - start")
@@ -63,22 +64,40 @@ def read_fragdata(fai, fragfile, info, map_10x):
 
     # Now concatenate for the final frag file.
     frags = dd.concat([frags_to_keep, frags_to_roll]).astype({"start": np.int32, "end": np.int32})
-    if map_10x is not None:
-        left = map_10x["agp"].query("gap == False")[["super", "orientation", "super_start", "super_end"]]
-        fragbed = dd.merge(left, frags, on="scaffold_index")
-        # map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][fragbed, on="scaffold"]->fragbed
-        bait = (fragbed["orientation"] == 1)
-        fragbed.loc[bait, ["start"]] = fragbed.loc[bait]["super_start"] - 1 + fragbed.loc[bait]["start"]
-        fragbed.loc[bait, ["end"]] = fragbed.loc[bait]["super_start"] - 1 + fragbed.loc[bait]["end"]
-        bait = (fragbed["orientation"] == -1)
-        fragbed.loc[bait, ["start"]] = fragbed.loc[bait]["super_end"] + 1 - fragbed.loc[bait]["end"]
-        fragbed.loc[bait, ["end"]] = fragbed.loc[bait]["super_end"] + 1 - fragbed.loc[bait]["start"]
-        fragbed = fragbed.drop(["orientation", "super_start", "super_end", "scaffold"], axis=1)
-        fragbed = fragbed.rename(columns={"super": "orig_scaffold"})
-        #   assembly_10x$info[, .(scaffold, start=orig_start, orig_start, orig_scaffold)][fragbed, on=c("orig_scaffold", "start"), roll=T]->fragbed
-        
-
-
-
+    left = map_10x["agp"].query("gap == False")[["super", "orientation", "super_start", "super_end"]]
+    fragbed = dd.merge(left, frags, on="scaffold_index")
+    # map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][fragbed, on="scaffold"]->fragbed
+    bait = (fragbed["orientation"] == 1)
+    fragbed.loc[bait, ["start"]] = fragbed.loc[bait]["super_start"] - 1 + fragbed.loc[bait]["start"]
+    fragbed.loc[bait, ["end"]] = fragbed.loc[bait]["super_start"] - 1 + fragbed.loc[bait]["end"]
+    bait = (fragbed["orientation"] == -1)
+    fragbed.loc[bait, ["start"]] = fragbed.loc[bait]["super_end"] + 1 - fragbed.loc[bait]["end"]
+    fragbed.loc[bait, ["end"]] = fragbed.loc[bait]["super_end"] + 1 - fragbed.loc[bait]["start"]
+    fragbed = fragbed.drop(["orientation", "super_start", "super_end", "scaffold"], axis=1)
+    fragbed = fragbed.rename(columns={"super": "orig_scaffold"})
+    # TODO: is there "info" in map_10x?
+    left = map_10x["info"][["orig_start", "orig_scaffold_index"]].reset_index(drop=False).set_index(
+        "orig_scaffold_index")
+    left["start"] = left["orig_start"]
+    # assembly_10x$info[,
+    # .(scaffold, start=orig_start, orig_start, orig_scaffold)][fragbed, on=c("orig_scaffold", "start"), roll=T]->fragbed
+    fragbed = rolling_join(left, fragbed, on="orig_scaffold_index", by="start")
+    #   fragbed[, start := start - orig_start + 1]
+    #   fragbed[, end := end - orig_start + 1]
+    #   fragbed[, orig_start := NULL]
+    #   fragbed[, orig_scaffold := NULL]
+    #
+    #   fragbed[, .(nfrag = .N), keyby=scaffold][assembly_10x$info, on="scaffold"][is.na(nfrag), nfrag := 0]->z
+    fragbed = fragbed.eval("""start = start - orig_start + 1
+    end = end - orig_start + 1""").drop(["orig_start"]).reset_index(drop=True).set_index("scaffold_index")
+    info = fragbed.groupby("scaffold_index").size().to_frame("nfrag")
+    info = info.merge(map_10x["info"], on="scaffold_index", how="right")
+    info["nfrag"] = info["nfrag"].fillna(0)
+    if savedir is not None:
+        fragbed_name = os.path.join(savedir, "fragbed")
+        dd.to_parquet(fragbed, fragbed_name, compression="gzip", engine="pyarrow")
+        fraginfo_name = os.path.join(savedir, "frag_info")
+        dd.to_parquet(info, fraginfo_name, compression="gzip", engine="pyarrow")
+        return {"bed": fragbed_name, "info": fraginfo_name}
     else:
-        nfrags = frags.groupby("scaffold_index").size()
+        return {"bed": fragbed, "info": info}

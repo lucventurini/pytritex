@@ -5,8 +5,10 @@ import dask
 dask.config.set({'distributed.worker.multiprocessing-method': 'spawn'})
 import dask.dataframe as dd
 from pytritex.scaffold_hic.init_10x_assembly import init_10x_assembly
+from pytritex.scaffold_hic import hic_map
 from pytritex.anchoring import anchor_scaffolds
 from pytritex.utils import n50
+from pytritex.scaffold_hic.read_frags import read_fragdata
 import joblib
 from joblib import Memory
 import multiprocessing as mp
@@ -29,6 +31,8 @@ def main():
     parser.add_argument("-p", "--processes", dest="procs", default=mp.cpu_count(), type=int)
     parser.add_argument("-dc", "--dask-cache", default="dask_data", type=str)
     parser.add_argument("-um", "--use-molecules", dest="use_mols", action="store_true", default=False)
+    parser.add_argument("--min-length", type=int, default=3e5,
+                        help="Minimum length of scaffolds/super-scaffolds to combine using HiC.")
     parser.add_argument("--mem", default="20GB", type=str)
     parser.add_argument("--save", default=False, action="store_true")
     parser.add_argument("save-prefix", dest="save_prefix", default="assembly",
@@ -72,4 +76,12 @@ def main():
         assembly_10x, save_dir, species="wheat", client=client)
     assembly_10x = memory.cache(add_hic_cov)(assembly, save_dir=save_dir,
                                              binsize=1e4, binsize2=1e6, minNbin=100, innerDist=3e5)
-    
+    fragment_data = memory.cache(read_fragdata)(fai=assembly["fai"],
+                                                info=assembly["info"],
+                                                map_10x=assembly_10x, save_dir=save_dir)
+    hic_info = dd.read_parquet(fragment_data["info"], infer_divisions=True)
+    hic_info = hic_info.query("hic_chr == hic_chr & length >= @min_length",
+                              local_dict={"min_length": args.min_length})[["nfrag", "hic_chr", "popseq_cM"]]
+    assert hic_info.index.name == "scaffold_index"
+    hic_info = hic_info.rename(columns={"hic_chr": "chr", "popseq_cM": "cM"})
+    hic_map
