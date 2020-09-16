@@ -3,11 +3,13 @@ import pandas as pd
 from typing import Union
 from ..graph_utils.make_super import make_super
 from dask.distributed import Client
+import os
 
 
 def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
                  links: Union[pd.DataFrame, dd.DataFrame],
                  client: Client,
+                 save_dir=None,
                  ncores=1, maxiter=100, known_ends=True):
     # make_hic_map<-function(hic_info, links, ncores=1, maxiter=100, known_ends=T){
     #
@@ -54,8 +56,14 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     tmp_memb = tmp_memb.query(
         "super in @supers", local_dict={"supers": super_info["super"].unique().compute()}).drop(["super"], axis=1)
     tmp_memb.columns = ["hic_bin", "hic_rank", "hic_backbone"]
-    result = tmp_memb.merge(info, on ="cluster").compute().reset_index(drop=False).sort_values(
+    chr_result = tmp_memb.merge(info, on ="cluster").compute().reset_index(drop=False).sort_values(
         ["chr", "hic_bin", "hic_rank", "cluster"])
-    result = result.sort_values(["chr", "hic_bin"])[["chr", "cM", "hic_bin", "hic_backbone", "hic_rank"]]
-    result = result.query("hic_bin == hic_bin")
-    return result
+    chr_result = chr_result.sort_values(["chr", "hic_bin"])[["chr", "cM", "hic_bin", "hic_backbone", "hic_rank"]]
+    chr_result = chr_result.query("hic_bin == hic_bin")
+    chr_result = chr_result.rename(columns={"cluster": "scaffold_index"}).set_index("scaffold_index")
+    if save_dir is not None:
+        dd.to_parquet(chr_result, os.path.join(save_dir, "chr_result"))
+        dd.to_parquet(sups["result"], os.path.join(save_dir, "result"))
+        dd.to_parquet(sups["membership"], os.path.join(save_dir, "membership"))
+
+    return chr_result

@@ -245,6 +245,7 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
     fai.index = fai.index.rename("scaffold")
 
     assembly = _init_assembly(fai=fai, cssaln=super_cssaln, molecules=super_molecules, fpairs=super_hic)
+    assembly["agp"] = dd.from_pandas(map_10x["agp"], chunksize=1e6)
     if save is not None:
         # return {"info": info, "cssaln": cssaln, "fpairs": tcc, "molecules": ini_molecules}
         for key, item in assembly.items():
