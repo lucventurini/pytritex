@@ -74,7 +74,7 @@ def main():
     # Now anchor the scaffolds
     assembly_10x = memory.cache(anchor_scaffolds, ignore=["client"])(
         assembly_10x, save_dir, species="wheat", client=client)
-    assembly_10x = memory.cache(add_hic_cov)(assembly, save_dir=save_dir,
+    assembly_10x = memory.cache(add_hic_cov)(assembly_10x, save_dir=save_dir,
                                              binsize=1e4, binsize2=1e6, minNbin=100, innerDist=3e5)
     fragment_data = memory.cache(read_fragdata)(fai=assembly["fai"],
                                                 info=assembly["info"],
