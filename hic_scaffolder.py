@@ -35,7 +35,9 @@ def main():
                         help="Minimum length of scaffolds/super-scaffolds to combine using HiC.")
     parser.add_argument("--mem", default="20GB", type=str)
     parser.add_argument("--save", default=False, action="store_true")
-    parser.add_argument("save-prefix", dest="save_prefix", default="assembly",
+    parser.add_argument("--dir", default=None)
+    parser.add_argument("--hash", default=None)
+    parser.add_argument("save_prefix", default="assembly",
                         help="Folder with the previous run (up to scaffold_10x, included)")
     parser.add_argument("fragments_bed")
     parser.add_argument("fragments")
@@ -58,15 +60,29 @@ def main():
             glob.glob(f"{args.save_prefix}/joblib/pytritex/chimera_breaking/break_10x/break_10x/*/output.pkl")],
            key=operator.itemgetter(1), reverse=True)[0][0]
     assembly = joblib.load(assembly)["assembly"]
-    dirs = [os.path.dirname(_) for _ in
-            glob.glob(f"{args.save_prefix}/joblib/pytritex/scaffold_10x/*/orientation/res/_metadata")]
-    results = dict()
-    for directory in dirs:
-        result = dd.read_parquet(directory)
-        results[os.path.dirname(directory)] = n50(result.length.values.compute())
-    best_result = sorted(results.items(), key=operator.itemgetter(1), reverse=True)[0][0]
+    if args.hash is not None:
+        best_dir = [os.path.dirname(_) for _ in
+            glob.glob(f"{args.save_prefix}/joblib/pytritex/scaffold_10x/{args.hash}*/orientation/res/_metadata")][0]
+    elif args.dir is not None:
+        best_dir = [os.path.dirname(_) for _ in
+            glob.glob(f"{args.dir}")][0]
+    else:
+        best_dir = None
+    if best_dir is not None and not os.path.exists(best_dir):
+        best_dir = None
+    if best_dir is not None:
+        best_result = os.path.dirname(best_dir)
+    else:
+        dirs = [os.path.dirname(_) for _ in
+        glob.glob(f"{args.save_prefix}/joblib/pytritex/scaffold_10x/*/orientation/res/_metadata")]
+        results = dict()
+        for directory in dirs:
+            result = dd.read_parquet(directory)
+            results[os.path.dirname(directory)] = n50(result.length.values.compute())
+        best_result = sorted(results.items(), key=operator.itemgetter(1), reverse=True)[0][0]
+        
     map_10x = {"membership": os.path.join(best_result, "membership"),
-               "result": os.path.join(best_result, "result")}
+               "result": os.path.join(best_result, "res")}
     save_dir = os.path.join(args.save_prefix, "joblib", "pytritex", "hic_map")
     assembly_10x = memory.cache(init_10x_assembly)(
         assembly=assembly, map_10x=map_10x, gap_size=200, molecules=args.use_mols, save=save_dir)
@@ -74,12 +90,13 @@ def main():
     # Now anchor the scaffolds
     assembly_10x = memory.cache(anchor_scaffolds, ignore=["client"])(
         assembly_10x, save_dir, species="wheat", client=client)
-    assembly_10x = memory.cache(add_hic_cov)(assembly, save_dir=save_dir,
+    assembly_10x = memory.cache(add_hic_cov)(assembly_10x, save_dir=save_dir,
                                              binsize=1e4, binsize2=1e6, minNbin=100, innerDist=3e5)
+    # fai, fragfile, map_10x, savedir=None
     fragment_data = memory.cache(read_fragdata)(fai=assembly["fai"],
-                                                info=assembly["info"],
+                                                fragfile=args.fragments,
                                                 map_10x=assembly_10x, save_dir=save_dir)
-    hic_info = dd.read_parquet(fragment_data["info"], infer_divisions=True)
+    # hic_info = dd.read_parquet(fragment_data["info"], infer_divisions=True)
     # hic_info = hic_info.query("hic_chr == hic_chr & length >= @min_length",
     #                           local_dict={"min_length": args.min_length})[["nfrag", "hic_chr", "popseq_cM"]]
     # assert hic_info.index.name == "scaffold_index"
@@ -87,4 +104,7 @@ def main():
     # hic_map
     return
 
-main()
+
+if __name__ == "__main__":
+    mp.freeze_support()
+    main()

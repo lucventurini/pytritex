@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from ..scaffold_10x.make_agp import make_agp
 import os
+import time
 
 
 def transfer_molecules(molecules, map_10x):
@@ -38,7 +39,7 @@ def transfer_molecules(molecules, map_10x):
     super_molecules["end"] = super_molecules["end"].mask(
         super_molecules["orientation"] == -1, super_molecules["super_end"] + 1 - super_molecules["start"])
     super_molecules = super_molecules.reset_index(drop=True).set_index("super").drop(
-        ["super_start", "super_end", "orientation"], axis=1)
+        ["super_start", "super_end", "orientation"], axis=1).persist()
     return super_molecules
 
 
@@ -67,6 +68,7 @@ def transfer_cssaln(cssaln, map_10x):
     cssaln = cssaln.reset_index(drop=True).set_index("super").drop(
         ["super_start", "super_end", "orientation"], axis=1)
     super_cssaln = map_10x["result"].rename(columns={"length": "super_length"}).merge(cssaln, on="super", how="right")
+    super_cssaln = super_cssaln.persist()
     return super_cssaln
 
 
@@ -113,7 +115,7 @@ def transfer_hic(fpairs, map_10x):
     super_fpairs["pos2"] = super_fpairs["pos2"].mask(super_fpairs["orientation"] == -1,
                                                      super_fpairs["super_end"] + 1 - super_fpairs["pos2"])
     super_fpairs = super_fpairs.drop(["super_start", "super_end", "orientation"], axis=1)
-    super_fpairs = super_fpairs.reset_index(drop=True).rename(columns={"super": "super2"})
+    super_fpairs = super_fpairs.reset_index(drop=True).rename(columns={"super": "super2"}).persist()
     return super_fpairs
 
 
@@ -231,21 +233,33 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
     else:
         fai = assembly["fai"]
 
+    print(time.ctime(), "Preparing the AGP")
     map_10x.update(make_agp(map_10x["membership"], info=fai, gap_size=gap_size))
+    print(time.ctime(), "Prepared the AGP")    
     cssaln = assembly["cssaln"]
     if isinstance(cssaln, str):
         cssaln = dd.read_parquet(cssaln, infer_divisions=True)
+
+    print(time.ctime(), "Transfering the CSS aln")
     super_cssaln = transfer_cssaln(cssaln, map_10x)
+    print(time.ctime(), "Transfered the CSS aln")    
     if molecules is True:
         super_molecules = transfer_molecules(dd.read_parquet(assembly["molecules"]), map_10x)
     else:
         super_molecules = None
+    if isinstance(assembly["fpairs"], str):
+        assembly["fpairs"] = dd.read_parquet(assembly["fpairs"], infer_divisions=True)
+
+    print(time.ctime(), "Transfering the HiC data")
     super_hic = transfer_hic(assembly["fpairs"], map_10x)
+    print(time.ctime(), "Transfered the HiC data")    
     fai = map_10x["agp_bed"].eval("length = bed_end - bed_start").groupby("super")["length"].sum()
     fai.index = fai.index.rename("scaffold")
 
+    print(time.ctime(), "Initialising the assembly")
     assembly = _init_assembly(fai=fai, cssaln=super_cssaln, molecules=super_molecules, fpairs=super_hic)
     assembly["agp"] = dd.from_pandas(map_10x["agp"], chunksize=1e6)
+    print(time.ctime(), "Initialised the assembly")    
     if save is not None:
         # return {"info": info, "cssaln": cssaln, "fpairs": tcc, "molecules": ini_molecules}
         for key, item in assembly.items():

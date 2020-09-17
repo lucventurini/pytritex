@@ -16,7 +16,7 @@ def _concatenator(edges, membership, known_ends=False, maxiter=100, verbose=Fals
     if known_ends:
         x = membership.query("cM == cM").sort_values("cM").index
         start, end = x.head(1), x.tail(1)
-    final = make_super_path(edges.compute(), membership.compute(),
+    final = make_super_path(edges, membership,
                             start=start, end=end,
                             maxiter=maxiter, verbose=verbose)
     return final
@@ -174,10 +174,10 @@ def make_super(hl: dd.DataFrame,
             logger.warning("%s Starting to analyse %s rows", time.ctime(), order[~order.super.isin(to_skip)].shape[0])
             for row in order[~order.super.isin(to_skip)].itertuples():
                 index, ssuper, popseq_chr = row
-                my_edges = edges.loc[ssuper]
-                my_membership = cms.loc[ssuper]
-                submitted.append(client.submit(_concatenator, client.scatter(my_edges),
-                                               client.scatter(my_membership), known_ends, maxiter, verbose))
+                my_edges = edges.loc[ssuper].compute()
+                my_membership = cms.loc[ssuper].compute()
+                submitted.append(client.submit(_concatenator, my_edges, my_membership,
+                                               known_ends, maxiter, verbose))
             logger.warning("%s Retrieving final results", time.ctime())
             submitted = client.gather(submitted)
             assert isinstance(submitted[0], np.ndarray), (type(submitted[0]), submitted[0])
