@@ -76,7 +76,7 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     
     # agp["super"] = agp["super"].astype(str)
     # agp.loc[:, "super"] = "super_" + agp["super"].astype(str)
-    assert agp["super"].dtype == "object", agp["super"].head()
+    # assert agp["super"].dtype == "object", agp["super"].head()
     agp.loc[data["gap"] == True, "orig_start"] = "scaffold"  # This is the "gap_type" column
     agp.loc[data["gap"] == True, "orig_end"] = "yes"  # This is the "linkage" column
     agp.loc[:, "gap"] = agp["gap"].map({True: "U", False: "W"})
@@ -94,8 +94,8 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     agp_bed = agp[:][["original_scaffold", "orig_start", "orig_end",
                       "orientation", "alphachr"]].rename(columns={"orig_start": "bed_start", "orig_end": "bed_end",
                                                                   "orientation": "strand"}).query(
-        "bed_start != 'scaffold'")  # Remove the gaps
-    agp_bed["name"] = agp_bed["scaffold"][:]
+        "bed_start != 'scaffold'").rename(columns={"scaffold": "name"})  # Remove the gaps
+    agp_bed["name"] = agp_bed["original_scaffold"].astype(str) + ":" + agp_bed["bed_start"].astype(str) + "-" + agp_bed["bed_end"].astype(str)
     agp_bed["score"] = 1
     agp_bed["strand"] = agp_bed["strand"].mask(agp_bed["strand"] == 1, "+")
     agp_bed["strand"] = agp_bed["strand"].mask(agp_bed["strand"] == -1, "-")
