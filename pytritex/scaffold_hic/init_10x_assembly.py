@@ -43,10 +43,7 @@ def transfer_molecules(molecules, map_10x):
     return super_molecules
 
 
-def transfer_cssaln(cssaln, map_10x):
-    """"""
-
-    #  copy(assembly$cssaln)->z
+#  copy(assembly$cssaln)->z
     #  z[, orig_scaffold := NULL]
     #  z[, orig_scaffold_length := NULL]
     #  z[, orig_pos := NULL]
@@ -59,23 +56,19 @@ def transfer_cssaln(cssaln, map_10x):
     #  z[, c("super_start", "super_end", "orientation") := list(NULL, NULL, NULL)]
     #  super$info[, .(scaffold=super, scaffold_length=length)][z, on="scaffold"]->z
     #  z->s_cssaln
-
+def transfer_cssaln(cssaln, map_10x):
     cssaln = cssaln.drop(["orig_scaffold_index", "orig_pos"], axis=1)
     cssaln = dd.merge(map_10x["agp"][["scaffold_index", "super", "super_start", "super_end", "orientation"]],
                       cssaln, on="scaffold_index")
     cssaln["pos"] = cssaln["pos"].mask(cssaln["orientation"] == 1, cssaln["super_start"] - 1 + cssaln["pos"])
     cssaln["pos"] = cssaln["pos"].mask(cssaln["orientation"] == -1, cssaln["super_end"] + 1 - cssaln["pos"])
-    cssaln = cssaln.reset_index(drop=True).set_index("super").drop(
-        ["super_start", "super_end", "orientation"], axis=1)
+    cssaln = cssaln.reset_index(drop=True).set_index("super").drop(["super_start", "super_end", "orientation"], axis=1)
     super_cssaln = map_10x["result"].rename(columns={"length": "super_length"}).merge(cssaln, on="super", how="right")
     super_cssaln = super_cssaln.persist()
     return super_cssaln
 
 
-def transfer_hic(fpairs, map_10x):
-
-    """"""
-    # if(!is.null(assembly$fpairs) && nrow(assembly$fpairs) > 0){
+# if(!is.null(assembly$fpairs) && nrow(assembly$fpairs) > 0){
     #   copy(assembly$fpairs)->z
     #   z[, c("orig_scaffold1", "orig_pos1") := list(NULL, NULL)]
     #   z[, c("orig_scaffold2", "orig_pos2") := list(NULL, NULL)]
@@ -95,25 +88,21 @@ def transfer_hic(fpairs, map_10x):
     #  } else {
     #   z <- NULL
     #  }
-
+def transfer_hic(fpairs, map_10x):
     super_fpairs = fpairs[:][["scaffold_index1", "scaffold_index2", "pos1", "pos2", "chr1", "chr2"]][:]
     super_fpairs = super_fpairs.set_index("scaffold_index1").persist()
     left = map_10x["agp"][:][["scaffold_index", "super", "super_start", "super_end", "orientation"]].set_index("scaffold_index")
     left.index = left.index.rename("scaffold_index1")
     super_fpairs = dd.merge(left, super_fpairs, on="scaffold_index1", how="right")
-    super_fpairs["pos1"] = super_fpairs["pos1"].mask(super_fpairs["orientation"] == 1,
-                                                     super_fpairs["super_start"] - 1 + super_fpairs["pos1"])
-    super_fpairs["pos1"] = super_fpairs["pos1"].mask(super_fpairs["orientation"] == -1,
-                                                     super_fpairs["super_end"] + 1 - super_fpairs["pos1"])
+    super_fpairs["pos1"] = super_fpairs["pos1"].mask(super_fpairs["orientation"] == 1, super_fpairs["super_start"] - 1 + super_fpairs["pos1"])
+    super_fpairs["pos1"] = super_fpairs["pos1"].mask(super_fpairs["orientation"] == -1, super_fpairs["super_end"] + 1 - super_fpairs["pos1"])
     super_fpairs = super_fpairs.drop(["super_start", "super_end", "orientation"], axis=1)
     super_fpairs = super_fpairs.reset_index(drop=True).rename(columns={"super": "super1"})
     super_fpairs = super_fpairs.set_index("scaffold_index2").persist()
     left.index = left.index.rename("scaffold_index2")
     super_fpairs = dd.merge(left, super_fpairs, on="scaffold_index2", how="right")
-    super_fpairs["pos2"] = super_fpairs["pos2"].mask(super_fpairs["orientation"] == 1,
-                                                     super_fpairs["super_start"] - 1 + super_fpairs["pos2"])
-    super_fpairs["pos2"] = super_fpairs["pos2"].mask(super_fpairs["orientation"] == -1,
-                                                     super_fpairs["super_end"] + 1 - super_fpairs["pos2"])
+    super_fpairs["pos2"] = super_fpairs["pos2"].mask(super_fpairs["orientation"] == 1, super_fpairs["super_start"] - 1 + super_fpairs["pos2"])
+    super_fpairs["pos2"] = super_fpairs["pos2"].mask(super_fpairs["orientation"] == -1, super_fpairs["super_end"] + 1 - super_fpairs["pos2"])
     super_fpairs = super_fpairs.drop(["super_start", "super_end", "orientation"], axis=1)
     super_fpairs = super_fpairs.reset_index(drop=True).rename(columns={"super": "super2"}).persist()
     return super_fpairs
@@ -188,7 +177,7 @@ def _init_assembly(fai, cssaln, molecules, fpairs):
         """).drop("scaffold", axis=1)
         ini_molecules = info[["orig_scaffold", "scaffold"]].merge(ini_molecules, on="orig_scaffold")
     else:
-        ini_molecules = pd.DataFrame()
+        ini_molecules = dd.from_pandas(pd.DataFrame(), chunksize=10)
 
     if fpairs is not None:
         tcc = fpairs[:].eval("""
@@ -198,7 +187,7 @@ def _init_assembly(fai, cssaln, molecules, fpairs):
             orig_pos2 = pos2   
         """).drop(["scaffold_index1", "scaffold_index2"], axis=1)
     else:
-        tcc = pd.DataFrame()
+        tcc = dd.from_pandas(pd.DataFrame(), chunksize=10)
     return {"info": info, "cssaln": ini_cssaln, "fpairs": tcc, "molecules": ini_molecules}
 
 
@@ -253,12 +242,21 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
     print(time.ctime(), "Transfering the HiC data")
     super_hic = transfer_hic(assembly["fpairs"], map_10x)
     print(time.ctime(), "Transfered the HiC data")    
-    fai = map_10x["agp_bed"].eval("length = bed_end - bed_start").groupby("super")["length"].sum()
-    fai.index = fai.index.rename("scaffold")
+    # fai = map_10x["agp_bed"].eval("length = bed_end - bed_start").groupby("super")["length"].sum()
+    # fai.index = fai.index.rename("scaffold")
+    map_10x["agp"]["super_size"] = map_10x["agp"].groupby("super")["super_index"].transform("max")
+    map_10x["agp"]["super_name"] = map_10x["agp"]["super_name"].mask(map_10x["agp"]["super_size"] > 1,
+                                                                     "super_" + map_10x["agp"]["super"].astype(str))
+
+    fai = map_10x["agp"].groupby("super").agg(length=pd.NamedAgg("length", "sum"),
+                                              scaffold=pd.NamedAgg("super_name", lambda values: values.iloc[0]))
+    fai.index = fai.index.rename("scaffold_index")
+    fai["start"] = fai["orig_start"] = 1
+    fai["end"] = fai["orig_end"] = fai["length"]
 
     print(time.ctime(), "Initialising the assembly")
     assembly = _init_assembly(fai=fai, cssaln=super_cssaln, molecules=super_molecules, fpairs=super_hic)
-    assembly["agp"] = dd.from_pandas(map_10x["agp"], chunksize=1e6)
+    assembly["agp"] = dd.from_pandas(map_10x["agp"], chunksize=int(1e6))
     print(time.ctime(), "Initialised the assembly")    
     if save is not None:
         # return {"info": info, "cssaln": cssaln, "fpairs": tcc, "molecules": ini_molecules}
