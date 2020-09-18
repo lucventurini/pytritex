@@ -58,12 +58,12 @@ def transfer_molecules(molecules, map_10x):
     #  z->s_cssaln
 def transfer_cssaln(cssaln, map_10x):
     cssaln = cssaln.drop(["orig_scaffold_index", "orig_pos"], axis=1)
-    cssaln = dd.merge(map_10x["agp"][["scaffold_index", "super", "super_start", "super_end", "orientation"]],
+    cssaln = dd.merge(map_10x["agp"][["scaffold_index", "super", "super_start", "super_end", "super_length", "orientation"]],
                       cssaln, on="scaffold_index")
     cssaln["pos"] = cssaln["pos"].mask(cssaln["orientation"] == 1, cssaln["super_start"] - 1 + cssaln["pos"])
     cssaln["pos"] = cssaln["pos"].mask(cssaln["orientation"] == -1, cssaln["super_end"] + 1 - cssaln["pos"])
     cssaln = cssaln.reset_index(drop=True).set_index("super").drop(["super_start", "super_end", "orientation"], axis=1)
-    super_cssaln = map_10x["result"].rename(columns={"length": "super_length"}).merge(cssaln, on="super", how="right")
+    super_cssaln = cssaln.drop(["scaffold_index"], axis=1, errors="ignore")
     super_cssaln = super_cssaln.persist()
     return super_cssaln
 
@@ -167,25 +167,28 @@ def _init_assembly(fai, cssaln, molecules, fpairs):
     info["orig_end"] = info["length"]
     info["orig_scaffold"] = info["scaffold"]
 
-    ini_cssaln = cssaln[:].eval("orig_scaffold = scaffold").eval("orig_pos = pos").eval(
-        "orig_scaffold_length = scaffold_length")
+    ini_cssaln = cssaln[:]
+    ini_cssaln["orig_scaffold_index"] = ini_cssaln["scaffold_index"]
+    ini_cssaln["orig_scaffold_length"] = ini_cssaln["scaffold_length"]
+    ini_cssaln["orig_pos"] = ini_cssaln["pos"]
+
     if molecules is not None:
         ini_molecules = molecules.eval("""
             orig_scaffold_index = scaffold_index
             orig_start = start
             orig_end = end
-        """).drop("scaffold", axis=1)
+        """)
         ini_molecules = info[["orig_scaffold", "scaffold"]].merge(ini_molecules, on="orig_scaffold")
     else:
         ini_molecules = dd.from_pandas(pd.DataFrame(), chunksize=10)
 
     if fpairs is not None:
-        tcc = fpairs[:].eval("""
+        tcc = fpairs[:].rename(columns={"super1": "scaffold_index1", "super2": "scaffold_index2"}).eval("""
             orig_scaffold_index1 = scaffold_index1
             orig_scaffold_index2 = scaffold_index2
             orig_pos1 = pos1
             orig_pos2 = pos2   
-        """).drop(["scaffold_index1", "scaffold_index2"], axis=1)
+        """)
     else:
         tcc = dd.from_pandas(pd.DataFrame(), chunksize=10)
     return {"info": info, "cssaln": ini_cssaln, "fpairs": tcc, "molecules": ini_molecules}
@@ -224,6 +227,11 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
 
     print(time.ctime(), "Preparing the AGP")
     map_10x.update(make_agp(map_10x["membership"], info=fai, gap_size=gap_size))
+    map_10x["agp"]["super_size"] = map_10x["agp"].groupby("super")["super_index"].transform("max")
+    map_10x["agp"]["super_name"] = map_10x["agp"]["original_scaffold"].mask(map_10x["agp"]["super_size"] > 1,
+                                                                            "super_" + map_10x["agp"]["super"].astype(
+                                                                                str))
+    map_10x["agp"]["super_length"] = map_10x["agp"].groupby("super")["length"].transform("sum")
     print(time.ctime(), "Prepared the AGP")    
     cssaln = assembly["cssaln"]
     if isinstance(cssaln, str):
@@ -242,11 +250,6 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
     print(time.ctime(), "Transfering the HiC data")
     super_hic = transfer_hic(assembly["fpairs"], map_10x)
     print(time.ctime(), "Transfered the HiC data")    
-    # fai = map_10x["agp_bed"].eval("length = bed_end - bed_start").groupby("super")["length"].sum()
-    # fai.index = fai.index.rename("scaffold")
-    map_10x["agp"]["super_size"] = map_10x["agp"].groupby("super")["super_index"].transform("max")
-    map_10x["agp"]["super_name"] = map_10x["agp"]["original_scaffold"].mask(map_10x["agp"]["super_size"] > 1,
-                                                                            "super_" + map_10x["agp"]["super"].astype(str))
 
     fai = map_10x["agp"].groupby("super").agg(length=pd.NamedAgg("length", "sum"),
                                               scaffold=pd.NamedAgg("super_name", lambda values: values.iloc[0]))
