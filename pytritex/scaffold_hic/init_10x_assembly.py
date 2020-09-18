@@ -245,8 +245,8 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
     # fai = map_10x["agp_bed"].eval("length = bed_end - bed_start").groupby("super")["length"].sum()
     # fai.index = fai.index.rename("scaffold")
     map_10x["agp"]["super_size"] = map_10x["agp"].groupby("super")["super_index"].transform("max")
-    map_10x["agp"]["super_name"] = map_10x["agp"]["super_name"].mask(map_10x["agp"]["super_size"] > 1,
-                                                                     "super_" + map_10x["agp"]["super"].astype(str))
+    map_10x["agp"]["super_name"] = map_10x["agp"]["original_scaffold"].mask(map_10x["agp"]["super_size"] > 1,
+                                                                            "super_" + map_10x["agp"]["super"].astype(str))
 
     fai = map_10x["agp"].groupby("super").agg(length=pd.NamedAgg("length", "sum"),
                                               scaffold=pd.NamedAgg("super_name", lambda values: values.iloc[0]))
