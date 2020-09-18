@@ -27,11 +27,12 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     # Now create the gap rows
     gaps = pd.DataFrame().assign(super=initial["super"].values,
                                  bin=np.nan,
-                                 start="scaffold", # This is the "gap_type" column
+                                 start=1,  # This is the "gap_type" column
                                  length=gap_size,
-                                 orientation="paired-ends;map",
+                                 orientation=np.nan,
                                  index=initial["index"].values + 1,
-                                 alphachr=np.nan, cM=np.nan,
+                                 alphachr=np.nan,
+                                 cM=np.nan,
                                  scaffold_index=-1,
                                  gap=True,
                                  with_gaps=(initial.groupby("super")["scaffold_index"].transform("size") > 1).values).query(
@@ -54,8 +55,8 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     scaffolds["scaffold_index"] = scaffolds["scaffold_key"].values
     scaffolds = scaffolds.drop("scaffold_key", axis=1)
     assert scaffolds.query("orig_scaffold_index == scaffold_index & scaffold != original_scaffold").shape[0] == 0
-    scaffolds = scaffolds.append({"scaffold_index": -1, "scaffold": gap_size, "orig_start": 1,
-                                  "orig_end": gap_size, "original_scaffold": gap_size, "orig_length": gap_size},
+    scaffolds = scaffolds.append({"scaffold_index": -1, "scaffold": "gap", "orig_start": 1,
+                                  "orig_end": gap_size, "original_scaffold": "gap", "orig_length": gap_size},
                                  ignore_index=True)
     data = data.merge(scaffolds, how="left", on="scaffold_index")
     data.loc[:, "orig_start"] = data["orig_start"].fillna(0).astype(int)
@@ -77,10 +78,10 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     # agp["super"] = agp["super"].astype(str)
     # agp.loc[:, "super"] = "super_" + agp["super"].astype(str)
     # assert agp["super"].dtype == "object", agp["super"].head()
-    agp.loc[data["gap"] == True, "orig_start"] = "scaffold"  # This is the "gap_type" column
-    agp.loc[data["gap"] == True, "orig_end"] = "yes"  # This is the "linkage" column
+    # agp.loc[data["gap"] == True, "orig_start"] = "scaffold"  # This is the "gap_type" column
+    # agp.loc[data["gap"] == True, "orig_end"] = "yes"  # This is the "linkage" column
     agp.loc[:, "gap"] = agp["gap"].map({True: "U", False: "W"})
-    agp.loc[:, "orientation"] = agp["orientation"].map({1: "+", -1: "-", "paired-ends;map": "paired-ends;map"})
+    # agp.loc[:, "orientation"] = agp["orientation"].map({1: "+", -1: "-", "paired-ends;map": "paired-ends;map"})
     # agp.loc[agp["ssize"] == 1, "super"] = agp.loc[agp["ssize"] == 1, "original_scaffold"]
     # bait = (agp["ssize"] == 1) & (((agp["orig_start"] != "scaffold") & (agp["orig_start"] != 1)) |
     #                               ((agp["orig_end"] != agp["orig_length"]) & (agp["orig_end"] != "yes")))
@@ -91,12 +92,13 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     # name=scaffold, score=1, strand=ifelse(is.na(orientation) | orientation == 1, "+", "-"), agp_chr=agp_chr)]->agp_bed
     # agp = agp.rename(columns={"original_scaffold": "scaffold"})
 
-    agp_bed = agp[:][["original_scaffold", "orig_start", "orig_end",
-                      "orientation", "alphachr"]].rename(columns={"orig_start": "bed_start", "orig_end": "bed_end",
-                                                                  "orientation": "strand"}).query(
-        "bed_start != 'scaffold'").rename(columns={"scaffold": "name"})  # Remove the gaps
-    agp_bed["name"] = agp_bed["original_scaffold"].astype(str) + ":" + agp_bed["bed_start"].astype(str) + "-" + agp_bed["bed_end"].astype(str)
+    agp_bed = agp[:].query("original_scaffold != 'gap'")[["super", "original_scaffold",
+                                                          "orig_start", "orig_end", "orientation", "alphachr"]]
+    agp_bed = agp_bed.rename(columns={"orig_start": "bed_start", "orig_end": "bed_end", "orientation": "strand",
+                                      "original_scaffold": "scaffold"})
     agp_bed["score"] = 1
+    agp_bed["bed_start"] -= 1
+    # agp_bed["name"] = agp_bed["original_scaffold"].astype(str) + ":" + agp_bed["bed_start"].astype(str) + "-" + agp_bed["bed_end"].astype(str)
     agp_bed["strand"] = agp_bed["strand"].mask(agp_bed["strand"] == 1, "+")
     agp_bed["strand"] = agp_bed["strand"].mask(agp_bed["strand"] == -1, "-")
 

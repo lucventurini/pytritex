@@ -262,7 +262,7 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
     assembly["agp"] = dd.from_pandas(map_10x["agp"], chunksize=int(1e6))
     print(time.ctime(), "Initialised the assembly")    
     if save is not None:
-        # return {"info": info, "cssaln": cssaln, "fpairs": tcc, "molecules": ini_molecules}
+        # return {"info": info, "cssaln": cssaln, "fpairs": tcc, "molecules": ini_molecules, "agp": agp}
         for key, item in assembly.items():
             if item is not None:
                 path = os.path.join(save, key)
