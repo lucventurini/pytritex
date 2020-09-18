@@ -49,7 +49,7 @@ def transfer_molecules(molecules, map_10x):
     #  z[, orig_pos := NULL]
     #  z[, scaffold_length := NULL]
     #  super$agp[, .(scaffold, super, super_start, super_end, orientation)][z, on="scaffold"]->z
-    #  z[orientation == 1, pos := super_start - 1 + pos]
+   #  z[orientation == 1, pos := super_start - 1 + pos]
     #  z[orientation == -1, pos := super_end - pos + 1]
     #  z[, scaffold := NULL]
     #  setnames(z, "super", "scaffold")
@@ -167,8 +167,8 @@ def _init_assembly(fai, cssaln, molecules, fpairs):
     info["orig_end"] = info["length"]
     info["orig_scaffold"] = info["scaffold"]
 
-    ini_cssaln = cssaln[:]
-    ini_cssaln["orig_scaffold_index"] = ini_cssaln["scaffold_index"]
+    ini_cssaln = cssaln[:].rename(columns={"length": "scaffold_length"})
+    ini_cssaln["orig_scaffold_index"] = ini_cssaln.index.values
     ini_cssaln["orig_scaffold_length"] = ini_cssaln["scaffold_length"]
     ini_cssaln["orig_pos"] = ini_cssaln["pos"]
 
@@ -266,6 +266,10 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
         for key, item in assembly.items():
             if item is not None:
                 path = os.path.join(save, key)
+                if isinstance(item, pd.DataFrame):
+                    assembly[key] = dd.from_pandas(item, chunksize=int(1e6))
+                elif not isinstance(item, dd.DataFrame):
+                    raise TypeError(f"{key} is not a dask dataframe, but rather a {type(item)}!")
                 dd.to_parquet(assembly[key], path, engine="pyarrow", compression="gzip")
                 assembly[key] = path
 
