@@ -188,13 +188,13 @@ def _init_assembly(fai, cssaln, molecules, fpairs):
             orig_scaffold_index2 = scaffold_index2
             orig_pos1 = pos1
             orig_pos2 = pos2   
-        """)
+        """).persist()
     else:
         tcc = dd.from_pandas(pd.DataFrame(), chunksize=10)
     if isinstance(info, pd.DataFrame):
         info = dd.from_pandas(info, chunksize=int(1e6))
 
-    return {"info": info, "cssaln": ini_cssaln, "fpairs": tcc, "molecules": ini_molecules}
+    return {"info": info, "fai": fai, "cssaln": ini_cssaln, "fpairs": tcc, "molecules": ini_molecules}
 
 
 def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=None):
@@ -260,19 +260,26 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
     fai["end"] = fai["orig_end"] = fai["length"]
 
     print(time.ctime(), "Initialising the assembly")
-    assembly = _init_assembly(fai=fai, cssaln=super_cssaln, molecules=super_molecules, fpairs=super_hic)
-    assembly["agp"] = dd.from_pandas(map_10x["agp"], chunksize=int(1e6))
+    assembly10x = _init_assembly(fai=fai, cssaln=super_cssaln, molecules=super_molecules, fpairs=super_hic)
+    assembly10x["agp"] = dd.from_pandas(map_10x["agp"], chunksize=int(1e6))
+    for key in assembly:
+        if key not in assembly10x:
+            assembly10x[key] = assembly[key]
+    
     print(time.ctime(), "Initialised the assembly")    
     if save is not None:
         # return {"info": info, "cssaln": cssaln, "fpairs": tcc, "molecules": ini_molecules, "agp": agp}
         for key, item in assembly.items():
             if item is not None:
-                path = os.path.join(save, key)
                 if isinstance(item, pd.DataFrame):
                     assembly[key] = dd.from_pandas(item, chunksize=int(1e6))
-                elif not isinstance(item, dd.DataFrame):
-                    raise TypeError(f"{key} is not a dask dataframe, but rather a {type(item)}!")
-                dd.to_parquet(assembly[key], path, engine="pyarrow", compression="gzip")
-                assembly[key] = path
+                if isinstance(item, dd.DataFrame):
+                    path = os.path.join(save, key)
+                    try:
+                        dd.to_parquet(assembly[key], path, engine="pyarrow", compression="gzip", schema="infer")
+                    except RuntimeError as exc:
+                        print(assembly[key].head())
+                        raise RuntimeError(f"Key {key} failed.\n{exc}")
+                    assembly[key] = path
 
     return assembly
