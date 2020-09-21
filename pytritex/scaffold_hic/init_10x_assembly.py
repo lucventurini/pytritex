@@ -191,6 +191,9 @@ def _init_assembly(fai, cssaln, molecules, fpairs):
         """)
     else:
         tcc = dd.from_pandas(pd.DataFrame(), chunksize=10)
+    if isinstance(info, pd.DataFrame):
+        info = dd.from_pandas(info, chunksize=int(1e6))
+
     return {"info": info, "cssaln": ini_cssaln, "fpairs": tcc, "molecules": ini_molecules}
 
 
@@ -228,9 +231,8 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
     print(time.ctime(), "Preparing the AGP")
     map_10x.update(make_agp(map_10x["membership"], info=fai, gap_size=gap_size))
     map_10x["agp"]["super_size"] = map_10x["agp"].groupby("super")["super_index"].transform("max")
-    map_10x["agp"]["super_name"] = map_10x["agp"]["original_scaffold"].mask(map_10x["agp"]["super_size"] > 1,
-                                                                            "super_" + map_10x["agp"]["super"].astype(
-                                                                                str))
+    map_10x["agp"]["super_name"] = map_10x["agp"]["original_scaffold"].mask(
+        map_10x["agp"]["super_size"] > 1, "super_" + map_10x["agp"]["super"].astype(str))
     map_10x["agp"]["super_length"] = map_10x["agp"].groupby("super")["length"].transform("sum")
     print(time.ctime(), "Prepared the AGP")    
     cssaln = assembly["cssaln"]
@@ -249,11 +251,11 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
 
     print(time.ctime(), "Transfering the HiC data")
     super_hic = transfer_hic(assembly["fpairs"], map_10x)
-    print(time.ctime(), "Transfered the HiC data")    
+    print(time.ctime(), "Transfered the HiC data")
 
-    fai = map_10x["agp"].groupby("super").agg(length=pd.NamedAgg("length", "sum"),
-                                              scaffold=pd.NamedAgg("super_name", lambda values: values.iloc[0]))
-    fai.index = fai.index.rename("scaffold_index")
+    fai = map_10x["agp"][["super", "super_name", "super_length"]].rename(
+        columns={"super_length": "length", "super_name": "scaffold", "super": "scaffold_index"})
+    fai = fai.set_index("scaffold_index")
     fai["start"] = fai["orig_start"] = 1
     fai["end"] = fai["orig_end"] = fai["length"]
 
