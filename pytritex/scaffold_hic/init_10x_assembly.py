@@ -4,6 +4,7 @@ import pandas as pd
 from ..scaffold_10x.make_agp import make_agp
 import os
 import time
+import dask.array as da
 
 
 def transfer_molecules(molecules, map_10x):
@@ -88,10 +89,10 @@ def transfer_cssaln(cssaln, map_10x):
     #  } else {
     #   z <- NULL
     #  }
-def transfer_hic(fpairs, map_10x):
-    super_fpairs = fpairs[:][["scaffold_index1", "scaffold_index2", "pos1", "pos2", "chr1", "chr2"]][:]
+def transfer_hic(fpairs, agp):
+    super_fpairs = fpairs[:][["scaffold_index1", "scaffold_index2", "pos1", "pos2"]][:]
     super_fpairs = super_fpairs.set_index("scaffold_index1").persist()
-    left = map_10x["agp"][:][["scaffold_index", "super", "super_start", "super_end", "orientation"]].set_index("scaffold_index")
+    left = agp[["scaffold_index", "super", "super_start", "super_end", "orientation"]].set_index("scaffold_index")
     left.index = left.index.rename("scaffold_index1")
     super_fpairs = dd.merge(left, super_fpairs, on="scaffold_index1", how="right")
     super_fpairs["pos1"] = super_fpairs["pos1"].mask(super_fpairs["orientation"] == 1, super_fpairs["super_start"] - 1 + super_fpairs["pos1"])
@@ -105,6 +106,18 @@ def transfer_hic(fpairs, map_10x):
     super_fpairs["pos2"] = super_fpairs["pos2"].mask(super_fpairs["orientation"] == -1, super_fpairs["super_end"] + 1 - super_fpairs["pos2"])
     super_fpairs = super_fpairs.drop(["super_start", "super_end", "orientation"], axis=1)
     super_fpairs = super_fpairs.reset_index(drop=True).rename(columns={"super": "super2"}).persist()
+    super_fpairs = super_fpairs.rename(columns={"super1": "scaffold_index1", "super2": "scaffold_index2"})
+    super_fpairs["orig_scaffold_index1"] = super_fpairs["scaffold_index1"]
+    super_fpairs["orig_scaffold_index2"] = super_fpairs["scaffold_index2"]
+    super_fpairs["orig_pos1"] = super_fpairs["pos1"]
+    super_fpairs["orig_pos2"] = super_fpairs["pos2"]
+    super_fpairs = super_fpairs[["scaffold_index1", "scaffold_index2", "pos1", "orig_pos1", "pos2", "orig_pos2"]]
+    # Now add the index
+    super_fpairs = super_fpairs.repartition(partition_size=int(1e6))
+    chunks = tuple(super_fpairs.map_partitions(len).compute())
+    super_fpairs = super_fpairs.assign(
+        hic_index=da.from_array(np.arange(1, super_fpairs.shape[0].compute() + 1, dtype=int), chunks=chunks))
+    super_fpairs = super_fpairs.set_index("hic_index", sorted=True)
     return super_fpairs
 
 
@@ -250,7 +263,7 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
         assembly["fpairs"] = dd.read_parquet(assembly["fpairs"], infer_divisions=True)
 
     print(time.ctime(), "Transfering the HiC data")
-    super_hic = transfer_hic(assembly["fpairs"], map_10x)
+    super_hic = transfer_hic(assembly["fpairs"], agp=map_10x["agp"])
     print(time.ctime(), "Transfered the HiC data")
 
     fai = map_10x["agp"][["super", "super_name", "super_length"]].rename(
