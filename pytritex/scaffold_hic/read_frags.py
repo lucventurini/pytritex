@@ -84,7 +84,11 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None):
 
     # Now concatenate for the final frag file.
     frags = dd.concat([frags_to_keep, frags_to_roll]).astype({"start": np.int32, "end": np.int32})
-    left = map_10x["agp"].query("gap == False")[["super", "orientation", "super_start", "super_end"]]
+    agp = map_10x["agp"]
+    if isinstance(agp, str):
+        agp = dd.read_parquet(agp)
+    
+    left = agp.query("gap == False")[["super", "orientation", "super_start", "super_end"]]
     fragbed = dd.merge(left, frags, on="scaffold_index")
     # map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][fragbed, on="scaffold"]->fragbed
     bait = (fragbed["orientation"] == 1)
