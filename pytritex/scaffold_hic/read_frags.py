@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from ..utils import rolling_join
 import os
+from dask.delayed import delayed
 
 # # Read BED files with positions of restriction fragments on the input assembly, lift coordinates to updated assemblies
 # read_fragdata<-function(info, map_10x=NULL, assembly_10x=NULL, file){
@@ -38,14 +39,33 @@ import os
 
 
 def read_fragdata(fai, fragfile, map_10x, savedir=None):
+    
+    if fragfile.endswith(".gz"):
+        import subprocess as sp
+        if savedir is None:
+            dirname = "."
+        else:
+            dirname = savedir
+        sp.call("gunzip -c {} > {}".format(fragfile, os.path.join(dirname, "frags.csv")), shell=True)
+        fragfile = os.path.join(dirname, "frags.csv")        
 
-    frags = dd.read_csv(fragfile, names=["orig_scaffold", "start", "end"])
-    frags["length"] = frags.eval("end - start")
-    frags["start"] += 1
+    if isinstance(fai, str):
+        fai = dd.read_parquet(fai, infer_divisions=True)
+    
     left = fai.query("derived_from_split == False")[
         ["scaffold", "orig_scaffold_index", "to_use"]].reset_index(drop=True).rename(
         columns={"scaffold": "orig_scaffold"}).set_index("orig_scaffold")
+
+    frags = dd.read_csv(fragfile, names=["orig_scaffold", "start", "end"], delimiter="\t", header=None,
+                        dtype={"orig_scaffold": str, "start": np.int32, "end": np.int32})
+    frags["length"] = frags["end"] - frags["start"]
+    frags["start"] += 1    
+    
     frags = dd.merge(left, frags, on="orig_scaffold").reset_index(drop=True).set_index("orig_scaffold_index")
+    if savedir is not None:
+        path = dd.to_parquet(frags, os.path.join(savedir, "raw_frags"),
+                             compression="gzip", compute=True, engine="pyarrow")
+    
     # Select scaffolds that have not been broken up, we'll use them as-is
     frags_to_keep = frags.query("to_use == True")[:].drop("to_use", axis=1)
     frags_to_keep.index = frags_to_keep.index.rename("scaffold_index")
@@ -53,7 +73,7 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None):
     frags_to_roll = frags.query("to_use == False").drop("to_use", axis=1)
     left = fai.query("to_use == True & orig_scaffold_index in @rolled",
                      local_dict={
-                         "rolled": frags_to_roll["orig_scaffold_index"].unique().values.compute().tolist()})
+                         "rolled": np.unique(frags_to_roll.index.values.compute()).tolist()})
     left = left[["orig_scaffold_index", "orig_start"]].reset_index(drop=False).set_index("orig_scaffold_index")
     left["start"] = left["orig_start"]
     frags_to_roll = rolling_join(left, frags_to_roll, on="orig_scaffold_index",
