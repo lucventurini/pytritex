@@ -271,18 +271,19 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
     super_hic = transfer_hic(assembly["fpairs"], agp=map_10x["agp"])
     print(time.ctime(), "Transfered the HiC data")
 
-    fai = map_10x["agp"][["super", "super_name", "super_length"]].drop_duplicates().rename(
+    agp = map_10x["agp"]
+    super_fai = agp[["super", "super_name", "super_length"]].drop_duplicates().rename(
         columns={"super_length": "length", "super_name": "scaffold", "super": "scaffold_index"})
-    fai = fai.set_index("scaffold_index")
-    fai["start"] = fai["orig_start"] = 1
-    fai["end"] = fai["orig_end"] = fai["length"]
+    super_fai = super_fai.set_index("scaffold_index")
+    super_fai["start"] = super_fai["orig_start"] = 1
+    super_fai["end"] = super_fai["orig_end"] = super_fai["length"]
 
     print(time.ctime(), "Initialising the assembly")
-    assembly10x = _init_assembly(fai=fai, cssaln=super_cssaln, molecules=super_molecules, fpairs=super_hic)
+    assembly10x = _init_assembly(fai=super_fai, cssaln=super_cssaln, molecules=super_molecules, fpairs=super_hic)
     for key in assembly:
         if key not in assembly10x:
             assembly10x[key] = assembly[key]
-    assembly10x["agp"] = map_10x["agp"]
+    assembly10x["agp"] = agp
     assembly10x["agp_bed"] = map_10x["agp_bed"]
     
     print(time.ctime(), "Initialised the assembly")    
