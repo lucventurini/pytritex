@@ -94,8 +94,9 @@ def main():
                                              binsize=1e4, binsize2=1e6, minNbin=100, innerDist=3e5)
     # fai, fragfile, map_10x, savedir=None
     fragment_data = memory.cache(read_fragdata)(fai=assembly["fai"],
-                                                fragfile=args.fragments,
-                                                map_10x=assembly_10x, save_dir=save_dir)
+                                                fragfile=args.fragments_bed,
+                                                map_10x=assembly_10x,
+                                                savedir=save_dir)
     # hic_info = dd.read_parquet(fragment_data["info"], infer_divisions=True)
     # hic_info = hic_info.query("hic_chr == hic_chr & length >= @min_length",
     #                           local_dict={"min_length": args.min_length})[["nfrag", "hic_chr", "popseq_cM"]]

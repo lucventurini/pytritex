@@ -41,6 +41,9 @@ def transfer_molecules(molecules, map_10x):
         super_molecules["orientation"] == -1, super_molecules["super_end"] + 1 - super_molecules["start"])
     super_molecules = super_molecules.reset_index(drop=True).set_index("super").drop(
         ["super_start", "super_end", "orientation"], axis=1).persist()
+    super_molecules.index = super_molecules.index.rename("scaffold_index")
+    super_molecules = super_molecules.drop(["scaffold_length"], axis=1, errors="ignore").rename(
+        columns={"super_length": "scaffold_length"})
     return super_molecules
 
 
@@ -59,13 +62,16 @@ def transfer_molecules(molecules, map_10x):
     #  z->s_cssaln
 def transfer_cssaln(cssaln, map_10x):
     cssaln = cssaln.drop(["orig_scaffold_index", "orig_pos"], axis=1)
-    cssaln = dd.merge(map_10x["agp"][["scaffold_index", "super", "super_start", "super_end", "super_length", "orientation"]],
-                      cssaln, on="scaffold_index")
+    agp = map_10x["agp"]
+    left = agp[["scaffold_index", "super", "super_start", "super_end", "super_length", "orientation"]].reset_index(drop=True).set_index("scaffold_index")
+    cssaln = dd.merge(left, cssaln, how="right", on="scaffold_index").persist()
     cssaln["pos"] = cssaln["pos"].mask(cssaln["orientation"] == 1, cssaln["super_start"] - 1 + cssaln["pos"])
     cssaln["pos"] = cssaln["pos"].mask(cssaln["orientation"] == -1, cssaln["super_end"] + 1 - cssaln["pos"])
     cssaln = cssaln.reset_index(drop=True).set_index("super").drop(["super_start", "super_end", "orientation"], axis=1)
-    super_cssaln = cssaln.drop(["scaffold_index"], axis=1, errors="ignore")
-    super_cssaln = super_cssaln.persist()
+    super_cssaln = cssaln.drop(["scaffold_length"], axis=1, errors="ignore").persist()
+    super_cssaln.index = super_cssaln.index.rename("scaffold_index")
+    assert "scaffold_length" not in super_cssaln.columns
+    super_cssaln = super_cssaln.rename(columns={"super_length": "scaffold_length"}).drop_duplicates().persist()
     return super_cssaln
 
 
@@ -180,9 +186,15 @@ def _init_assembly(fai, cssaln, molecules, fpairs):
     info["orig_end"] = info["length"]
     info["orig_scaffold"] = info["scaffold"]
 
-    ini_cssaln = cssaln[:].rename(columns={"length": "scaffold_length"})
+    ini_cssaln = cssaln[:]
     ini_cssaln["orig_scaffold_index"] = ini_cssaln.index.values
-    ini_cssaln["orig_scaffold_length"] = ini_cssaln["scaffold_length"]
+    try:
+        ini_cssaln["orig_scaffold_length"] = ini_cssaln["scaffold_length"]
+    except ValueError:
+        import sys
+        print(ini_cssaln.head(), "", "Scaffold_length values", ini_cssaln["scaffold_length"].values[:10].compute(),
+              file=sys.stderr, sep="\n")
+        raise
     ini_cssaln["orig_pos"] = ini_cssaln["pos"]
 
     if molecules is not None:
@@ -191,19 +203,16 @@ def _init_assembly(fai, cssaln, molecules, fpairs):
             orig_start = start
             orig_end = end
         """)
-        ini_molecules = info[["orig_scaffold", "scaffold"]].merge(ini_molecules, on="orig_scaffold")
     else:
         ini_molecules = dd.from_pandas(pd.DataFrame(), chunksize=10)
 
     if fpairs is not None:
-        tcc = fpairs[:].rename(columns={"super1": "scaffold_index1", "super2": "scaffold_index2"}).eval("""
-            orig_scaffold_index1 = scaffold_index1
-            orig_scaffold_index2 = scaffold_index2
-            orig_pos1 = pos1
-            orig_pos2 = pos2   
-        """).persist()
+        assert "chr1" not in fpairs.columns
+        assert "chr2" not in fpairs.columns
+        tcc = fpairs[:]        
     else:
         tcc = dd.from_pandas(pd.DataFrame(), chunksize=10)
+        
     if isinstance(info, pd.DataFrame):
         info = dd.from_pandas(info, chunksize=int(1e6))
 
@@ -243,10 +252,12 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
 
     print(time.ctime(), "Preparing the AGP")
     map_10x.update(make_agp(map_10x["membership"], info=fai, gap_size=gap_size))
-    map_10x["agp"]["super_size"] = map_10x["agp"].groupby("super")["super_index"].transform("max")
+    map_10x["agp"]["super_size"] = da.from_array(map_10x["agp"].groupby("super")["super_index"].transform("max", meta=int).compute().values,
+                                                 chunks=map_10x["agp"].map_partitions(len).compute().values.tolist())
     map_10x["agp"]["super_name"] = map_10x["agp"]["original_scaffold"].mask(
         map_10x["agp"]["super_size"] > 1, "super_" + map_10x["agp"]["super"].astype(str))
-    map_10x["agp"]["super_length"] = map_10x["agp"].groupby("super")["length"].transform("sum")
+    map_10x["agp"]["super_length"] = da.from_array(map_10x["agp"].groupby("super")["length"].transform("sum", meta=int).compute().values,
+                                                   chunks=map_10x["agp"].map_partitions(len).compute().values.tolist())
     print(time.ctime(), "Prepared the AGP")    
     cssaln = assembly["cssaln"]
     if isinstance(cssaln, str):
@@ -266,7 +277,7 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
     super_hic = transfer_hic(assembly["fpairs"], agp=map_10x["agp"])
     print(time.ctime(), "Transfered the HiC data")
 
-    fai = map_10x["agp"][["super", "super_name", "super_length"]].rename(
+    fai = map_10x["agp"][["super", "super_name", "super_length"]].drop_duplicates().rename(
         columns={"super_length": "length", "super_name": "scaffold", "super": "scaffold_index"})
     fai = fai.set_index("scaffold_index")
     fai["start"] = fai["orig_start"] = 1
@@ -274,25 +285,26 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
 
     print(time.ctime(), "Initialising the assembly")
     assembly10x = _init_assembly(fai=fai, cssaln=super_cssaln, molecules=super_molecules, fpairs=super_hic)
-    assembly10x["agp"] = dd.from_pandas(map_10x["agp"], chunksize=int(1e6))
     for key in assembly:
         if key not in assembly10x:
             assembly10x[key] = assembly[key]
+    assembly10x["agp"] = map_10x["agp"]
+    assembly10x["agp_bed"] = map_10x["agp_bed"]
     
     print(time.ctime(), "Initialised the assembly")    
     if save is not None:
         # return {"info": info, "cssaln": cssaln, "fpairs": tcc, "molecules": ini_molecules, "agp": agp}
-        for key, item in assembly.items():
+        for key, item in assembly10x.items():
             if item is not None:
                 if isinstance(item, pd.DataFrame):
                     item = dd.from_pandas(item, chunksize=int(1e6))
                 if isinstance(item, dd.DataFrame):
                     path = os.path.join(save, key)
                     try:
-                        dd.to_parquet(assembly[key], path, engine="pyarrow", compression="gzip", schema="infer")
+                        dd.to_parquet(item, path, engine="pyarrow", compression="gzip", schema="infer")
                     except RuntimeError as exc:
-                        print(assembly[key].head())
+                        print(item.head(npartitions=-1))
                         raise RuntimeError(f"Key {key} failed.\n{exc}")
-                    assembly[key] = path
+                    assembly10x[key] = path
 
-    return assembly
+    return assembly10x
