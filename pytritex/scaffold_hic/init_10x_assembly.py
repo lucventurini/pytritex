@@ -252,12 +252,6 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
 
     print(time.ctime(), "Preparing the AGP")
     map_10x.update(make_agp(map_10x["membership"], info=fai, gap_size=gap_size))
-    map_10x["agp"]["super_size"] = da.from_array(map_10x["agp"].groupby("super")["super_index"].transform("max", meta=int).compute().values,
-                                                 chunks=map_10x["agp"].map_partitions(len).compute().values.tolist())
-    map_10x["agp"]["super_name"] = map_10x["agp"]["original_scaffold"].mask(
-        map_10x["agp"]["super_size"] > 1, "super_" + map_10x["agp"]["super"].astype(str))
-    map_10x["agp"]["super_length"] = da.from_array(map_10x["agp"].groupby("super")["length"].transform("sum", meta=int).compute().values,
-                                                   chunks=map_10x["agp"].map_partitions(len).compute().values.tolist())
     print(time.ctime(), "Prepared the AGP")    
     cssaln = assembly["cssaln"]
     if isinstance(cssaln, str):
