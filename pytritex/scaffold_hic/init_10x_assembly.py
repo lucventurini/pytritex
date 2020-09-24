@@ -285,7 +285,7 @@ def init_10x_assembly(assembly, map_10x, gap_size=100, molecules=False, save=Non
         for key, item in assembly.items():
             if item is not None:
                 if isinstance(item, pd.DataFrame):
-                    assembly[key] = dd.from_pandas(item, chunksize=int(1e6))
+                    item = dd.from_pandas(item, chunksize=int(1e6))
                 if isinstance(item, dd.DataFrame):
                     path = os.path.join(save, key)
                     try:
