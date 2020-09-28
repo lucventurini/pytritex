@@ -24,7 +24,7 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     initial = initial.merge(names, on="chr", how="left")
     initial["index"] = da.from_array(np.arange(1, initial.shape[0].compute() + 1) * 2 - 1,
                                             chunks=initial.map_partitions(len).compute().values.tolist())
-    initial = initial.set_index("index")
+    initial = initial.reset_index(drop=False).set_index("index")
     initial["gap"] = False
     initial["start"] = 1
 
@@ -35,6 +35,7 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
                                  length=gap_size,
                                  orientation=np.nan,
                                  index=initial.index.values.compute() + 1,
+                                 chr=np.nan,
                                  alphachr=np.nan,
                                  cM=np.nan,
                                  scaffold_index=-1,
@@ -51,13 +52,7 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     # assign the final index
     data["super_index"] = (data.groupby("super").cumcount() + 1)
 
-    original = info.query("derived_from_split == False")[["scaffold", "length"]].rename(
-        columns={"scaffold": "original_scaffold", "length": "orig_length"})
-    original.index = original.index.rename("orig_scaffold_index")
-    scaffolds = info.query("to_use == True")[["orig_scaffold_index", "scaffold", "orig_start", "orig_end"]]
-    scaffolds = scaffolds.reset_index(drop=False).set_index("orig_scaffold_index")
-    scaffolds = original.merge(scaffolds, on="orig_scaffold_index", how="right")
-    scaffolds = scaffolds.reset_index(drop=False).set_index("scaffold_index")
+    scaffolds = info.query("to_use == True")[["orig_scaffold_index", "orig_start", "orig_end"]]
 
     gap = {"scaffold_index": [-1], "scaffold": ["gap"], "orig_start": [1], "orig_end": [gap_size],
            "original_scaffold": ["gap"], "orig_length": [gap_size], "orig_scaffold_index": [-1]}
@@ -88,11 +83,11 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     data = data.merge(data.groupby("super").size().to_frame("super_size"), on="super", how="left")
     data = data.merge(data.groupby("super")["length"].sum().to_frame("super_length"), on="super", how="left")
     data = data.reset_index(drop=False).set_index("index")
-    data["super_name"] = data["original_scaffold"].mask(data["super_size"] > 1, "super_" + data["super"].astype(str))
+    # data["super_name"] = data["original_scaffold"].mask(data["super_size"] > 1, "super_" + data["super"].astype(str))
 
     agp = data[["super", "super_start", "super_end", "super_index", "gap",
-                "original_scaffold", "orig_start", "orig_end", "orientation", "alphachr", "cM",
-                "scaffold_index", "length", "super_length", "super_name", "super_size"]][:].persist()
+                "orig_scaffold_index", "orig_start", "orig_end", "orientation", "alphachr", "cM",
+                "scaffold_index", "length", "super_length", "super_size"]][:].persist()
 
     for column in ["super_start", "super_end", "super_index", "orig_start", "orig_end", "length"]:
         qstring = f"{column} != {column}"
@@ -122,10 +117,10 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     # name=scaffold, score=1, strand=ifelse(is.na(orientation) | orientation == 1, "+", "-"), agp_chr=agp_chr)]->agp_bed
     # agp = agp.rename(columns={"original_scaffold": "scaffold"})
 
-    agp_bed = agp[:].query("scaffold_index != -1")[["super", "original_scaffold", "orig_start",
+    agp_bed = agp[:].query("scaffold_index != -1")[["super", "orig_scaffold_index", "orig_start",
                                                     "orig_end", "orientation", "alphachr"]]
     agp_bed = agp_bed.rename(columns={"orig_start": "bed_start", "orig_end": "bed_end", "orientation": "strand",
-                                      "original_scaffold": "scaffold"})
+                                      "orig_scaffold_index": "scaffold"})
     agp_bed["score"] = 1
     agp_bed["bed_start"] -= 1
     # agp_bed["name"] = agp_bed["original_scaffold"].astype(str) + ":" + agp_bed["bed_start"].astype(str) + "-" + agp_bed["bed_end"].astype(str)

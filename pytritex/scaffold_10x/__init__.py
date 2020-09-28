@@ -11,6 +11,10 @@ from dask.distributed import Client
 import logging
 logger = logging.getLogger("dask")
 import json
+import dask.dataframe as dd
+from sys import stdout
+from io import FileIO
+import pandas as pd
 
 
 def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
@@ -88,3 +92,48 @@ def scaffold_10x(assembly: dict, memory: Memory, save_dir: str,
         client=client)
 
     return membership, result
+
+
+def print_agp(agp, fai, out=None):
+
+    # agp = data[["super", "super_start", "super_end", "super_index", "gap",
+    #                 "orig_scaffold_index", "orig_start", "orig_end", "orientation", "alphachr", "cM",
+    #                 "scaffold_index", "length", "super_length", "super_size"]][:].persist()
+
+    if isinstance(fai, str):
+        fai = dd.read_parquet(fai)
+
+    if isinstance(agp, str):
+        agp = dd.read_parquet(agp)
+
+    orig_scaffolds = fai.query("derived_from_split == False")[["scaffold"]]
+    orig_scaffolds.index = orig_scaffolds.index.rename("orig_scaffold_index")
+
+    # Columns:
+    # 1 Name, 2 begin, 3 end, 4 part num, 5 Type, 6 [[ID OR gap length]],
+    # 7 [[Comp beg OR Gap_type (scaffold)]], 8 [[End OR evidence (yes/no)]],
+    # 9 [[Orientation OR gap evidence (paired-ends)]],
+    # 10 chromosome, 11 cM
+
+    agp = agp.merge(orig_scaffolds, on="orig_scaffold_index", how="left").persist()
+    agp["type"] = agp["gap"].map({True: "U", False: "W"})
+    agp["super_name"] = agp["scaffold"].mask(agp["super_size"] > 1,
+                                             "super_" + agp["super"].astype(str))
+    agp["start"] = agp["orig_start"].mask(agp["scaffold_index"] == -1, "scaffold")
+    agp["end"] = agp["orig_end"].mask(agp["scaffold_index"] == -1, "yes")
+    agp["strand"] = agp["orientation"].mask(agp["scaffold_index"] == -1, "paired-ends")
+    agp["strand"] = agp["orientation"].map({1: "+", -1: "-", "paired-ends": "paired-ends"})
+
+    to_print = agp[["super_name", "super_start", "super_end", "super_index", "type", "scaffold",
+                    "start", "end", "strand", "alphachr", "cM"]]
+    if out is None:
+        out = stdout
+    elif isinstance(out, str):
+        out = open(out, "wt")
+    else:
+        assert isinstance(out, FileIO)
+
+    print("##agp-version	2.0", file=out)
+    to_print = to_print.compute()
+    to_print.to_csv(out, sep="\t", index=False)
+    return

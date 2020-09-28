@@ -57,14 +57,13 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None):
         columns={"scaffold": "orig_scaffold"}).set_index("orig_scaffold").persist()
 
     frags = dd.read_csv(fragfile, names=["orig_scaffold", "start", "end"], delimiter="\t", header=None,
-                        dtype={"orig_scaffold": str, "start": int, "end": int})
+                        dtype={"orig_scaffold": str, "start": int, "end": int}).persist()
     frags["length"] = frags["end"] - frags["start"]
     frags["start"] += 1
     frags = frags.set_index("orig_scaffold")
     frags = frags.persist()
     
-    frags = dd.merge(left, frags, on="orig_scaffold").reset_index(drop=True).set_index("orig_scaffold_index")
-    frags = frags.persist()
+    frags = dd.merge(left, frags, on="orig_scaffold").reset_index(drop=True).set_index("orig_scaffold_index").persist()
     # Select scaffolds that have not been broken up, we'll use them as-is
     frags_to_keep = frags.query("to_use == True")[:].drop("to_use", axis=1)
     frags_to_keep.index = frags_to_keep.index.rename("scaffold_index")
@@ -89,7 +88,8 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None):
     if isinstance(agp, str):
         agp = dd.read_parquet(agp)
     
-    left = agp.query("gap == False")[["super", "orientation", "super_start", "super_end", "scaffold_index"]]
+    left = agp.query("gap == False")[["super", "orientation", "super_start",
+                                      "super_end", "scaffold_index", "chr", "cM"]]
     left = left.set_index("scaffold_index")
     fragbed = dd.merge(left, frags, on="scaffold_index").persist()
     # map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][fragbed, on="scaffold"]->fragbed
@@ -109,7 +109,7 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None):
 
     fragbed.index = fragbed.index.rename("scaffold_index")
     nfrags = fragbed.groupby("scaffold_index").size().to_frame("nfrag")
-    info = nfrags.merge(info, on="scaffold_index", how="right")
+    info = info.merge(nfrags, on="scaffold_index", how="right")
     info["nfrag"] = info["nfrag"].fillna(0)
     if savedir is not None:
         fragbed_name = os.path.join(savedir, "fragbed")

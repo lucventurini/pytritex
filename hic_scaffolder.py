@@ -98,7 +98,7 @@ def main():
                                                 map_10x=assembly_10x,
                                                 savedir=save_dir)
     # hic_info = dd.read_parquet(fragment_data["info"], infer_divisions=True)
-    # hic_info = hic_info.query("hic_chr == hic_chr & length >= @min_length",
+    # hic_info = hic_info.query("hic_chr == hic_chr & super_length >= @min_length",
     #                           local_dict={"min_length": args.min_length})[["nfrag", "hic_chr", "popseq_cM"]]
     # assert hic_info.index.name == "scaffold_index"
     # hic_info = hic_info.rename(columns={"hic_chr": "chr", "popseq_cM": "cM"})
