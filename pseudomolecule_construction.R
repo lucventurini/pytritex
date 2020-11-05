@@ -1617,8 +1617,8 @@ hic_map<-function(info, assembly, frags, species, ncores=1, min_nfrag_scaffold=5
   cat("Scaffold map construction finished.\n")
 
   if(orient){
+   options(scipen = 1000)
    if(orient_old){
-    options(scipen = 1000)
     frags[, .(nfrag=.N), keyby=.(scaffold, pos = start %/% binsize * binsize)]->fragbin
     fragbin[, id := paste(sep=":", scaffold, pos)]
     fragbin<-hic_info[excluded == F, .(scaffold, chr, cM)][fragbin, on="scaffold", nomatch=0]
@@ -1664,7 +1664,6 @@ hic_map<-function(info, assembly, frags, species, ncores=1, min_nfrag_scaffold=5
     setnames(hic_map_oriented, "cM", "consensus_cM")
     hic_map_oriented[, consensus_orientation := hic_orientation]
    } else {
-    options(scipen = 1000)
     assembly$info[, .(scaffold, binsize=pmax(min_binsize, length %/% min_nbin))][frags, on='scaffold']->f
     f[, .(nfrag=.N), keyby=.(scaffold, binsize, pos = start %/% binsize * binsize)]->fragbin
     fragbin[, id := paste(sep=":", scaffold, pos)]

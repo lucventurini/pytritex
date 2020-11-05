@@ -97,14 +97,21 @@ def main():
                                                 fragfile=args.fragments_bed,
                                                 map_10x=assembly_10x,
                                                 savedir=save_dir)
-    # hic_info = dd.read_parquet(fragment_data["info"], infer_divisions=True)
-    # hic_info = hic_info.query("hic_chr == hic_chr & super_length >= @min_length",
-    #                           local_dict={"min_length": args.min_length})[["nfrag", "hic_chr", "popseq_cM"]]
-    # assert hic_info.index.name == "scaffold_index"
-    # hic_info = hic_info.rename(columns={"hic_chr": "chr", "popseq_cM": "cM"})
-    # hic_map
-    return
+    hic_map_v1 = hic_map()
 
+    return
+    # # exclude scaffolds <= 300 kb from Hi-C map construction
+    # frag_data$info[!is.na(hic_chr) & length >= 3e5, .(scaffold, nfrag, chr=hic_chr, cM=popseq_cM)]->hic_info
+    #
+    # # make Hi-C map
+    # hic_map(info=hic_info, assembly=assembly_v2, frags=frag_data$bed, species="wheat", ncores=21,
+    # 	min_nfrag_scaffold=50, max_cM_dist = 50,
+    # 	binsize=1e5, min_nfrag_bin=20, gap_size=100)->hic_map_v1
+    #
+    # # add links data and compute contact matrices
+    # f <- 'Triticum_aestivum_Claire_EIv1.1_DpnII_fragments_30bp_split.nuc.txt'
+    # add_psmol_fpairs(assembly=assembly_v1, hic_map=hic_map_v1, map_10x=assembly_v1_10x,
+    # 		 assembly_10x=assembly_v2, nucfile=f)->hic_map_v1
 
 if __name__ == "__main__":
     mp.freeze_support()
