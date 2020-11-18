@@ -5,7 +5,7 @@ import dask
 dask.config.set({'distributed.worker.multiprocessing-method': 'spawn'})
 import dask.dataframe as dd
 from pytritex.scaffold_hic.init_10x_assembly import init_10x_assembly
-from pytritex.scaffold_hic import hic_map
+from pytritex.scaffold_hic.hic_map import hic_map
 from pytritex.anchoring import anchor_scaffolds
 from pytritex.utils import n50
 from pytritex.scaffold_hic.read_frags import read_fragdata
@@ -21,6 +21,7 @@ import logging
 from dask.distributed import Client
 from pytritex.sequencing_coverage.add_hic_cov import add_hic_cov
 from pytritex.scaffold_hic.add_psmol_fpairs import add_psmol_fpairs
+from pytritex.scaffold_hic.hic_cov_psmol import hic_cov_psmol
 logger = logging.getLogger("distributed.comm.tcp")
 logger.setLevel(logging.ERROR)
 
@@ -97,11 +98,19 @@ def main():
                                                 fragfile=args.fragments_bed,
                                                 map_10x=assembly_10x,
                                                 savedir=save_dir)
+    # # make Hi-C map
+    # hic_map(info=hic_info, assembly=assembly_v2, frags=frag_data$bed, species="wheat", ncores=21,
+    # 	min_nfrag_scaffold=50, max_cM_dist = 50,
+    # 	binsize=1e5, min_nfrag_bin=20, gap_size=100)->hic_map_v1
     hic_map_v1 = hic_map()
 
     # add_psmol_fpairs(assembly=assembly_v1, hic_map=hic_map_v1, map_10x=assembly_v1_10x,
     # 		 assembly_10x=assembly_v2, nucfile=f)->hic_map_v1
-    hic_map_v1 = add_psmol_fpairs(, nucfile=args.fragments)
+    # f <- 'Triticum_aestivum_Claire_EIv1.1_DpnII_fragments_30bp_split.nuc.txt'
+    # add_psmol_fpairs(assembly=assembly_v1, hic_map=hic_map_v1, map_10x=assembly_v1_10x,
+    # 		 assembly_10x=assembly_v2, nucfile=f)->hic_map_v1
+    hic_map_v1 = add_psmol_fpairs(assembly=assembly_10x)
+
 
     # bin_hic_step(hic=hic_map_v1$links, frags = hic_map_v1$frags, binsize = 1e6,
     #                                                                        chrlen = hic_map_v1$chrlen, chrs = 1:21, cores = 21)->hic_map_v1$hic_1Mb

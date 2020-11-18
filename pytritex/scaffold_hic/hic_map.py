@@ -4,6 +4,7 @@ import numpy as np
 import os
 from typing import Union
 from .hic_map_constructor import make_hic_map
+from .orient_hic_map import orient_hic_map
 from dask.distributed import Client
 
 
