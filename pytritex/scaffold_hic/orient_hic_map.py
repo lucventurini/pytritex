@@ -131,7 +131,7 @@ def orient_hic_map(assembly: dict, hic_map: dd.DataFrame, frags: dd.DataFrame, c
     #     z[, cc:= apply(z[, .(hic_bin1, hic_bin2, hic_bin3, gbin1, gbin2, gbin3)],1,function(x) {
     # 		    suppressWarnings(cor(x[1:3], x[4:6]))
     # 		    })]
-    
+
 
     #     z[, data.table(key="scaffold", scaffold=scaffold2, cc=ifelse(cc > 0, 1, -1))]->ccor
     #     ccor[w]->m

@@ -69,7 +69,7 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     #  tmp[cluster_info, on="cluster"]->cluster_info
     #  cluster_info[order(chr, hic_bin, hic_rank, cluster)]
     tmp_memb.columns = ["hic_bin", "hic_rank", "hic_backbone"]
-    chr_result = tmp_memb.merge(info, on ="cluster").compute().reset_index(drop=False).sort_values(
+    chr_result = tmp_memb.merge(info, on="cluster").compute().reset_index(drop=False).sort_values(
         ["chr", "hic_bin", "hic_rank", "cluster"])
     chr_result = chr_result.sort_values(["chr", "hic_bin"])[["chr", "cM", "hic_bin", "hic_backbone", "hic_rank"]]
     chr_result = chr_result.query("hic_bin == hic_bin")

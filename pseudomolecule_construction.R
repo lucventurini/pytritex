@@ -1325,14 +1325,18 @@ lift_morex_aln_agp<-function(paf, morex_agp, scaffold_to_agp){
 
 # Wrapper function for Hi-C mapping
 make_hic_info<-function(cluster_info, super_global, chrs){
+ # Only select ONE sequence per chromosome
  s<-super_global$super_info
  s[!duplicated(s$chr),]->s
  s[chr %in% chrs]->s
 
  super_global$membership[, .(cluster, super, bin, rank, backbone)]->tmp
+ # Select all the scaffolds assigned to a "super" which is basically a chromosome.
  tmp[super %in% s$super]->tmp
+ # Delete the super ID, because anyway we know into which chromosome each scaffold is assigned.
  tmp[, super := NULL]
  setnames(tmp, c("cluster", "hic_bin", "hic_rank", "hic_backbone"))
+ # Merging with the cluster info brings back the chromosome + cM information to the table.
  tmp[cluster_info, on="cluster"]->cluster_info
  cluster_info[order(chr, hic_bin, hic_rank, cluster)]
 }
@@ -1604,12 +1608,17 @@ hic_map<-function(info, assembly, frags, species, ncores=1, min_nfrag_scaffold=5
  if(!agp_only){
   copy(info)->hic_info
   hic_info[, excluded := nfrag < min_nfrag_scaffold]
-  
+
+  # Calculate the number of links linking two different scaffolds
   assembly$fpairs[scaffold1 != scaffold2, .(nlinks=.N), key=.(scaffold1, scaffold2)]->hl
+  # Merge the links with the popseq information for scaffold1
   hic_info[, .(scaffold1=scaffold, chr1=chr, cM1=cM)][hl, nomatch=0, on="scaffold1"]->hl
+  # Merge the links with the popseq information for scaffold2
   hic_info[, .(scaffold2=scaffold, chr2=chr, cM2=cM)][hl, nomatch=0, on="scaffold2"]->hl
+  # Only select links between scaffolds on the same chromosome and within X cM (default 20)
   hl[chr1 == chr2]->hl
   hl<-hl[abs(cM1-cM2) <= max_cM_dist | is.na(cM1) | is.na(cM2)]
+  # Assign as a weight the NEGATIVE log10 of the number of links.
   hl[, weight:=-log10(nlinks)]
 
   cat("Scaffold map construction started.\n")

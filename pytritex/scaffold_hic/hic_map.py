@@ -44,8 +44,8 @@ def hic_map(assembly: dict, client: Client,
     #   cat("Scaffold map construction started.\n")
     #   make_hic_map(hic_info=hic_info, links=hl, ncores=ncores, known_ends=known_ends)->hic_map_bin
     #   cat("Scaffold map construction finished.\n")
-    hic_map_bin = make_hic_map(hic_info=hic_info, links=hl, client=client, ncores=ncores, known_ends=known_ends)
-
+    hic_map_bin = make_hic_map(hic_info=hic_info, links=hl, client=client, ncores=ncores, known_ends=known_ends,
+                               save_dir=)
     hic_map_oriented = orient_hic_map()
 
     # Now determine the orientation?

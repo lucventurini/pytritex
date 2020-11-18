@@ -20,7 +20,7 @@ from pytritex.utils import return_size, parse_size
 import logging
 from dask.distributed import Client
 from pytritex.sequencing_coverage.add_hic_cov import add_hic_cov
-import time
+from pytritex.scaffold_hic.add_psmol_fpairs import add_psmol_fpairs
 logger = logging.getLogger("distributed.comm.tcp")
 logger.setLevel(logging.ERROR)
 
@@ -98,6 +98,17 @@ def main():
                                                 map_10x=assembly_10x,
                                                 savedir=save_dir)
     hic_map_v1 = hic_map()
+
+    # add_psmol_fpairs(assembly=assembly_v1, hic_map=hic_map_v1, map_10x=assembly_v1_10x,
+    # 		 assembly_10x=assembly_v2, nucfile=f)->hic_map_v1
+    hic_map_v1 = add_psmol_fpairs(, nucfile=args.fragments)
+
+    # bin_hic_step(hic=hic_map_v1$links, frags = hic_map_v1$frags, binsize = 1e6,
+    #                                                                        chrlen = hic_map_v1$chrlen, chrs = 1:21, cores = 21)->hic_map_v1$hic_1Mb
+
+
+
+    # normalize_cis(hic_map_v1$hic_1Mb, ncores = 21, percentile = 0, omit_smallest = 1)->hic_map_v1$hic_1Mb$norm
 
     return
     # # exclude scaffolds <= 300 kb from Hi-C map construction
