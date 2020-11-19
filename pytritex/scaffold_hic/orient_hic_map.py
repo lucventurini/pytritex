@@ -2,70 +2,14 @@ import pandas as pd
 import numpy as np
 import dask.dataframe as dd
 import os
-import scipy.stats as sps
 from .hic_map_constructor import make_hic_map
 from dask.distributed import Client
-from scipy.stats import spearmanr
-
-
-# if(orient){
-#    options(scipen = 1000)
-#    if(orient_old){
-#     frags[, .(nfrag=.N), keyby=.(scaffold, pos = start %/% binsize * binsize)]->fragbin
-#     fragbin[, id := paste(sep=":", scaffold, pos)]
-#     fragbin<-hic_info[excluded == F, .(scaffold, chr, cM)][fragbin, on="scaffold", nomatch=0]
-#
-#     assembly$fpairs[, .(nlinks=.N), keyby=.(scaffold1, pos1 = pos1 %/% binsize * binsize, scaffold2, pos2 = pos2 %/% binsize * binsize)]->binl
-#     binl[, id1 := paste(sep=":", scaffold1, pos1)]
-#     binl[, id2 := paste(sep=":", scaffold2, pos2)]
-#     binl[id1 != id2]->binl
-#     fragbin[, .(id1=id, chr1=chr, cM1=cM)][binl, on="id1"]->binl
-#     fragbin[, .(id2=id, chr2=chr, cM2=cM)][binl, on="id2"]->binl
-#     binl[, c("scaffold1", "scaffold2", "pos1", "pos2") := list(NULL, NULL, NULL, NULL)]
-#     setnames(binl, c("id1", "id2"), c("scaffold1", "scaffold2"))
-#
-#     cat("Scaffold bin map construction started.\n")
-#     fragbin[, .(scaffold=id, nfrag, chr, cM)]->hic_info_bin
-#     hic_info_bin[, excluded:=nfrag < min_nfrag_bin]
-#     binl[chr1 == chr2 & (abs(cM1-cM2) <= max_cM_dist | is.na(cM1) | is.na(cM2))]->binl
-#     binl[, weight:=-log10(nlinks)]
-#
-#     make_hic_map(hic_info=hic_info_bin, links=binl, ncores=ncores, maxiter=maxiter, known_ends=known_ends)->hic_map_bin
-#     cat("Scaffold bin map construction finished.\n")
-#
-#     w<-hic_map_bin[!is.na(hic_bin), .(id=scaffold, scaffold=sub(":.*$", "", scaffold), pos=as.integer(sub("^.*:", "", scaffold)), chr, hic_bin)]
-#     w<-w[, .(gbin=mean(na.omit(hic_bin)),
-# 	     hic_cor=as.numeric(suppressWarnings(cor(method='s', hic_bin, pos, use='p')))), keyby=scaffold][!is.na(hic_cor)]
-#     hic_map[!is.na(hic_bin) & scaffold %in% w$scaffold][order(chr, hic_bin)]->z0
-#     z0[,.(scaffold1=scaffold[1:(.N-2)], scaffold2=scaffold[2:(.N-1)], scaffold3=scaffold[3:(.N)]), by=chr]->z
-#     z0[, data.table(key="scaffold1", scaffold1=scaffold, hic_bin1=hic_bin)][setkey(z, "scaffold1")]->z
-#     z0[, data.table(key="scaffold2", scaffold2=scaffold, hic_bin2=hic_bin)][setkey(z, "scaffold2")]->z
-#     z0[, data.table(key="scaffold3", scaffold3=scaffold, hic_bin3=hic_bin)][setkey(z, "scaffold3")]->z
-#     w[, data.table(key="scaffold1", scaffold1=scaffold, gbin1=gbin)][setkey(z, "scaffold1")]->z
-#     w[, data.table(key="scaffold2", scaffold2=scaffold, gbin2=gbin)][setkey(z, "scaffold2")]->z
-#     w[, data.table(key="scaffold3", scaffold3=scaffold, gbin3=gbin)][setkey(z, "scaffold3")]->z
-#     z[, cc:= apply(z[, .(hic_bin1, hic_bin2, hic_bin3, gbin1, gbin2, gbin3)],1,function(x) {
-# 		    suppressWarnings(cor(x[1:3], x[4:6]))
-# 		    })]
-#     z[, data.table(key="scaffold", scaffold=scaffold2, cc=ifelse(cc > 0, 1, -1))]->ccor
-#     ccor[w]->m
-#     m[, hic_orientation:=ifelse(hic_cor > 0, 1 * cc, -1 * cc)]
-#     m[, .(scaffold, hic_cor, hic_invert=cc, hic_orientation)][hic_map, on="scaffold"]->hic_map_oriented
-#
-#     setnames(hic_map_oriented, "chr", "consensus_chr")
-#     setnames(hic_map_oriented, "cM", "consensus_cM")
-#     hic_map_oriented[, consensus_orientation := hic_orientation]
-#    } else {
-#    }
-
-# info, assembly, frags, species, ncores=1, min_nfrag_scaffold=50, max_cM_dist = 20,
-# 		  binsize=5e5, min_nfrag_bin=30, gap_size=100, maxiter=100, orient=T, agp_only=F,
-# 		  map=NULL, known_ends=T, orient_old=F, min_binsize=1e5, min_nbin=5
+from scipy.stats import spearmanr, pearsonr
 
 
 def orient_hic_map(info, assembly: dict, hic_map: dd.DataFrame, frags: dd.DataFrame, client: Client,
-                   min_nfrag_scaffold=50, max_cM_dist = 20, binsize=5e5, min_nfrag_bin=30,
-                   gap_size=100, maxiter=100, orient_old=False, min_nbin=5, min_binsize=1e5):
+                   min_nfrag_bin=30, cores=1,
+                   maxiter=100, orient_old=False, min_nbin=5, min_binsize=1e5):
 
     # assembly$info[, .(scaffold, binsize=pmax(min_binsize, length %/% min_nbin))][frags, on='scaffold']->f
     if isinstance(assembly["fai"], str):
@@ -78,20 +22,24 @@ def orient_hic_map(info, assembly: dict, hic_map: dd.DataFrame, frags: dd.DataFr
     fai = fai.drop("min_nbinsize")
     f = fai.merge(frags, on="scaffold_index")
     f["pos"] = f["start"] // f["binsize"] * f["binsize"]
-    #     f[, .(nfrag=.N), keyby=.(scaffold, binsize, pos = start %/% binsize * binsize)]->fragbin
-    #     fragbin[, id := paste(sep=":", scaffold, pos)]
-    #     fragbin<- hic_map[, .(scaffold, chr, cM=hic_bin)][fragbin, on="scaffold", nomatch=0]
+    if orient_old is False:
+        hic_map_oriented = _new_orientation(info, assembly, hic_map, frags, client, min_nfrag_bin=min_nfrag_bin,
+                                            cores=cores, maxiter=maxiter, min_nbin=min_nbin, min_binsize=min_binsize)
+    else:
+        hic_map_oriented = _use_old_orient(info, assembly, hic_map, frags, client, min_nfrag_bin=min_nfrag_bin,
+                                            cores=cores, maxiter=maxiter, min_nbin=min_nbin, min_binsize=min_binsize)
+    return hic_map_oriented
 
 
-def _use_old_orient():
+def _use_old_orient(*args, **kwargs):
     raise NotImplementedError()
 
 
 def _new_orientation(info, assembly: dict, hic_map: dd.DataFrame, frags: dd.DataFrame, client: Client,
-                     ncores=1, min_nfrag_scaffold=50, max_cM_dist = 20, binsize=5e5, min_nfrag_bin=30,
-                     known_ends=True, gap_size=100, maxiter=100, orient_old=False, min_nbin=5, min_binsize=1e5):
+                     cores=1, binsize=5e5, min_nfrag_bin=30,
+                     known_ends=True, maxiter=100, min_nbin=5, min_binsize=1e5):
 
-    info = assembly["info"]
+    # info = assembly["info"]
     if isinstance(info, str):
         info = dd.read_parquet(info, infer_divisions=True)
     else:
@@ -151,43 +99,77 @@ def _new_orientation(info, assembly: dict, hic_map: dd.DataFrame, frags: dd.Data
     binned_fpairs = binned_fpairs.query(
         "chr1 == chr2 & (cM1 != cM1 | cM2 != cM2 | (cM1 - cM2 >= -2 & cM1 - cM2 <= 2)").eval(
         "weight = - log(nlinks) / log(10)")
-    hic_map_bin = make_hic_map(hic_info=hic_info_bin, links=binned_fpairs, ncores=ncores, maxiter=maxiter,
+    #     make_hic_map(hic_info=hic_info_bin, links=binl, ncores=ncores, maxiter=maxiter, known_ends=known_ends)->hic_map_bin
+    hic_map_bin = make_hic_map(hic_info=hic_info_bin, links=binned_fpairs, ncores=cores, maxiter=maxiter,
                                known_ends=known_ends, client=client)
 
     # TODO what is this w?
+    #     w<-hic_map_bin[!is.na(hic_bin), .(id=scaffold, scaffold=sub(":.*$", "", scaffold), pos=as.integer(sub("^.*:", "", scaffold)), chr, hic_bin)]
+    #     w<-w[, .(gbin=mean(na.omit(hic_bin)),
+    # 	     hic_cor=as.numeric(suppressWarnings(cor(method='s', hic_bin, pos, use='p')))), keyby=scaffold][!is.na(hic_cor)]
     w = hic_map_bin.query("hic_bin == hic_bin")[["pos", "chr", "hic_bin"]]
     grouped = w.groupby("scaffold_index")
     gbin = grouped["hic_bin"].mean().to_frame("gbin")
     hic_cor = grouped[["hic_bin", "pos"]].apply(lambda group: spearmanr(group["hic_bin"].values, group["pos"].values)[0],
                                                 meta=float)
     w = dd.merge(gbin, hic_cor, on="scaffold_index").query("hic_cor == hic_cor")
-    hic_map
-
-
-    #
-    #     make_hic_map(hic_info=hic_info_bin, links=binl, ncores=ncores, maxiter=maxiter, known_ends=known_ends)->hic_map_bin
-    #
-    #     w<-hic_map_bin[!is.na(hic_bin), .(id=scaffold, scaffold=sub(":.*$", "", scaffold), pos=as.integer(sub("^.*:", "", scaffold)), chr, hic_bin)]
-    #     w<-w[, .(gbin=mean(na.omit(hic_bin)),
-    # 	     hic_cor=as.numeric(suppressWarnings(cor(method='s', hic_bin, pos, use='p')))), keyby=scaffold][!is.na(hic_cor)]
+    w_scaffolds = np.unique(w.index.values)
     #     hic_map[!is.na(hic_bin) & scaffold %in% w$scaffold][order(chr, hic_bin)]->z0
-    #     z0[,.(scaffold1=scaffold[1:(.N-2)], scaffold2=scaffold[2:(.N-1)], scaffold3=scaffold[3:(.N)]), by=chr]->z
-    #     z0[, data.table(key="scaffold1", scaffold1=scaffold, hic_bin1=hic_bin)][setkey(z, "scaffold1")]->z
-    #     z0[, data.table(key="scaffold2", scaffold2=scaffold, hic_bin2=hic_bin)][setkey(z, "scaffold2")]->z
-    #     z0[, data.table(key="scaffold3", scaffold3=scaffold, hic_bin3=hic_bin)][setkey(z, "scaffold3")]->z
-    #     w[, data.table(key="scaffold1", scaffold1=scaffold, gbin1=gbin)][setkey(z, "scaffold1")]->z
-    #     w[, data.table(key="scaffold2", scaffold2=scaffold, gbin2=gbin)][setkey(z, "scaffold2")]->z
-    #     w[, data.table(key="scaffold3", scaffold3=scaffold, gbin3=gbin)][setkey(z, "scaffold3")]->z
+    z0 = hic_map.loc[w_scaffolds].query("hic_bin == hic_bin").compute().sort_values(["chr", "hic_bin"])
+    z0 = z0.reset_index(drop=False)
+    # z0[,.(scaffold1=scaffold[1:(.N-2)], scaffold2=scaffold[2:(.N-1)],
+    # scaffold3=scaffold[3:(.N)]), by=chr]->z
+    # z0[, data.table(key="scaffold1", scaffold1=scaffold,
+    # hic_bin1=hic_bin)][setkey(z, "scaffold1")]->z
+    # z0[, data.table(key="scaffold2", scaffold2=scaffold,
+    # hic_bin2=hic_bin)][setkey(z, "scaffold2")]->z
+    # z0[, data.table(key="scaffold3", scaffold3=scaffold,
+    # hic_bin3=hic_bin)][setkey(z, "scaffold3")]->z
+    scaffold_index1 = z0.groupby("chr")[["scaffold_index"]].shift(2).rename(columns={"scaffold_index1"})
+    scaffold_index2 = z0.groupby("chr")[["scaffold_index"]].shift(1).rename(columns={"scaffold_index2"})
+    scaffold_index3 = z0.groupby("chr")[["scaffold_index"]].shift(0).rename(columns={"scaffold_index3"})
+    z = pd.concat([scaffold_index1, scaffold_index2, scaffold_index3], axis=1).dropna().astype(int)
+    for num in (1, 2, 3):
+        left = z0[["scaffold_index", "hic_bin"]].rename(
+            columns={"scaffold_index": f"scaffold_index{num}", "hic_bin": f"hic_bin{num}"}
+        ).set_index(f"scaffold_index{num}")
+    z = left.merge(z.set_index(f"scaffold_index{num}"), on=f"scaffold_index{num}").reset_index(drop=False)
+    #  w[, data.table(key="scaffold1", scaffold1=scaffold, gbin1=gbin)][setkey(z, "scaffold1")]->z
+    #  w[, data.table(key="scaffold2", scaffold2=scaffold, gbin2=gbin)][setkey(z, "scaffold2")]->z
+    #  w[, data.table(key="scaffold3", scaffold3=scaffold, gbin3=gbin)][setkey(z, "scaffold3")]->z
+    for num in (1, 2, 3):
+        left = w[["gbin"]].rename(columns={f"gbin{num}"})
+        left.index = left.index.rename(left.index.name + str(num))
+        z = left.merge(z.set_index(f"scaffold_index{num}"), on=f"scaffold_index{num}")
     #     z[, cc:= apply(z[, .(hic_bin1, hic_bin2, hic_bin3, gbin1, gbin2, gbin3)],1,function(x) {
     # 		    suppressWarnings(cor(x[1:3], x[4:6]))
     # 		    })]
     #     z[, data.table(key="scaffold", scaffold=scaffold2, cc=ifelse(cc > 0, 1, -1))]->ccor
     #     ccor[w]->m
     #     m[, hic_orientation:=ifelse(hic_cor > 0, 1 * cc, -1 * cc)]
-    #     m[, .(scaffold, hic_cor, hic_invert=cc, hic_orientation)][hic_map, on="scaffold"]->hic_map_oriented
+    left_cols = z[[f"hic_bin{num}" for num in (1, 2, 3)]].values
+    right_cols = z[[f"gbin{num}" for num in (1, 2, 3)]].values
+    cols = np.hstack([left_cols, right_cols])
+    z["cc"] = [pearsonr(cols[index,:3], cols[index, 3:]) for index in np.arange(cols.shape[0], dtype=int)]
+    z["ccor"] = -1
+    z["ccor"] = z["ccor"].mask(z["cc"] > 0, 1)
+    ccor = z[["scaffold_index2", "ccor"]].rename(columns={"scaffold_index2": "scaffold_index"})
+    m = ccor.merge(w, on="scaffold_index")
+    m["hic_orientation"] = m["cc"].mask(m["hic_cor"] <= 0, m["cc"] * -1)
+    # m[, .(scaffold, hic_cor, hic_invert=cc, hic_orientation)][hic_map, on="scaffold"]->hic_map_oriented
+    hic_map_oriented = m[["hic_cor", "cc", "hic_orientation"]].rename(columns={"cc": "hic_invert"}).merge(
+        hic_map, on="scaffold_index")
     #     hic_map_oriented[is.na(hic_orientation), hic_orientation := ifelse(hic_cor > 0, 1, -1)]
+    hic_map_oriented["hic_orientation"] = hic_map_oriented["hic_orientation"].mask(
+        hic_map_oriented["hic_orientation"].isna() & hic_map_oriented["hic_cor"] > 0, 1)
+    hic_map_oriented["hic_orientation"] = hic_map_oriented["hic_orientation"].mask(
+        hic_map_oriented["hic_orientation"].isna() & hic_map_oriented["hic_cor"] <= 0, -1)
     #     setnames(hic_map_oriented, "chr", "consensus_chr")
     #     setnames(hic_map_oriented, "cM", "consensus_cM")
     #     hic_map_oriented[, consensus_orientation := hic_orientation]
-
-    #     assembly$info[, .(scaffold, binsize=pmax(min_binsize, length %/% min_nbin))][frags, on='scaffold']->f
+    hic_map_oriented = hic_map_oriented.rename(columns={"chr": "consensus_chr",
+                                                        "cM": "consensus_cM"}).eval(
+        "consensus_orientation = hic_orientation")
+    return hic_map_oriented
+    # assembly$info[, .(scaffold, binsize=pmax(min_binsize, length %/% min_nbin))
+    # ][frags, on='scaffold']->f
