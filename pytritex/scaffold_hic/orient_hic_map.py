@@ -28,6 +28,9 @@ def orient_hic_map(info, assembly: dict, hic_map: dd.DataFrame, frags: dd.DataFr
     else:
         hic_map_oriented = _use_old_orient(info, assembly, hic_map, frags, client, min_nfrag_bin=min_nfrag_bin,
                                             cores=cores, maxiter=maxiter, min_nbin=min_nbin, min_binsize=min_binsize)
+
+    # hic_map_oriented[assembly$info, on="scaffold"]->hic_map_oriented
+    hic_map_oriented = hic_map_oriented.merge(assembly["info"], on="scaffold_index")
     return hic_map_oriented
 
 

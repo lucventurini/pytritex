@@ -6,6 +6,7 @@ from typing import Union
 from .hic_map_constructor import make_hic_map
 from .orient_hic_map import orient_hic_map
 from dask.distributed import Client
+from .make_agp import make_agp
 
 
 def hic_map(assembly: dict, client: Client,
@@ -46,11 +47,37 @@ def hic_map(assembly: dict, client: Client,
     #   make_hic_map(hic_info=hic_info, links=hl, ncores=ncores, known_ends=known_ends)->hic_map_bin
     #   cat("Scaffold map construction finished.\n")
     hic_map_bin = make_hic_map(hic_info=hic_info, links=hl, client=client, ncores=ncores, known_ends=known_ends,
-                               save_dir=)
+                               save_dir=None)
     hic_map_oriented = orient_hic_map(info=assembly["info"], assembly=assembly, hic_map=hic_map_bin,
                                       frags=fragment_data, client=client, min_nfrag_bin=min_nfrag_bin, cores=ncores,
                                       maxiter=maxiter, orient_old=False, min_nbin=min_nbin, min_binsize=min_binsize)
-    
+    # make_agp(hic_map_oriented, gap_size=gap_size, species=species)->a
+    #
+    #  a$agp[, .(length=sum(scaffold_length)), key=agp_chr]->chrlen
+    #  chrlen[, alphachr := sub("chr", "", agp_chr)]
+    #  chrNames(species=species)[chrlen, on="alphachr"]->chrlen
+    #  chrlen[, truechr := !grepl("Un", alphachr)]
+    #  chrlen[order(!truechr, chr)]->chrlen
+    #  chrlen[, offset := cumsum(c(0, length[1:(.N-1)]))]
+    #  chrlen[, plot_offset := cumsum(c(0, length[1:(.N-1)]+1e8))]
+    #
+    #  list(agp=a$agp, agp_bed=a$agp_bed, chrlen=chrlen, hic_map=hic_map_oriented, hic_map_bin=hic_map_bin)->res
+    #  invisible(lapply(sort(c("min_nfrag_scaffold", "max_cM_dist", "binsize", "min_nfrag_bin", "gap_size")), function(i){
+    #   res[[i]] <<- get(i)
+    #  }))
+    #  res
+
+    agp = make_agp(hic_map_oriented, gap_size=gap_size)
+
+
+    # if("orientation" %in% names(hic_info)){
+    #    hic_info[, .(scaffold, old_orientation=orientation)][hic_map_oriented, on="scaffold"]->hic_map_oriented
+    #    hic_map_oriented[!is.na(old_orientation), consensus_orientation := old_orientation]
+    #    hic_map_oriented[, old_orientation := NULL]
+    #   }
+    #
+    #   hic_map_oriented[assembly$info, on="scaffold"]->hic_map_oriented
+
     #     assembly$info[, .(scaffold, binsize=pmax(min_binsize, length %/% min_nbin))][frags, on='scaffold']->f
     #     f[, .(nfrag=.N), keyby=.(scaffold, binsize, pos = start %/% binsize * binsize)]->fragbin
     #     fragbin[, id := paste(sep=":", scaffold, pos)]
