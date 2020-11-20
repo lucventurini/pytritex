@@ -14,19 +14,6 @@ dask_logger = logging.getLogger("dask")
 
 def _group_analyser(group, binsize):
     """Count how many pairs cover a given bin; return into a column called "n"."""
-    ##     """Count how many pairs cover a given bin; return into a column called "n"."""
-    # (scaffold_index, bin_group), group = group
-    # # assert group["scaffold_index"].unique().shape[0] == 1, group["scaffold_index"]
-    # # scaffold = group["scaffold_index"].head(1).values[0]
-    # bin1 = group["bin1"].values
-    # bin_series = pd.Series(itertools.starmap(range, pd.DataFrame().assign(
-    #     bin1=group["bin1"] + binsize, bin2=group["bin2"], binsize=binsize).astype(np.int).values),
-    #                 index=group.index)
-    # assigned = group.assign(bin=bin_series).explode("bin").reset_index(drop=True).groupby(
-    #     "bin").size().to_frame("n").reset_index().assign(scaffold_index=scaffold_index)
-    # assigned.loc[:, "bin"] = pd.to_numeric(assigned["bin"].fillna(0), downcast="unsigned")
-    # assigned.loc[:, "n"] = pd.to_numeric(assigned["n"].fillna(0), downcast="unsigned")
-    # return assigned
 
     bins = group[["bin1", "bin2"]].to_numpy() + [binsize, 0]
     counter = cbn(bins, binsize)
@@ -118,7 +105,6 @@ Supplied values: {}, {}".format(binsize, binsize2))
     temp_frame.loc[:, "bin_group"] = temp_frame["bin1"] // binsize2
     dask_logger.debug("%s Created the temporary dataframe", ctime())
     temp_frame = dd.from_pandas(temp_frame, npartitions=fpairs.npartitions)
-    # pandarallel.pandarallel.initialize(nb_workers=cores, use_memory_fs=use_memory_fs)
     _gr = functools.partial(_group_analyser, binsize=binsize)
     # Count how many pairs cover each smaller bin within the greater bin.
     finalised = temp_frame.groupby("scaffold_index").apply(_gr, meta=int).compute().values

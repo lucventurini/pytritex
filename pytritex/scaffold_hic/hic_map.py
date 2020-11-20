@@ -4,16 +4,16 @@ import numpy as np
 import os
 from typing import Union
 from .hic_map_constructor import make_hic_map
+from .orient_hic_map import orient_hic_map
 from dask.distributed import Client
 
 
-def hic_map(info: Union[dd.DataFrame, pd.DataFrame],
-            assembly: dict, client: Client,
-            frags, species, ncores=1, min_nfrag_scaffold=50, max_cM_dist = 20,
-            binsize=5e5, min_nfrag_bin=30, gap_size=100, maxiter=100, orient=True, agp_only=False,
-            map=None, known_ends=True, orient_old=False, min_binsize=1e5, min_nbin=5):
+def hic_map(assembly: dict, client: Client,
+            fragment_data, species, ncores=1, min_nfrag_scaffold=50, max_cM_dist = 20,
+            min_length=3e5, binsize=5e5, min_nfrag_bin=30, gap_size=100, maxiter=100, orient=True, agp_only=False,
+            map=None, known_ends=True, min_binsize=1e5, min_nbin=5):
 
-    # copy(info)->hic_info
+    #   copy(info)->hic_info
     #   hic_info[, excluded := nfrag < min_nfrag_scaffold]
     #
     #   assembly$fpairs[scaffold1 != scaffold2, .(nlinks=.N), key=.(scaffold1, scaffold2)]->hl
@@ -22,39 +22,14 @@ def hic_map(info: Union[dd.DataFrame, pd.DataFrame],
     #   hl[chr1 == chr2]->hl
     #   hl<-hl[abs(cM1-cM2) <= max_cM_dist | is.na(cM1) | is.na(cM2)]
     #   hl[, weight:=-log10(nlinks)]
-    #
-    #   cat("Scaffold map construction started.\n")
-    #   make_hic_map(hic_info=hic_info, links=hl, ncores=ncores, known_ends=known_ends)->hic_map_bin
-    #   cat("Scaffold map construction finished.\n")
-
-    #     w<-hic_map_bin[!is.na(hic_bin), .(id=scaffold, scaffold=sub(":.*$", "", scaffold), pos=as.integer(sub("^.*:", "", scaffold)), chr, hic_bin)]
-    #     w<-w[, .(gbin=mean(na.omit(hic_bin)),
-    # 	     hic_cor=as.numeric(suppressWarnings(cor(method='s', hic_bin, pos, use='p')))), keyby=scaffold][!is.na(hic_cor)]
-    #     hic_map[!is.na(hic_bin) & scaffold %in% w$scaffold][order(chr, hic_bin)]->z0
-    #     z0[,.(scaffold1=scaffold[1:(.N-2)], scaffold2=scaffold[2:(.N-1)], scaffold3=scaffold[3:(.N)]), by=chr]->z
-    #     z0[, data.table(key="scaffold1", scaffold1=scaffold, hic_bin1=hic_bin)][setkey(z, "scaffold1")]->z
-    #     z0[, data.table(key="scaffold2", scaffold2=scaffold, hic_bin2=hic_bin)][setkey(z, "scaffold2")]->z
-    #     z0[, data.table(key="scaffold3", scaffold3=scaffold, hic_bin3=hic_bin)][setkey(z, "scaffold3")]->z
-    #     w[, data.table(key="scaffold1", scaffold1=scaffold, gbin1=gbin)][setkey(z, "scaffold1")]->z
-    #     w[, data.table(key="scaffold2", scaffold2=scaffold, gbin2=gbin)][setkey(z, "scaffold2")]->z
-    #     w[, data.table(key="scaffold3", scaffold3=scaffold, gbin3=gbin)][setkey(z, "scaffold3")]->z
-    #     z[, cc:= apply(z[, .(hic_bin1, hic_bin2, hic_bin3, gbin1, gbin2, gbin3)],1,function(x) {
-    # 		    suppressWarnings(cor(x[1:3], x[4:6]))
-    # 		    })]
-    #     z[, data.table(key="scaffold", scaffold=scaffold2, cc=ifelse(cc > 0, 1, -1))]->ccor
-    #     ccor[w]->m
-    #     m[, hic_orientation:=ifelse(hic_cor > 0, 1 * cc, -1 * cc)]
-    #     m[, .(scaffold, hic_cor, hic_invert=cc, hic_orientation)][hic_map, on="scaffold"]->hic_map_oriented
-    #
-    #     setnames(hic_map_oriented, "chr", "consensus_chr")
-    #     setnames(hic_map_oriented, "cM", "consensus_cM")
-    #     hic_map_oriented[, consensus_orientation := hic_orientation]
-
-    hic_info = info.copy()
+    hic_info = dd.read_parquet(fragment_data["info"], infer_divisions=True)
+    hic_info = hic_info.query("hic_chr == hic_chr & super_length >= @min_length",
+                              local_dict={"min_length": min_length})[["nfrag", "hic_chr", "popseq_cM"]]
     hic_info["excluded"] = hic_info.eval("nfrag < @mnf", local_dict={"mnf": min_nfrag_scaffold})
     hl = assembly["fpairs"].eval("scaffold_index1 != scaffold_index2").persist()
     hl = hl.merge(hl.groupby(["scaffold_index1", "scaffold_index2"]).size().to_frame("nlinks").compute(),
                   on=["scaffold_index1", "scaffold_index2"]).persist()
+
     left = hic_info[["chr", "cM"]]
     left1 = left.rename(columns={"chr": "chr1", "cM": "cM1"})
     left1.index = left1.index.rename("scaffold_index1")
@@ -62,13 +37,20 @@ def hic_map(info: Union[dd.DataFrame, pd.DataFrame],
     left2.index = left1.index.rename("scaffold_index2")
     hl = hl.merge(left1, on="scaffold_index1", how="inner").merge(left2, on="scaffold_index2", how="inner").query(
         "chr1 == chr2")
-    hl = hl[(hl["cM1"].isna()) | (hl["cM2"].isna()) | ((hl["cM1"] - hl["cM2"]).abs() <= max_cM_dist)]
-    # TODO: why is the log minused?
+    hl["cMDist"] = hl.eval("cMDist = cM1 - cM2")
+    hl = hl.query("cMDist <= @max_cM_dist | cMDist != cMDist", local_dict={"max_cM_dist": max_cM_dist})
+    # TODO: why is the log minused? Should it not be plus?
     hl["weight"] = -np.log10(hl["nlinks"])
-    hic_map = make_hic_map(hic_info=hic_info, links=hl, client=client, ncores=ncores, known_ends=known_ends)
-
-    dd.to_parquet()
-
+    # The following is already implemented
+    #   cat("Scaffold map construction started.\n")
+    #   make_hic_map(hic_info=hic_info, links=hl, ncores=ncores, known_ends=known_ends)->hic_map_bin
+    #   cat("Scaffold map construction finished.\n")
+    hic_map_bin = make_hic_map(hic_info=hic_info, links=hl, client=client, ncores=ncores, known_ends=known_ends,
+                               save_dir=)
+    hic_map_oriented = orient_hic_map(info=assembly["info"], assembly=assembly, hic_map=hic_map_bin,
+                                      frags=fragment_data, client=client, min_nfrag_bin=min_nfrag_bin, cores=ncores,
+                                      maxiter=maxiter, orient_old=False, min_nbin=min_nbin, min_binsize=min_binsize)
+    
     #     assembly$info[, .(scaffold, binsize=pmax(min_binsize, length %/% min_nbin))][frags, on='scaffold']->f
     #     f[, .(nfrag=.N), keyby=.(scaffold, binsize, pos = start %/% binsize * binsize)]->fragbin
     #     fragbin[, id := paste(sep=":", scaffold, pos)]

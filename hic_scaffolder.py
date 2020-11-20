@@ -5,7 +5,7 @@ import dask
 dask.config.set({'distributed.worker.multiprocessing-method': 'spawn'})
 import dask.dataframe as dd
 from pytritex.scaffold_hic.init_10x_assembly import init_10x_assembly
-from pytritex.scaffold_hic import hic_map
+from pytritex.scaffold_hic.hic_map import hic_map
 from pytritex.anchoring import anchor_scaffolds
 from pytritex.utils import n50
 from pytritex.scaffold_hic.read_frags import read_fragdata
@@ -23,6 +23,8 @@ from pytritex.sequencing_coverage.add_hic_cov import add_hic_cov
 from pytritex.scaffold_10x import print_agp
 import time
 import pandas as pd
+from pytritex.scaffold_hic.add_psmol_fpairs import add_psmol_fpairs
+from pytritex.scaffold_hic.hic_cov_psmol import hic_cov_psmol
 logger = logging.getLogger("distributed.comm.tcp")
 logger.setLevel(logging.ERROR)
 
@@ -104,23 +106,47 @@ def main():
     print_agp(assembly_10x["agp"], out_agp)
     
     # Now anchor the scaffolds
-    # assembly_10x = memory.cache(anchor_scaffolds, ignore=["client"])(
-    #     assembly_10x, save_dir, species="wheat", client=client)
-    # assembly_10x = memory.cache(add_hic_cov)(assembly_10x, save_dir=save_dir,
-    #                                          binsize=1e4, binsize2=1e6, minNbin=100, innerDist=3e5)
-    # # fai, fragfile, map_10x, savedir=None
-    # fragment_data = memory.cache(read_fragdata)(fai=assembly["fai"],
-    #                                             fragfile=args.fragments_bed,
-    #                                             map_10x=assembly_10x,
-    #                                             savedir=save_dir)
-    # hic_info = dd.read_parquet(fragment_data["info"], infer_divisions=True)
-    # hic_info = hic_info.query("hic_chr == hic_chr & super_length >= @min_length",
-    #                           local_dict={"min_length": args.min_length})[["nfrag", "hic_chr", "popseq_cM"]]
-    # assert hic_info.index.name == "scaffold_index"
-    # hic_info = hic_info.rename(columns={"hic_chr": "chr", "popseq_cM": "cM"})
-    # hic_map
-    return
+    assembly_10x = memory.cache(anchor_scaffolds, ignore=["client"])(
+        assembly_10x, save_dir, species="wheat", client=client)
+    assembly_10x = memory.cache(add_hic_cov)(assembly_10x, save_dir=save_dir,
+                                             binsize=1e4, binsize2=1e6, minNbin=100, innerDist=3e5)
+    # fai, fragfile, map_10x, savedir=None
+    fragment_data = memory.cache(read_fragdata)(fai=assembly["fai"],
+                                                fragfile=args.fragments_bed,
+                                                map_10x=assembly_10x,
+                                                savedir=save_dir)
+    # # make Hi-C map
+    # hic_map(info=hic_info, assembly=assembly_v2, frags=frag_data$bed, species="wheat", ncores=21,
+    # 	min_nfrag_scaffold=50, max_cM_dist = 50,
+    # 	binsize=1e5, min_nfrag_bin=20, gap_size=100)->hic_map_v1
+    hic_map_v1 = hic_map()
 
+    # add_psmol_fpairs(assembly=assembly_v1, hic_map=hic_map_v1, map_10x=assembly_v1_10x,
+    # 		 assembly_10x=assembly_v2, nucfile=f)->hic_map_v1
+    # f <- 'Triticum_aestivum_Claire_EIv1.1_DpnII_fragments_30bp_split.nuc.txt'
+    # add_psmol_fpairs(assembly=assembly_v1, hic_map=hic_map_v1, map_10x=assembly_v1_10x,
+    # 		 assembly_10x=assembly_v2, nucfile=f)->hic_map_v1
+    hic_map_v1 = add_psmol_fpairs(assembly=assembly_10x)
+
+
+    # bin_hic_step(hic=hic_map_v1$links, frags = hic_map_v1$frags, binsize = 1e6,
+    #                                                                        chrlen = hic_map_v1$chrlen, chrs = 1:21, cores = 21)->hic_map_v1$hic_1Mb
+
+    # normalize_cis(hic_map_v1$hic_1Mb, ncores = 21, percentile = 0, omit_smallest = 1)->hic_map_v1$hic_1Mb$norm
+
+    return
+    # # exclude scaffolds <= 300 kb from Hi-C map construction
+    # frag_data$info[!is.na(hic_chr) & length >= 3e5, .(scaffold, nfrag, chr=hic_chr, cM=popseq_cM)]->hic_info
+    #
+    # # make Hi-C map
+    # hic_map(info=hic_info, assembly=assembly_v2, frags=frag_data$bed, species="wheat", ncores=21,
+    # 	min_nfrag_scaffold=50, max_cM_dist = 50,
+    # 	binsize=1e5, min_nfrag_bin=20, gap_size=100)->hic_map_v1
+    #
+    # # add links data and compute contact matrices
+    # f <- 'Triticum_aestivum_Claire_EIv1.1_DpnII_fragments_30bp_split.nuc.txt'
+    # add_psmol_fpairs(assembly=assembly_v1, hic_map=hic_map_v1, map_10x=assembly_v1_10x,
+    # 		 assembly_10x=assembly_v2, nucfile=f)->hic_map_v1
 
 if __name__ == "__main__":
     mp.freeze_support()

@@ -100,8 +100,8 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None):
     fragbed = fragbed.drop(["start", "end", "super_start", "super_end"], axis=1, errors="ignore")
     fragbed = fragbed.rename(columns={"frag_start": "start", "frag_end": "end"})
     # fragbed = fragbed.rename(columns={"super": "orig_scaffold_index"})
-    fragbed = fragbed.reset_index(drop=True).set_index("super").repartition(
-        npartitions=int(fragbed.shape[0].compute() // 10 ** 6)).persist()
+    fragbed = fragbed.reset_index(drop=True).repartition(
+        npartitions=int(fragbed.shape[0].compute() // 10 ** 6)).persist().set_index("super")
     # TODO: is there "info" in map_10x?
     info = map_10x["fai"]
     if isinstance(info, str):
