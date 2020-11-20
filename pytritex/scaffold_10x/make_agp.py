@@ -45,7 +45,7 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     gaps = gaps.query("with_gaps == True")[:].drop("with_gaps", axis=1).set_index("index")
     # Probably "gap" is a reserved keyword
     assert (gaps["scaffold_index"].unique() == [-1]).all()
-    super_size = initial.groupby("super").size().to_frame("super_size").compute()
+    # super_size = initial.groupby("super").size().to_frame("super_size").compute()
     data = dd.concat([initial, gaps]).reset_index(drop=False).set_index("index")
     data = data.persist()
     out = open("/tmp/outer.txt", "wt")
@@ -54,7 +54,7 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     #                               chunks=data.map_partitions(len).compute().values.tolist())
     # data = data.set_index("new_index")
     # data.index = data.index.rename("index")    
-    data = data.reset_index(drop=False).set_index("super").merge(super_size, on="super", how="left").persist()    
+    # data = data.reset_index(drop=False).set_index("super").merge(super_size, on="super", how="left").persist()    
     data = data.reset_index(drop=False).set_index("index")
     # Assign the super_start position
     
@@ -63,7 +63,7 @@ def make_agp(membership: dd.DataFrame, info: dd.DataFrame, names=None, gap_size=
     # assign the final index
     data["super_index"] = (data.groupby("super").cumcount() + 1)    
     data.persist()
-    assert "super_size" in data.columns, data.head().to_csv("/tmp/broken.csv", sep="\t")
+    # assert "super_size" in data.columns, data.head().to_csv("/tmp/broken.csv", sep="\t")
     scaffolds = info.query("to_use == True")[["orig_scaffold_index", "orig_start", "orig_end", "length"]]
     scaffolds = scaffolds.rename(columns={"length": "orig_length"})
     
