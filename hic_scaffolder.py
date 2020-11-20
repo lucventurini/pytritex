@@ -20,6 +20,9 @@ from pytritex.utils import return_size, parse_size
 import logging
 from dask.distributed import Client
 from pytritex.sequencing_coverage.add_hic_cov import add_hic_cov
+from pytritex.scaffold_10x import print_agp
+import time
+import pandas as pd
 from pytritex.scaffold_hic.add_psmol_fpairs import add_psmol_fpairs
 from pytritex.scaffold_hic.hic_cov_psmol import hic_cov_psmol
 logger = logging.getLogger("distributed.comm.tcp")
@@ -38,6 +41,7 @@ def main():
     parser.add_argument("--save", default=False, action="store_true")
     parser.add_argument("--dir", default=None)
     parser.add_argument("--hash", default=None)
+    parser.add_argument("--table", default=None)
     parser.add_argument("save_prefix", default="assembly",
                         help="Folder with the previous run (up to scaffold_10x, included)")
     parser.add_argument("fragments_bed")
@@ -48,13 +52,7 @@ def main():
     dask.config.global_config.update({"temporary-directory": args.dask_cache})
     # dask.config.global_config.update({"distributed.comm.timeouts.tcp": "300s"})
     ne.set_num_threads(args.procs)
-    worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")
-    client = Client(set_as_default=True, timeout=60, direct_to_workers=False, memory_limit=worker_mem,
-                    nanny=True, address=None)
-    client.cluster.scale(args.procs)
-    # DO IT TWICE, sometimes the first time is not enough.
-    client.cluster.scale(args.procs)
-    memory = Memory(os.path.join(".", args.save_prefix), compress=("zlib", 6), verbose=1)
+    worker_mem = return_size(parse_size(args.mem)[0] / 1, "GB")    
 
     # This is a STUPID hack, but I should have thought of dumping the results in a different way earlier ..
     assembly = sorted([(_, os.stat(_).st_mtime) for _ in
@@ -64,11 +62,26 @@ def main():
     if args.hash is not None:
         best_dir = [os.path.dirname(_) for _ in
             glob.glob(f"{args.save_prefix}/joblib/pytritex/scaffold_10x/{args.hash}*/orientation/res/_metadata")][0]
+    elif args.table is not None:
+        table = pd.read_csv(args.table, delimiter="\t")
+        table = table.sort_values(["n50"], ascending=[False])
+        best_row = table[table["n50"] == table["n50"].max()]
+        mhash = best_row["hash"].values[0]
+        best_dir = [os.path.dirname(_) for _ in
+            glob.glob(f"{args.save_prefix}/joblib/pytritex/scaffold_10x/{mhash}*/orientation/res/_metadata")][0]
     elif args.dir is not None:
         best_dir = [os.path.dirname(_) for _ in
             glob.glob(f"{args.dir}")][0]
     else:
         best_dir = None
+
+    client = Client(set_as_default=True, timeout=60, direct_to_workers=False, memory_limit=worker_mem,
+                    nanny=True, address=None)
+    client.cluster.scale(args.procs)
+    # DO IT TWICE, sometimes the first time is not enough.
+    client.cluster.scale(args.procs)
+    memory = Memory(os.path.join(".", args.save_prefix), compress=("zlib", 6), verbose=1)
+        
     if best_dir is not None and not os.path.exists(best_dir):
         best_dir = None
     if best_dir is not None:
@@ -88,6 +101,10 @@ def main():
     assembly_10x = memory.cache(init_10x_assembly)(
         assembly=assembly, map_10x=map_10x, gap_size=200, molecules=args.use_mols, save=save_dir)
 
+    # Print the AGP
+    out_agp = os.path.join(save_dir, "scaffold10x.agp")
+    print_agp(assembly_10x["agp"], out_agp)
+    
     # Now anchor the scaffolds
     assembly_10x = memory.cache(anchor_scaffolds, ignore=["client"])(
         assembly_10x, save_dir, species="wheat", client=client)
@@ -114,8 +131,6 @@ def main():
 
     # bin_hic_step(hic=hic_map_v1$links, frags = hic_map_v1$frags, binsize = 1e6,
     #                                                                        chrlen = hic_map_v1$chrlen, chrs = 1:21, cores = 21)->hic_map_v1$hic_1Mb
-
-
 
     # normalize_cis(hic_map_v1$hic_1Mb, ncores = 21, percentile = 0, omit_smallest = 1)->hic_map_v1$hic_1Mb$norm
 

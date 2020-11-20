@@ -123,7 +123,7 @@ def transfer_hic(fpairs, agp):
     chunks = tuple(super_fpairs.map_partitions(len).compute())
     super_fpairs = super_fpairs.assign(
         hic_index=da.from_array(np.arange(1, super_fpairs.shape[0].compute() + 1, dtype=int), chunks=chunks))
-    super_fpairs = super_fpairs.set_index("hic_index", sorted=True)
+    super_fpairs = super_fpairs.set_index("hic_index")
     return super_fpairs
 
 
