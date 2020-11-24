@@ -98,7 +98,8 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None, species="wheat"):
     left = agp.query("gap == False")[
         ["super", "orientation", "super_start", "super_end", "scaffold_index", "chr", "cM"]]
     left = left.set_index("scaffold_index")
-    chrom_stats = left.groupby("super").agg({"chr": first, "cM": "mean"})
+    chrom_stats = left.groupby("super").agg({"chr": first, "cM": "mean"}).compute()
+    assert isinstance(chrom_stats, pd.DataFrame)
 
     fragbed = dd.merge(left, frags, on="scaffold_index").persist()
     # map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][fragbed, on="scaffold"]->fragbed
@@ -118,8 +119,9 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None, species="wheat"):
 
     fragbed.index = fragbed.index.rename("scaffold_index")
     nfrags = fragbed.groupby("scaffold_index").size().to_frame("nfrag")
-    chrom_stats = chrom_stats.index.rename("scaffold_index")
-    info = info.merge(nfrags, on="scaffold_index", how="left").merge(chrom_stats)
+    chrom_stats.index = chrom_stats.index.rename("scaffold_index")
+    info = info.merge(nfrags, on="scaffold_index", how="left")
+    info = info.merge(chrom_stats, on="scaffold_index", how="left")
     info["nfrag"] = info["nfrag"].fillna(0)
     # Now we need to add the chr and cM information
 
