@@ -41,9 +41,10 @@ def transfer_molecules(molecules, map_10x):
         super_molecules["orientation"] == -1, super_molecules["super_end"] + 1 - super_molecules["start"])
     super_molecules = super_molecules.reset_index(drop=True).set_index("super").drop(
         ["super_start", "super_end", "scaffold_index", "orientation"], axis=1).persist()
-    super.index = super.index.rename("scaffold_index")
+    super_molecules.index = super_molecules.index.rename("scaffold_index")
     super_molecules = super_molecules.drop(["scaffold_length"], axis=1, errors="ignore").rename(
         columns={"super_length": "scaffold_length"})
+    super_molecules = super_molecules.persist()
     return super_molecules
 
 
