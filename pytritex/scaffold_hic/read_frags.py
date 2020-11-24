@@ -4,6 +4,7 @@ import numpy as np
 from ..utils import rolling_join
 import os
 from dask.delayed import delayed
+from ..utils.chrnames import chrNames
 
 # # Read BED files with positions of restriction fragments on the input assembly, lift coordinates to updated assemblies
 # read_fragdata<-function(info, map_10x=NULL, assembly_10x=NULL, file){
@@ -38,7 +39,7 @@ from dask.delayed import delayed
 # }
 
 
-def read_fragdata(fai, fragfile, map_10x, savedir=None):
+def read_fragdata(fai, fragfile, map_10x, savedir=None, species="wheat"):
     
     if fragfile.endswith(".gz"):
         import subprocess as sp
@@ -87,9 +88,13 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None):
     agp = map_10x["agp"]
     if isinstance(agp, str):
         agp = dd.read_parquet(agp)
-    
-    left = agp.query("gap == False")[["super", "orientation", "super_start",
-                                      "super_end", "scaffold_index", "chr", "cM"]]
+
+    if "chr" not in agp.columns:
+        chroms = chrNames(species=species)
+        agp = agp.reset_index(drop=(agp.index.name is None)).merge(chroms, on="alphachr", how="left")
+
+    left = agp.query("gap == False")[
+        ["super", "orientation", "super_start", "super_end", "scaffold_index", "chr", "cM"]]
     left = left.set_index("scaffold_index")
     fragbed = dd.merge(left, frags, on="scaffold_index").persist()
     # map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][fragbed, on="scaffold"]->fragbed
