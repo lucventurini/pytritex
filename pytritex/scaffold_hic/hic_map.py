@@ -24,22 +24,23 @@ def hic_map(assembly: dict, client: Client,
     #   hl<-hl[abs(cM1-cM2) <= max_cM_dist | is.na(cM1) | is.na(cM2)]
     #   hl[, weight:=-log10(nlinks)]
     hic_info = dd.read_parquet(fragment_data["info"], infer_divisions=True)
-    hic_info = hic_info.query("hic_chr == hic_chr & super_length >= @min_length",
-                              local_dict={"min_length": min_length})[["nfrag", "hic_chr", "popseq_cM"]]
+    hic_info = hic_info.query("chr == chr & length >= @min_length",
+                              local_dict={"min_length": min_length})[["nfrag", "chr", "cM"]]
     hic_info["excluded"] = hic_info.eval("nfrag < @mnf", local_dict={"mnf": min_nfrag_scaffold})
-    hl = assembly["fpairs"].eval("scaffold_index1 != scaffold_index2").persist()
-    hl = hl.merge(hl.groupby(["scaffold_index1", "scaffold_index2"]).size().to_frame("nlinks").compute(),
-                  on=["scaffold_index1", "scaffold_index2"]).persist()
+    hl = assembly["fpairs"].query("scaffold_index1 != scaffold_index2")
+    nlinks = hl.groupby(["scaffold_index1", "scaffold_index2"]).size().to_frame("nlinks").compute()
+    hl = hl.merge(nlinks.reset_index(drop=False), on=["scaffold_index1", "scaffold_index2"], how="left")
 
-    left = hic_info[["chr", "cM"]]
-    left1 = left.rename(columns={"chr": "chr1", "cM": "cM1"})
+    left = hic_info[["chr", "cM", "excluded"]]
+    left1 = left.rename(columns={"chr": "chr1", "cM": "cM1", "excluded": "excluded1"})
     left1.index = left1.index.rename("scaffold_index1")
-    left2 = hic_info.rename(columns={"chr": "chr2", "cM": "cM2"})
+    left2 = hic_info.rename(columns={"chr": "chr2", "cM": "cM2", "excluded": "excluded2"})
     left2.index = left1.index.rename("scaffold_index2")
     hl = hl.merge(left1, on="scaffold_index1", how="inner").merge(left2, on="scaffold_index2", how="inner").query(
-        "chr1 == chr2")
-    hl["cMDist"] = hl.eval("cMDist = cM1 - cM2")
-    hl = hl.query("cMDist <= @max_cM_dist | cMDist != cMDist", local_dict={"max_cM_dist": max_cM_dist})
+        "chr1 == chr2").eval("cMDist = cM1 - cM2")
+    hl["cMDist"] = hl["cMDist"].abs()
+    hl = hl.query("excluded1 == False & excluded2 == False & (cMDist <= @max_cM_dist | cMDist != cMDist)",
+                  local_dict={"max_cM_dist": max_cM_dist})
     # TODO: why is the log minused? Should it not be plus?
     hl["weight"] = -np.log10(hl["nlinks"])
     # The following is already implemented
