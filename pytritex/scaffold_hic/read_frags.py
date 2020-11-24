@@ -108,7 +108,7 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None, species="wheat"):
     fragbed = fragbed.reset_index(drop=True).repartition(
         npartitions=int(fragbed.shape[0].compute() // 10 ** 6)).persist().set_index("super")
     # TODO: is there "info" in map_10x?
-    info = map_10x["fai"]
+    info = map_10x["info"]
     if isinstance(info, str):
         info = dd.read_parquet(info, infer_divisions=True)
 

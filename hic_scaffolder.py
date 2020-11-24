@@ -115,6 +115,7 @@ def main():
                                                 fragfile=args.fragments_bed,
                                                 map_10x=assembly_10x,
                                                 savedir=save_dir)
+    # frag_data$info[!is.na(hic_chr) & length >= 3e5, .(scaffold, nfrag, chr=hic_chr, cM=popseq_cM)]->hic_info
     # # make Hi-C map
     # hic_map(info=hic_info, assembly=assembly_v2, frags=frag_data$bed, species="wheat", ncores=21,
     # 	min_nfrag_scaffold=50, max_cM_dist = 50,
