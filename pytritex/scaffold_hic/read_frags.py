@@ -1,7 +1,7 @@
 import dask.dataframe as dd
 import pandas as pd
 import numpy as np
-from ..utils import rolling_join
+from ..utils import rolling_join, first
 import os
 from dask.delayed import delayed
 from ..utils.chrnames import chrNames
@@ -40,7 +40,9 @@ from ..utils.chrnames import chrNames
 
 
 def read_fragdata(fai, fragfile, map_10x, savedir=None, species="wheat"):
-    
+
+    """Read in the location of the restriction enzyme cleavage sites."""
+
     if fragfile.endswith(".gz"):
         import subprocess as sp
         if savedir is None:
@@ -62,9 +64,9 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None, species="wheat"):
     frags["length"] = frags["end"] - frags["start"]
     frags["start"] += 1
     frags = frags.set_index("orig_scaffold")
-    frags = frags.persist()
+    # frags = frags.persist()
     
-    frags = dd.merge(left, frags, on="orig_scaffold").reset_index(drop=True).set_index("orig_scaffold_index").persist()
+    frags = dd.merge(left, frags, on="orig_scaffold").reset_index(drop=True).set_index("orig_scaffold_index")
     # Select scaffolds that have not been broken up, we'll use them as-is
     frags_to_keep = frags.query("to_use == True")[:].drop("to_use", axis=1)
     frags_to_keep.index = frags_to_keep.index.rename("scaffold_index")
@@ -96,6 +98,8 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None, species="wheat"):
     left = agp.query("gap == False")[
         ["super", "orientation", "super_start", "super_end", "scaffold_index", "chr", "cM"]]
     left = left.set_index("scaffold_index")
+    chrom_stats = left.groupby("super").agg({"chr": first, "cM": "mean"})
+
     fragbed = dd.merge(left, frags, on="scaffold_index").persist()
     # map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][fragbed, on="scaffold"]->fragbed
     fragbed["frag_start"] = fragbed["start"].mask(fragbed["orientation"] == 1, fragbed["super_start"] - 1 + fragbed["start"])
@@ -108,14 +112,17 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None, species="wheat"):
     fragbed = fragbed.reset_index(drop=True).repartition(
         npartitions=int(fragbed.shape[0].compute() // 10 ** 6)).persist().set_index("super")
     # TODO: is there "info" in map_10x?
-    info = map_10x["info"]
+    info = map_10x["fai"]
     if isinstance(info, str):
         info = dd.read_parquet(info, infer_divisions=True)
 
     fragbed.index = fragbed.index.rename("scaffold_index")
     nfrags = fragbed.groupby("scaffold_index").size().to_frame("nfrag")
-    info = info.merge(nfrags, on="scaffold_index", how="right")
+    chrom_stats = chrom_stats.index.rename("scaffold_index")
+    info = info.merge(nfrags, on="scaffold_index", how="left").merge(chrom_stats)
     info["nfrag"] = info["nfrag"].fillna(0)
+    # Now we need to add the chr and cM information
+
     if savedir is not None:
         fragbed_name = os.path.join(savedir, "fragbed")
         dd.to_parquet(fragbed, fragbed_name, compression="gzip", engine="pyarrow")
