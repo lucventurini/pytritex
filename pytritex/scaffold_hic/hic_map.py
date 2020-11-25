@@ -9,6 +9,21 @@ from dask.distributed import Client
 from .make_agp import make_agp
 
 
+def _merge_with_hic_info(hl, hic_info):
+    if "chr1" in hl.columns:
+        left = hic_info[["cM", "excluded"]]
+    else:
+        left = hic_info[["chr", "cM", "excluded"]]
+    left1 = left.rename(columns=dict((_, _ + "1") for _ in left.columns))
+    left1.index = left1.index.rename("scaffold_index1")
+    left2 = left.rename(columns=dict((_, _ + "2") for _ in left.columns))
+    left2.index = left1.index.rename("scaffold_index2")
+    hl = hl.merge(left1, on="scaffold_index1", how="inner").merge(left2, on="scaffold_index2", how="inner").query(
+        "chr1 == chr2").eval("cMDist = cM1 - cM2")
+    hl["cMDist"] = hl["cMDist"].abs()
+    return hl
+
+
 def hic_map(assembly: dict, client: Client,
             fragment_data, species, ncores=1, min_nfrag_scaffold=50, max_cM_dist = 20,
             min_length=3e5, binsize=5e5, min_nfrag_bin=30, gap_size=100, maxiter=100, orient=True, agp_only=False,
@@ -16,7 +31,6 @@ def hic_map(assembly: dict, client: Client,
 
     #   copy(info)->hic_info
     #   hic_info[, excluded := nfrag < min_nfrag_scaffold]
-    #
     #   assembly$fpairs[scaffold1 != scaffold2, .(nlinks=.N), key=.(scaffold1, scaffold2)]->hl
     #   hic_info[, .(scaffold1=scaffold, chr1=chr, cM1=cM)][hl, nomatch=0, on="scaffold1"]->hl
     #   hic_info[, .(scaffold2=scaffold, chr2=chr, cM2=cM)][hl, nomatch=0, on="scaffold2"]->hl
@@ -30,15 +44,8 @@ def hic_map(assembly: dict, client: Client,
     hl = assembly["fpairs"].query("scaffold_index1 != scaffold_index2")
     nlinks = hl.groupby(["scaffold_index1", "scaffold_index2"]).size().to_frame("nlinks").compute()
     hl = hl.merge(nlinks.reset_index(drop=False), on=["scaffold_index1", "scaffold_index2"], how="left")
+    hl = _merge_with_hic_info(hl, hic_info)
 
-    left = hic_info[["chr", "cM", "excluded"]]
-    left1 = left.rename(columns={"chr": "chr1", "cM": "cM1", "excluded": "excluded1"})
-    left1.index = left1.index.rename("scaffold_index1")
-    left2 = hic_info.rename(columns={"chr": "chr2", "cM": "cM2", "excluded": "excluded2"})
-    left2.index = left1.index.rename("scaffold_index2")
-    hl = hl.merge(left1, on="scaffold_index1", how="inner").merge(left2, on="scaffold_index2", how="inner").query(
-        "chr1 == chr2").eval("cMDist = cM1 - cM2")
-    hl["cMDist"] = hl["cMDist"].abs()
     hl = hl.query("excluded1 == False & excluded2 == False & (cMDist <= @max_cM_dist | cMDist != cMDist)",
                   local_dict={"max_cM_dist": max_cM_dist})
     # TODO: why is the log minused? Should it not be plus?

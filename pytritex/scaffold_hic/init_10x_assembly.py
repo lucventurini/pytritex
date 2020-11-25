@@ -96,35 +96,33 @@ def transfer_cssaln(cssaln, map_10x):
     #  } else {
     #   z <- NULL
     #  }
-def transfer_hic(fpairs, agp):
+def transfer_hic(fpairs: dd.DataFrame, agp):
     super_fpairs = fpairs[:][["scaffold_index1", "scaffold_index2", "pos1", "pos2"]][:]
-    super_fpairs = super_fpairs.set_index("scaffold_index1").persist()
-    left = agp[["scaffold_index", "super", "super_start", "super_end", "orientation"]].set_index("scaffold_index")
-    left.index = left.index.rename("scaffold_index1")
-    super_fpairs = dd.merge(left, super_fpairs, on="scaffold_index1", how="right")
-    super_fpairs["pos1"] = super_fpairs["pos1"].mask(super_fpairs["orientation"] == 1, super_fpairs["super_start"] - 1 + super_fpairs["pos1"])
-    super_fpairs["pos1"] = super_fpairs["pos1"].mask(super_fpairs["orientation"] == -1, super_fpairs["super_end"] + 1 - super_fpairs["pos1"])
-    super_fpairs = super_fpairs.drop(["super_start", "super_end", "orientation"], axis=1)
-    super_fpairs = super_fpairs.reset_index(drop=True).rename(columns={"super": "super1"})
-    super_fpairs = super_fpairs.set_index("scaffold_index2").persist()
-    left.index = left.index.rename("scaffold_index2")
-    super_fpairs = dd.merge(left, super_fpairs, on="scaffold_index2", how="right")
-    super_fpairs["pos2"] = super_fpairs["pos2"].mask(super_fpairs["orientation"] == 1, super_fpairs["super_start"] - 1 + super_fpairs["pos2"])
-    super_fpairs["pos2"] = super_fpairs["pos2"].mask(super_fpairs["orientation"] == -1, super_fpairs["super_end"] + 1 - super_fpairs["pos2"])
-    super_fpairs = super_fpairs.drop(["super_start", "super_end", "orientation"], axis=1)
-    super_fpairs = super_fpairs.reset_index(drop=True).rename(columns={"super": "super2"}).persist()
+    left = agp.query("gap == False")[
+        ["scaffold_index", "super", "super_start", "super_end", "orientation"]].set_index("scaffold_index")
+    left1 = left.rename(columns=dict((_, _ + "1") for _ in left.columns))
+    left1.index = left1.index.rename("scaffold_index1")
+    left2 = left.rename(columns=dict((_, _ + "2") for _ in left.columns))
+    left2.index = left2.index.rename("scaffold_index2")
+    super_fpairs = super_fpairs.merge(left1, on="scaffold_index1", how="left").merge(left2, on="scaffold_index2", how="left")
+    super_fpairs["hic_index"] = 1
+    super_fpairs["hic_index"] = super_fpairs["hic_index"].cumsum()
+    super_fpairs = super_fpairs.set_index("hic_index", sorted=True)
+
+    mask1 = ~(super_fpairs["orientation1"] == -1).compute()
+    mask2 = ~(super_fpairs["orientation2"] == -1).compute()
+    super_fpairs["pos1"] = super_fpairs["pos1"].mask(mask1, super_fpairs.eval("super_start1 - 1 + pos1"))
+    super_fpairs["pos1"] = super_fpairs["pos1"].mask(~mask1, super_fpairs.eval("super_end1 + 1 - pos1"))
+    super_fpairs["pos2"] = super_fpairs["pos2"].mask(mask2, super_fpairs.eval("super_start2 - 1 + pos2"))
+    super_fpairs["pos2"] = super_fpairs["pos2"].mask(~mask2, super_fpairs.eval("super_end2 + 1 - pos2"))
+    super_fpairs = super_fpairs.drop(["scaffold_index1", "super_start1", "super_end1",
+                                      "scaffold_index2", "super_start2", "super_end2"], axis=1)
     super_fpairs = super_fpairs.rename(columns={"super1": "scaffold_index1", "super2": "scaffold_index2"})
-    super_fpairs["orig_scaffold_index1"] = super_fpairs["scaffold_index1"]
-    super_fpairs["orig_scaffold_index2"] = super_fpairs["scaffold_index2"]
+
     super_fpairs["orig_pos1"] = super_fpairs["pos1"]
     super_fpairs["orig_pos2"] = super_fpairs["pos2"]
     super_fpairs = super_fpairs[["scaffold_index1", "scaffold_index2", "pos1", "orig_pos1", "pos2", "orig_pos2"]]
     # Now add the index
-    super_fpairs = super_fpairs.repartition(partition_size=int(1e6))
-    chunks = tuple(super_fpairs.map_partitions(len).compute())
-    super_fpairs = super_fpairs.assign(
-        hic_index=da.from_array(np.arange(1, super_fpairs.shape[0].compute() + 1, dtype=int), chunks=chunks))
-    super_fpairs = super_fpairs.set_index("hic_index")
     return super_fpairs
 
 
