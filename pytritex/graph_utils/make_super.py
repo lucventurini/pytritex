@@ -7,6 +7,7 @@ import dask.dataframe as dd
 from pytritex.graph_utils.make_super_path import make_super_path
 from dask.distributed import Client
 import logging
+from pytritex.utils import first
 logger = logging.getLogger("distributed.worker")
 import sys
 
@@ -130,12 +131,8 @@ def make_super(hl: dd.DataFrame,
         {"super": "size",
          "cM": "mean",
          "length": "sum",
-         "chr": lambda values: values[0]}
+         "chr": first}
     ).rename(columns={"super": "size"})
-    # print(info.head(npartitions=-1, n=5))
-    info["chr"] = grouped["chr"].unique().apply(lambda s: [_ for _ in s if not np.isnan(_)][0],
-                                                meta=np.float)
-    # print(info.head(npartitions=-1, n=5))
     assert membership.index.name == "cluster"
     edge_list = membership[["super"]]
     edge_list.index = edge_list.index.rename("cluster1")
@@ -157,7 +154,6 @@ def make_super(hl: dd.DataFrame,
         assert "cluster" in cms.columns, cms.head()
         if path_max > 0:
             assert info.index.name == "super"
-            info["length"] = membership.groupby("super")["length"].sum()
             info["max_length"] = info.groupby("chr")["length"].transform("max", meta=int)
             info["is_max"] = info["max_length"] == info["length"]
             idx = info.query("is_max == True & chr == chr").index.values.compute()

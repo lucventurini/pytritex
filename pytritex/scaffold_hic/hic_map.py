@@ -75,9 +75,6 @@ def hic_map(assembly: dict, client: Client,
     hic_info = hic_info.rename(columns={"popseq_chr": "chr", "popseq_cM": "cM"}).query(
         "chr == chr & length >= @min_length", local_dict={"min_length": min_length})[["chr", "cM", "nfrag", "length"]]
     hic_info["excluded"] = hic_info.eval("nfrag < @mnf", local_dict={"mnf": min_nfrag_scaffold})
-    if isinstance(assembly["fpairs"], str):
-        assembly["fpairs"] = dd.read_parquet(assembly["fpairs"], infer_divisions=True)
-
     hl = assembly["weighted_links"]
     if isinstance(hl, str):
         hl = dd.read_parquet(hl, infer_divisions=True)

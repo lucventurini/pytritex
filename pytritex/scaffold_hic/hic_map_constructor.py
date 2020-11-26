@@ -7,7 +7,7 @@ import os
 
 
 def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
-                 links: Union[pd.DataFrame, dd.DataFrame],
+                 hl: Union[pd.DataFrame, dd.DataFrame],
                  client: Client,
                  save_dir=None,
                  ncores=1, maxiter=100, known_ends=True):
@@ -39,11 +39,11 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
 
     #  res[order(chr, hic_bin)][, .(scaffold=cluster, chr, cM, hic_bin, hic_backbone, hic_rank)][!is.na(hic_bin)]
     # }
-    hl = links.copy().rename(columns={"scaffold_index1": "cluster1", "scaffold_index2": "cluster2"})
+    links = hl.copy().rename(columns={"scaffold_index1": "cluster1", "scaffold_index2": "cluster2"})
     cluster_info = hic_info.copy()
     cluster_info.index = cluster_info.index.rename("cluster")
     chrs = cluster_info.query("chr == chr")["chr"].unique().compute()
-    sups = make_super(hl, cluster_info=cluster_info, client=client,
+    super_object = make_super(links, cluster_info=cluster_info, client=client,
                       cores=ncores, maxiter=maxiter, known_ends=known_ends,
                       path_max=chrs.shape[0], previous_membership=pd.DataFrame())
 
@@ -53,13 +53,13 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     #  s[!duplicated(s$chr),]->s
     #  s[chr %in% chrs]->s
     # TODO This is probably the wrong key
-    super_info = sups["super_info"].drop_duplicates(["chr"]).query("chr in @chrs", local_dict={"chrs": chrs})
+    super_info = super_object["super_info"].drop_duplicates(["chr"]).query("chr in @chrs", local_dict={"chrs": chrs})
     # Get a temporary membership table
     #  super_global$membership[, .(cluster, super, bin, rank, backbone)]->tmp
-    if sups["membership"].index.name == "cluster":
-        tmp_memb = sups["membership"][["super", "bin", "rank", "backbone"]]
+    if super_object["membership"].index.name == "cluster":
+        tmp_memb = super_object["membership"][["super", "bin", "rank", "backbone"]]
     else:
-        tmp_memb = sups["membership"][["cluster", "super", "bin", "rank", "backbone"]].set_index("cluster")
+        tmp_memb = super_object["membership"][["cluster", "super", "bin", "rank", "backbone"]].set_index("cluster")
 
     #  tmp[super %in% s$super]->tmp
     #  tmp[, super := NULL]
@@ -77,7 +77,7 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     chr_result = dd.from_pandas(chr_result, chunksize=1e6)
     if save_dir is not None:
         dd.to_parquet(chr_result, os.path.join(save_dir, "chr_result"))
-        dd.to_parquet(sups["result"], os.path.join(save_dir, "result"))
-        dd.to_parquet(sups["membership"], os.path.join(save_dir, "membership"))
+        dd.to_parquet(super_object["result"], os.path.join(save_dir, "result"))
+        dd.to_parquet(super_object["membership"], os.path.join(save_dir, "membership"))
 
     return chr_result
