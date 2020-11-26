@@ -26,22 +26,25 @@ def _merge_with_hic_info(hl, hic_info):
     return hl
 
 
-def calculate_hic_link_weights(fpairs: Union[dd.DataFrame, pd.DataFrame, str], save_dir: Union[None, str]):
+def calculate_hic_link_weights(assembly:dict, save_dir: Union[None, str]):
+    fpairs = assembly["fpairs"]
+    
     if isinstance(fpairs, str):
         fpairs = dd.read_parquet(fpairs, infer_divisions=True)
 
-    hl = fpairs.query("scaffold_index1 != scaffold_index2")[["scaffold_index1", "scaffold_index2", "pos1", "pos2"]]
+    columns = ["scaffold_index1", "scaffold_index2", "pos1", "pos2"]
+    hl = fpairs.query("scaffold_index1 != scaffold_index2")[columns]
     # Now we have to equalise the counts. Notice how we are reversing the order
-    hl = hl.query("scaffold_index1 < scaffold_index2").merge(
-        hl.query("scaffold_index1 > scaffold_index2").rename(
-            columns={"scaffold_index1": "scaffold_index2a", "scaffold_index2": "scaffold_index1a", "pos1": "pos2a",
-                     "pos2": "pos1a"}), left_on=hl.columns, right_on=[_ + "a" for _ in hl.columns], how="outer"
-    )
-    bait = hl["scaffold_index1"].isna()
+    top = hl.query("scaffold_index1 < scaffold_index2")
+    bottom = hl.query("scaffold_index1 > scaffold_index2")
+    bottom = bottom.rename(columns={"scaffold_index1": "scaffold_index2a", "scaffold_index2": "scaffold_index1a",
+                                    "pos1": "pos2a", "pos2": "pos1a"})
+    merged = top.merge(bottom, left_on=columns, right_on=[_ + "a" for _ in columns], how="outer") 
+    bait = merged["scaffold_index1"].isna()
     for column in ["scaffold_index1", "scaffold_index2", "pos1", "pos2"]:
-        hl[column] = hl[column].mask(bait, hl[column + "a"])
-    hl = hl.drop([_ + "a" for _ in ["scaffold_index1", "scaffold_index2", "pos1", "pos2"]], axis=1)
-    nlinks = hl.groupby(["scaffold_index1", "scaffold_index2"]).size().to_frame("nlinks").reset_index(drop=False)
+        merged[column] = merged[column].mask(bait, merged[column + "a"])
+    merged = merged.drop([_ + "a" for _ in columns], axis=1)
+    nlinks = merged.groupby(["scaffold_index1", "scaffold_index2"]).size().to_frame("nlinks").reset_index(drop=False)
     nlinks["hic_index"] = 1
     nlinks["hic_index"] = nlinks["hic_index"].cumsum()
     nlinks = nlinks.set_index("hic_index", sorted=True)
@@ -49,10 +52,15 @@ def calculate_hic_link_weights(fpairs: Union[dd.DataFrame, pd.DataFrame, str], s
     if save_dir is not None:
         link_folder = os.path.join(save_dir, "weighted_links")
         dd.to_parquet(nlinks, link_folder, compression="gzip")
-        return link_folder
+        assembly["weighted_links"] = link_folder
+        link_folder = os.path.join(save_dir, "nr_fpairs")
+        dd.to_parquet(merged, link_folder, compression="gzip")
+        assembly["nr_fpairs"] = link_folder
     else:
-        return nlinks
-
+        assembly["weighted_links"] = nlinks
+        assembly["nr_fpairs"] = merged
+    return assembly
+    
 
 def hic_map(assembly: dict, client: Client,
             fragment_data, species, ncores=1, min_nfrag_scaffold=50, max_cM_dist = 20,
