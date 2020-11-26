@@ -40,10 +40,10 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     #  res[order(chr, hic_bin)][, .(scaffold=cluster, chr, cM, hic_bin, hic_backbone, hic_rank)][!is.na(hic_bin)]
     # }
     hl = links.copy().rename(columns={"scaffold_index1": "cluster1", "scaffold_index2": "cluster2"})
-    info = hic_info.copy()
-    info.index = info.index.rename("cluster")
-    chrs = info.query("chr == chr")["chr"].unique().compute()
-    sups = make_super(hl, cluster_info=info, client=client,
+    cluster_info = hic_info.copy()
+    cluster_info.index = cluster_info.index.rename("cluster")
+    chrs = cluster_info.query("chr == chr")["chr"].unique().compute()
+    sups = make_super(hl, cluster_info=cluster_info, client=client,
                       cores=ncores, maxiter=maxiter, known_ends=known_ends,
                       path_max=chrs.shape[0], previous_membership=pd.DataFrame())
 

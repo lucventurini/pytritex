@@ -11,17 +11,47 @@ from .make_agp import make_agp
 
 def _merge_with_hic_info(hl, hic_info):
     if "chr1" in hl.columns:
-        left = hic_info[["cM", "excluded"]]
-    else:
-        left = hic_info[["chr", "cM", "excluded"]]
+        hl = hl.drop(["chr1", "chr2"], axis=1)
+    left = hic_info[["chr", "cM", "excluded"]]
     left1 = left.rename(columns=dict((_, _ + "1") for _ in left.columns))
     left1.index = left1.index.rename("scaffold_index1")
     left2 = left.rename(columns=dict((_, _ + "2") for _ in left.columns))
     left2.index = left1.index.rename("scaffold_index2")
-    hl = hl.merge(left1, on="scaffold_index1", how="inner").merge(left2, on="scaffold_index2", how="inner").query(
-        "chr1 == chr2").eval("cMDist = cM1 - cM2")
+    idx_name = hl.index.name
+    assert idx_name is not None
+    hl = hl.reset_index(drop=False).merge(
+        left1, on="scaffold_index1", how="inner").merge(
+        left2, on="scaffold_index2", how="inner").query("chr1 == chr2").eval("cMDist = cM1 - cM2").set_index(idx_name)
     hl["cMDist"] = hl["cMDist"].abs()
     return hl
+
+
+def calculate_hic_link_weights(fpairs: Union[dd.DataFrame, pd.DataFrame, str], save_dir: Union[None, str]):
+    if isinstance(fpairs, str):
+        fpairs = dd.read_parquet(fpairs, infer_divisions=True)
+
+    hl = fpairs.query("scaffold_index1 != scaffold_index2")[["scaffold_index1", "scaffold_index2", "pos1", "pos2"]]
+    # Now we have to equalise the counts. Notice how we are reversing the order
+    hl = hl.query("scaffold_index1 < scaffold_index2").merge(
+        hl.query("scaffold_index1 > scaffold_index2").rename(
+            columns={"scaffold_index1": "scaffold_index2a", "scaffold_index2": "scaffold_index1a", "pos1": "pos2a",
+                     "pos2": "pos1a"}), left_on=hl.columns, right_on=[_ + "a" for _ in hl.columns], how="outer"
+    )
+    bait = hl["scaffold_index1"].isna()
+    for column in ["scaffold_index1", "scaffold_index2", "pos1", "pos2"]:
+        hl[column] = hl[column].mask(bait, hl[column + "a"])
+    hl = hl.drop([_ + "a" for _ in ["scaffold_index1", "scaffold_index2", "pos1", "pos2"]], axis=1)
+    nlinks = hl.groupby(["scaffold_index1", "scaffold_index2"]).size().to_frame("nlinks").reset_index(drop=False)
+    nlinks["hic_index"] = 1
+    nlinks["hic_index"] = nlinks["hic_index"].cumsum()
+    nlinks = nlinks.set_index("hic_index", sorted=True)
+    nlinks["weight"] = 1 + np.log10(nlinks["nlinks"])
+    if save_dir is not None:
+        link_folder = os.path.join(save_dir, "weighted_links")
+        dd.to_parquet(nlinks, link_folder, compression="gzip")
+        return link_folder
+    else:
+        return nlinks
 
 
 def hic_map(assembly: dict, client: Client,
@@ -37,19 +67,25 @@ def hic_map(assembly: dict, client: Client,
     #   hl[chr1 == chr2]->hl
     #   hl<-hl[abs(cM1-cM2) <= max_cM_dist | is.na(cM1) | is.na(cM2)]
     #   hl[, weight:=-log10(nlinks)]
-    hic_info = dd.read_parquet(fragment_data["info"], infer_divisions=True)
-    hic_info = hic_info.query("chr == chr & length >= @min_length",
-                              local_dict={"min_length": min_length})[["nfrag", "chr", "cM"]]
-    hic_info["excluded"] = hic_info.eval("nfrag < @mnf", local_dict={"mnf": min_nfrag_scaffold})
-    hl = assembly["fpairs"].query("scaffold_index1 != scaffold_index2")
-    nlinks = hl.groupby(["scaffold_index1", "scaffold_index2"]).size().to_frame("nlinks").compute()
-    hl = hl.merge(nlinks.reset_index(drop=False), on=["scaffold_index1", "scaffold_index2"], how="left")
-    hl = _merge_with_hic_info(hl, hic_info)
+    frag_info = dd.read_parquet(fragment_data["info"], infer_divisions=True)
+    hic_info = dd.read_parquet(assembly["info"], infer_divisions=True)
+    hic_info = hic_info.merge(frag_info[["nfrag"]], on="scaffold_index")
+    hic_info["nfrag"] = hic_info["nfrag"].fillna(0)
 
+    hic_info = hic_info.rename(columns={"popseq_chr": "chr", "popseq_cM": "cM"}).query(
+        "chr == chr & length >= @min_length", local_dict={"min_length": min_length})[["chr", "cM", "nfrag", "length"]]
+    hic_info["excluded"] = hic_info.eval("nfrag < @mnf", local_dict={"mnf": min_nfrag_scaffold})
+    if isinstance(assembly["fpairs"], str):
+        assembly["fpairs"] = dd.read_parquet(assembly["fpairs"], infer_divisions=True)
+
+    hl = assembly["weighted_links"]
+    if isinstance(hl, str):
+        hl = dd.read_parquet(hl, infer_divisions=True)
+
+    hl = _merge_with_hic_info(hl, hic_info)
     hl = hl.query("excluded1 == False & excluded2 == False & (cMDist <= @max_cM_dist | cMDist != cMDist)",
                   local_dict={"max_cM_dist": max_cM_dist})
-    # TODO: why is the log minused? Should it not be plus?
-    hl["weight"] = -np.log10(hl["nlinks"])
+
     # The following is already implemented
     #   cat("Scaffold map construction started.\n")
     #   make_hic_map(hic_info=hic_info, links=hl, ncores=ncores, known_ends=known_ends)->hic_map_bin
@@ -142,6 +178,6 @@ def hic_map(assembly: dict, client: Client,
     # TODO Why 2 centimorgans max?
     binl = binl.query("chr1 == chr2 & (cM1 != cM1 | cM2 != cM2 | (-2 <= cM1 -cM2 <= 2))")[:]
     # TODO why is the weight negatively correlated with the number of links?
-    binl["weight"] = -np.log10(binl["nlinks"])
+    binl["weight"] = 1 + np.log10(binl["nlinks"])
     # TODO why are we recalculating the map?
     hic_map_bin = make_hic_map(hic_info=hic_info_bin, links=binl, client=client, ncores=ncores, known_ends=known_ends)

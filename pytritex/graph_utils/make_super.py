@@ -14,11 +14,10 @@ import sys
 def _concatenator(edges, membership, known_ends=False, maxiter=100, verbose=False):
     start = end = None
     if known_ends:
-        x = membership.query("cM == cM").sort_values("cM").index
-        start, end = x.head(1), x.tail(1)
-    final = make_super_path(edges, membership,
-                            start=start, end=end,
-                            maxiter=maxiter, verbose=verbose)
+        assert "cluster" in membership
+        x = membership.query("cM == cM").sort_values("cM")["cluster"].values
+        start, end = x[0], x[-1]
+    final = make_super_path(edges, membership, start=start, end=end, maxiter=maxiter, verbose=verbose)
     return final
 
 
@@ -71,7 +70,7 @@ def make_super(hl: dd.DataFrame,
     bait2 = hl["cluster2"].isin(non_excluded)
     hl = hl.loc[bait1 & bait2, :]
     try:
-        edge_list = hl.query("cluster1 < cluster2")[["cluster1", "cluster2", "weight"]].compute()
+        edge_list = hl.query("cluster1 < cluster2")[["cluster1", "cluster2", "weight"]].compute().drop_duplicates()
     except ValueError:
         logger.critical(hl.dtypes)
         logger.critical(hl.head(npartitions=-1))
@@ -129,7 +128,9 @@ def make_super(hl: dd.DataFrame,
     grouped = membership.groupby("super")
     info = grouped.agg(
         {"super": "size",
-         "cM": "mean"}
+         "cM": "mean",
+         "length": "sum",
+         "chr": lambda values: values[0]}
     ).rename(columns={"super": "size"})
     # print(info.head(npartitions=-1, n=5))
     info["chr"] = grouped["chr"].unique().apply(lambda s: [_ for _ in s if not np.isnan(_)][0],
@@ -155,8 +156,12 @@ def make_super(hl: dd.DataFrame,
             sys.exit(1)
         assert "cluster" in cms.columns, cms.head()
         if path_max > 0:
-            idx = np.unique(super_object["super_info"][["super", "length"]].compute().sort_values(
-                "length", ascending=False).head(path_max).index.values)
+            assert info.index.name == "super"
+            info["length"] = membership.groupby("super")["length"].sum()
+            info["max_length"] = info.groupby("chr")["length"].transform("max", meta=int)
+            info["is_max"] = info["max_length"] == info["length"]
+            idx = info.query("is_max == True & chr == chr").index.values.compute()
+            assert idx.shape[0] == path_max
         else:
             idx = np.unique(super_object["super_info"].index.values.compute())
         edges = super_object["edges"].set_index("super")
@@ -176,8 +181,7 @@ def make_super(hl: dd.DataFrame,
                 index, ssuper, popseq_chr = row
                 my_edges = edges.loc[ssuper].compute()
                 my_membership = cms.loc[ssuper].compute()
-                submitted.append(client.submit(_concatenator, my_edges, my_membership,
-                                               known_ends, maxiter, verbose))
+                submitted.append(client.submit(_concatenator, my_edges, my_membership, known_ends, maxiter, verbose))
             logger.warning("%s Retrieving final results", time.ctime())
             submitted = client.gather(submitted)
             assert isinstance(submitted[0], np.ndarray), (type(submitted[0]), submitted[0])
