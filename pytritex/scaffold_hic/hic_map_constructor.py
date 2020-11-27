@@ -99,7 +99,7 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     # super_info = super_object["super_info"].drop_duplicates(["chr"]).query("chr in @chrs", local_dict={"chrs": chrs})
     super_object["super_info"] = dd.read_parquet(super_object["super_info"], infer_divisions=True)
     super_info = super_object["super_info"]
-    assert super_object["super_info"].shape[0].compute() == chrs.shape[0]
+    # assert super_object["super_info"].shape[0].compute() == chrs.shape[0]
     super_object["membership"] = dd.read_parquet(super_object["membership"], infer_divisions=True)
     # Get a temporary membership table
     #  super_global$membership[, .(cluster, super, bin, rank, backbone)]->tmp
@@ -108,7 +108,7 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     else:
         tmp_memb = super_object["membership"][
             ["scaffold_index", "super", "bin", "rank", "backbone"]].set_index("scaffold_index")
-
+        
     #  tmp[super %in% s$super]->tmp
     #  tmp[, super := NULL]
     tmp_memb = tmp_memb.query(
@@ -120,7 +120,7 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     tmp_memb.columns = ["hic_bin", "hic_rank", "hic_backbone"]
     chr_result = tmp_memb.merge(hic_info, on="scaffold_index").compute().reset_index(drop=False).sort_values(
         ["chr", "hic_bin", "hic_rank", "cluster"])
-    chr_result = chr_result.sort_values(["chr", "hic_bin"])[["chr", "cM", "hic_bin", "hic_backbone", "hic_rank"]]
+    chr_result = chr_result.sort_values(["chr", "cM", "hic_bin"])[["chr", "cM", "hic_bin", "hic_backbone", "hic_rank"]]
     chr_result = chr_result.query("hic_bin == hic_bin")
     chr_result = chr_result.set_index("scaffold_index")
     chr_result = dd.from_pandas(chr_result, chunksize=1e6)
@@ -128,5 +128,6 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
         dd.to_parquet(chr_result, os.path.join(save_dir, "chr_result"))
         dd.to_parquet(super_object["result"], os.path.join(save_dir, "result"))
         dd.to_parquet(super_object["membership"], os.path.join(save_dir, "membership"))
+        print(chr_result, os.path.join(save_dir, "chr_result"))
 
     return chr_result
