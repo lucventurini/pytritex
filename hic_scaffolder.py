@@ -27,6 +27,7 @@ from pytritex.scaffold_hic.add_psmol_fpairs import add_psmol_fpairs
 from pytritex.scaffold_hic.hic_cov_psmol import hic_cov_psmol
 logger = logging.getLogger("distributed.comm.tcp")
 logger.setLevel(logging.ERROR)
+import hashlib
 
 
 def main():
@@ -121,10 +122,15 @@ def main():
     # 	min_nfrag_scaffold=50, max_cM_dist = 50,
     # 	binsize=1e5, min_nfrag_bin=20, gap_size=100)->hic_map_v1
 
+    sha = hashlib.sha256()
     assembly_10x = memory.cache(calculate_hic_link_weights)(assembly_10x, save_dir)
-
+    # links, max_cM, min_length
+    params = (10, 20, args.min_length)
+    sha.update(str(params).encode())
+    hash_string = sha.hexdigest()
+    hic_save_dir = os.path.join(save_dir, hash_string)
     hic_map_v1 = hic_map(assembly=assembly_10x, client=client, fragment_data=fragment_data, species="wheat",
-                         ncores=args.procs, min_length=args.min_length)
+                         ncores=args.procs, min_length=args.min_length, save_dir=save_dir)
 
     # add_psmol_fpairs(assembly=assembly_v1, hic_map=hic_map_v1, map_10x=assembly_v1_10x,
     # 		 assembly_10x=assembly_v2, nucfile=f)->hic_map_v1
