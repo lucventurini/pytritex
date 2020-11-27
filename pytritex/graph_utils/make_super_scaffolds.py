@@ -1,5 +1,5 @@
 import pandas as pd
-from pytritex.graph_utils.make_super import make_super
+from pytritex.graph_utils.make_super import make_super, add_statistics
 import dask.dataframe as dd
 import os
 from dask.distributed import Client
@@ -154,36 +154,6 @@ Concatenated: %s""", info_index.shape[0], indices.shape[0], _to_concatenate.shap
         sys.exit(1)
 
     return new_membership
-
-
-def add_statistics(membership, client):
-    # m[,.(n=.N, nbin=max(bin), max_rank = max(rank), length = sum(length)), key = super]->res
-    # res[,.(super, super_size=n, super_nbin=nbin)][m, on = "super"]->m
-
-    # Note that membership has *no index* here.
-    membership = membership.drop(["super_size", "super_nbin"], axis=1, errors="ignore")
-    mem_sup_group = membership.groupby("super")
-    res_size = mem_sup_group.size().to_frame("n")
-    res_cols = mem_sup_group.agg(
-        {"bin": "max", "rank": "max", "length": "sum"})
-    res_cols.columns = ["nbin", "max_rank", "length"]
-    res = dd.merge(res_size, res_cols, on="super")
-    left = res.loc[:, ["n", "nbin"]].rename(
-        columns={"n": "super_size", "nbin": "super_nbin"})
-    if left.index.dtype != membership.index.dtype:
-        left = left.reset_index(drop=False)
-        left["super"] = left["super"].astype(membership.index.dtype)
-        left = left.set_index("super")
-    func = delayed(dd.merge)(left, membership, left_index=True, right_on="super",
-                             how="right")
-    membership = client.compute(func).result()
-    assert "scaffold_index" in membership.columns
-    membership = membership.set_index("scaffold_index")
-    if not isinstance(membership, dd.DataFrame):
-        membership = dd.from_pandas(membership, chunksize=10**5)
-    if not isinstance(res, dd.DataFrame):
-        res = dd.from_pandas(res, chunksize=10**5)
-    return membership, res
 
 
 def make_super_scaffolds(links: Union[str, dd.DataFrame],

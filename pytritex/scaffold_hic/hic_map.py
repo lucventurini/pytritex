@@ -63,7 +63,7 @@ def calculate_hic_link_weights(assembly:dict, save_dir: Union[None, str]):
     
 
 def hic_map(assembly: dict, client: Client,
-            fragment_data, species, ncores=1, min_nfrag_scaffold=50, max_cM_dist = 20,
+            fragment_data, species, ncores=1, min_nlinks=10, min_nfrag_scaffold=50, max_cM_dist = 20,
             min_length=3e5, binsize=5e5, min_nfrag_bin=30, gap_size=100, maxiter=100, orient=True, agp_only=False,
             map=None, known_ends=True, min_binsize=1e5, min_nbin=5):
 
@@ -87,6 +87,8 @@ def hic_map(assembly: dict, client: Client,
     if isinstance(hl, str):
         hl = dd.read_parquet(hl, infer_divisions=True)
 
+    hl = hl.query("nlinks >= @min_nlinks", local_dict={"min_nlinks": min_nlinks})
+
     hl = _merge_with_hic_info(hl, hic_info)
     hl = hl.query("excluded1 == False & excluded2 == False & (cMDist <= @max_cM_dist | cMDist != cMDist)",
                   local_dict={"max_cM_dist": max_cM_dist})
@@ -95,8 +97,11 @@ def hic_map(assembly: dict, client: Client,
     #   cat("Scaffold map construction started.\n")
     #   make_hic_map(hic_info=hic_info, links=hl, ncores=ncores, known_ends=known_ends)->hic_map_bin
     #   cat("Scaffold map construction finished.\n")
-    hic_map_bin = make_hic_map(hic_info=hic_info, links=hl, client=client, ncores=ncores, known_ends=known_ends,
+    hic_map_bin = make_hic_map(hic_info=hic_info, hl=hl, client=client, ncores=ncores, known_ends=known_ends,
                                save_dir=None)
+    # Now we need to remove branches etc
+
+
     hic_map_oriented = orient_hic_map(info=assembly["info"], assembly=assembly, hic_map=hic_map_bin,
                                       frags=fragment_data, client=client, min_nfrag_bin=min_nfrag_bin, cores=ncores,
                                       maxiter=maxiter, orient_old=False, min_nbin=min_nbin, min_binsize=min_binsize)

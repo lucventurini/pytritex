@@ -121,8 +121,7 @@ def main():
     # 	min_nfrag_scaffold=50, max_cM_dist = 50,
     # 	binsize=1e5, min_nfrag_bin=20, gap_size=100)->hic_map_v1
 
-    weighted_hic_links = memory.cache(calculate_hic_link_weights)(assembly_10x["fpairs"], save_dir)
-    assembly_10x["weighted_links"] = weighted_hic_links
+    assembly_10x = memory.cache(calculate_hic_link_weights)(assembly_10x, save_dir)
 
     hic_map_v1 = hic_map(assembly=assembly_10x, client=client, fragment_data=fragment_data, species="wheat",
                          ncores=args.procs, min_length=args.min_length)

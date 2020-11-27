@@ -7,6 +7,8 @@ import os
 from functools import partial
 import numpy as np
 logger = logging.getLogger("distributed.worker")
+from typing import Union
+import pandas as pd
 
 
 def iteration(counter, membership, excluded, links, save_dir, client, info, ncores):
@@ -42,15 +44,18 @@ def iteration(counter, membership, excluded, links, save_dir, client, info, ncor
 
 def _initial_branch_remover(client: Client,
                             save_dir: str,
-                            links: str,
-                            info: str, excluded: set, ncores):
+                            links: Union[str, dd.DataFrame, pd.DataFrame],
+                            info: Union[str, dd.DataFrame, pd.DataFrame], excluded: Union[None, set],
+                            ncores: int):
 
     print(time.ctime(), "Starting the run")
     if excluded is None:
         excluded = set()
 
-    links = dd.read_parquet(links, infer_divisions=True, engine="pyarrow")
-    info = dd.read_parquet(info, infer_divisions=True, engine="pyarrow")
+    if isinstance(links, str):
+        links = dd.read_parquet(links, infer_divisions=True, engine="pyarrow")
+    if isinstance(info, str):
+        info = dd.read_parquet(info, infer_divisions=True, engine="pyarrow")
     scaffolds_to_use = np.unique(links[["scaffold_index1", "scaffold_index2"]].values.compute().flatten())
     info_to_use = info.loc[scaffolds_to_use]
 

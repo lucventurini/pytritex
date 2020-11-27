@@ -10,10 +10,13 @@ from .short_tip_removal import _remove_short_tips
 from .bifurcation_removal import _remove_bifurcations
 import os
 import logging
+from typing import Union
 dask_logger = logging.getLogger("dask")
 
 
-def remove_tips(links: str, excluded, out: dict, info: str,
+def remove_tips(links: Union[str, pd.DataFrame, dd.DataFrame],
+                excluded: Union[None, set], out: dict,
+                info: Union[str, pd.DataFrame, dd.DataFrame],
                 client: Client,
                 save_dir: str,
                 ncores=1,
@@ -22,10 +25,14 @@ def remove_tips(links: str, excluded, out: dict, info: str,
     if verbose:
         print(ctime(), "Starting tip removal")
     # out = {"membership": membership, "info": info}
-    links = dd.read_parquet(links, infer_divisions=True)
-    info = dd.read_parquet(info, infer_divisions=True)
+    if isinstance(links, str):
+        links = dd.read_parquet(links, infer_divisions=True)
+    if isinstance(info, str):
+        info = dd.read_parquet(info, infer_divisions=True)
     # membership = out["membership"]
-    membership = dd.read_parquet(out["membership"], infer_divisions=True)
+    membership = out["membership"]
+    if isinstance(membership, str):
+        membership = dd.read_parquet(out["membership"], infer_divisions=True)
     if membership.shape[0].compute() == 0:
         return out
 
