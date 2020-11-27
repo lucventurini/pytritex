@@ -47,8 +47,11 @@ def prepare_tables(links, info, membership, excluded):
     else:
         assert isinstance(info, dd.DataFrame)
     membership = get_previous_groups(membership)
-    cluster_info = info.loc[:, ["popseq_chr", "popseq_cM", "length"]].rename(
-        columns={"popseq_chr": "chr", "popseq_cM": "cM"})
+    if "popseq_chr" in info.columns:
+        cluster_info = info.loc[:, ["popseq_chr", "popseq_cM", "length"]].rename(
+            columns={"popseq_chr": "chr", "popseq_cM": "cM"})
+    else:
+        cluster_info = info.loc[:, ["chr", "cM", "length"]]
     assert "popseq_chr" not in cluster_info.columns and "chr" in cluster_info.columns
     assert "popseq_cM" not in cluster_info.columns and "cM" in cluster_info.columns
     if excluded is not None:
@@ -91,8 +94,11 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client, 
     bait_index = sorted(set.difference(set(info_index), set(indices)))
     logger.debug("%s size of the bait index: %s", time.ctime(), len(bait_index))
     if len(bait_index) > 0:
-        _to_concatenate = info.loc[bait_index, ["popseq_chr", "popseq_cM", "length"]].rename(
-            columns={"popseq_chr": "chr", "popseq_cM": "cM"})
+        if "popseq_chr" in info.columns:
+            _to_concatenate = info.loc[bait_index, ["popseq_chr", "popseq_cM", "length"]].rename(
+                columns={"popseq_chr": "chr", "popseq_cM": "cM"})
+        else:
+            _to_concatenate = info.loc[bait_index, ["chr", "cM", "length"]]
         assert _to_concatenate.shape[0].compute() == len(bait_index)
         chunks = tuple(_to_concatenate.map_partitions(len).compute().values.tolist())
         sup_column = da.from_array(maxidx + pd.Series(range(1, len(bait_index) + 1)), chunks=chunks)
