@@ -53,20 +53,12 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     # counter = 1
     # out, excluded, run = _iterator(counter=counter, membership=None, excluded=excluded)
     # membership = out["membership"]
-    run = True
-    excluded = set()
+    run = True    
+    excluded_scaffolds = cluster_info["excluded"].compute()
+    # excluded = excluded_scaffolds.query(
+    
     while run is True:
-        if len(excluded) > 0:
-            excluded_scaffolds = pd.Series(list(excluded), name="scaffold_index")
-        else:
-            excluded = pd.Series([], name="scaffold_index")
-            excluded_scaffolds = excluded.copy()
-        iindex = cluster_info.index.values.compute()
-        assert len(set(iindex)) == iindex.shape[0]
-        excl_column = da.from_array(np.in1d(iindex, excluded_scaffolds, assume_unique=True),
-                                    chunks=tuple(cluster_info.map_partitions(len).compute().values.tolist()))
-        cluster_info["excluded"] = excl_column
-        run = True
+        cluster_info["excluded"] = excluded_scaffolds
         super_object = make_super(hl, cluster_info=cluster_info, client=client,
                       cores=ncores, maxiter=maxiter, known_ends=known_ends,
                       path_max=chrs.shape[0], previous_membership=pd.DataFrame())
@@ -85,14 +77,15 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
             run = False
         else:
             # Drop all the links between the backbone of the "fuzzy" scaffolds and the spikes.
-            excluded.update(set(add["cluster"].values.compute().tolist()))
-            assert len(excluded) > 0
-
+            _to_exclude = set(add["cluster"].values.compute().tolist())
+            excluded_scaffolds.loc[_to_exclude] = True
+            
+    excluded = set(excluded_scaffolds[excluded_scaffolds == True].index.values)
     # membership = super_object["membership"]
     super_object["membership"].index = super_object["membership"].index.rename("scaffold_index")
 
     membership, res, excluded = remove_tips(
-        links=hl, excluded=excluded,
+        links=links, excluded=excluded,
         out=super_object, info=hic_info,
         client=client,
         save_dir=os.path.join(save_dir, "tip_removal"),
