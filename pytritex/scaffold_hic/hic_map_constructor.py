@@ -1,8 +1,7 @@
 import dask.dataframe as dd
 import pandas as pd
 from typing import Union
-from ..graph_utils.make_super import make_super
-from ..graph_utils.branch_remover import _initial_branch_remover
+from ..graph_utils.make_super import make_super, add_statistics
 from ..graph_utils.tip_removal.tip_remover import remove_tips
 from dask.distributed import Client
 import os
@@ -89,6 +88,7 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
             assert len(excluded) > 0
 
     # membership = super_object["membership"]
+    super_object["membership"], super_object["super_info"] = add_statistics(super_object["membership"], client)
     super_object["membership"].index = super_object["membership"].index.rename("scaffold_index")
 
     membership, res, excluded = remove_tips(
