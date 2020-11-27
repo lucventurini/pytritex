@@ -112,21 +112,22 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     #  tmp[super %in% s$super]->tmp
     #  tmp[, super := NULL]
     tmp_memb = tmp_memb.query(
-        "super in @supers", local_dict={"supers": super_info["super"].unique().compute()}).rename(
+        "super in @supers", local_dict={"supers": np.unique(super_info.index.values.compute())}).rename(
         columns={"bin": "hic_bin", "rank": "hic_rank", "backbone": "hic_backbone"})
     #  setnames(tmp, c("cluster", "hic_bin", "hic_rank", "hic_backbone"))
     #  tmp[cluster_info, on="cluster"]->cluster_info
     #  cluster_info[order(chr, hic_bin, hic_rank, cluster)]
-    tmp_memb.columns = ["hic_bin", "hic_rank", "hic_backbone"]
+    tmp_memb.columns = ["super", "hic_bin", "hic_rank", "hic_backbone"]
     chr_result = tmp_memb.merge(hic_info, on="scaffold_index").compute().reset_index(drop=False).sort_values(
-        ["chr", "hic_bin", "hic_rank", "cluster"])
-    chr_result = chr_result.sort_values(["chr", "cM", "hic_bin"])[["chr", "cM", "hic_bin", "hic_backbone", "hic_rank"]]
-    chr_result = chr_result.query("hic_bin == hic_bin")
-    chr_result = chr_result.set_index("scaffold_index")
-    chr_result = dd.from_pandas(chr_result, chunksize=1e6)
+        ["chr", "hic_bin", "hic_rank", "scaffold_index"])
+    chr_result = chr_result.sort_values(["chr", "cM", "hic_bin"])[
+        ["scaffold_index", "chr", "cM", "hic_bin", "hic_backbone", "hic_rank"]
+    ].query("hic_bin == hic_bin").set_index("scaffold_index")
+    assert isinstance(chr_result, pd.DataFrame), (type(chr_result), chr_result.head())
+    chr_result = dd.from_pandas(chr_result, chunksize=int(1e6))
     if save_dir is not None:
         dd.to_parquet(chr_result, os.path.join(save_dir, "chr_result"))
-        dd.to_parquet(super_object["result"], os.path.join(save_dir, "result"))
+        dd.to_parquet(super_object["super_info"], os.path.join(save_dir, "result"))
         dd.to_parquet(super_object["membership"], os.path.join(save_dir, "membership"))
         print(chr_result, os.path.join(save_dir, "chr_result"))
 
