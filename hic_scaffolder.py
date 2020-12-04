@@ -25,9 +25,12 @@ import time
 import pandas as pd
 from pytritex.scaffold_hic.add_psmol_fpairs import add_psmol_fpairs
 from pytritex.scaffold_hic.hic_cov_psmol import hic_cov_psmol
+import json
 logger = logging.getLogger("distributed.comm.tcp")
 logger.setLevel(logging.ERROR)
+import numpy as np
 import hashlib
+import itertools
 
 
 def main():
@@ -36,8 +39,12 @@ def main():
     parser.add_argument("-p", "--processes", dest="procs", default=mp.cpu_count(), type=int)
     parser.add_argument("-dc", "--dask-cache", default="dask_data", type=str)
     parser.add_argument("-um", "--use-molecules", dest="use_mols", action="store_true", default=False)
-    parser.add_argument("--min-length", type=int, default=5e4,
-                        help="Minimum length of scaffolds/super-scaffolds to combine using HiC.")
+    parser.add_argument("--min-length", nargs=3, type=int, default=[int(1e5), int(5e5), int(1e5)],
+                        help="Minimum, maximum, and step for minimum length of scaffolds/super-scaffolds to try to combine using HiC.")
+    parser.add_argument("--min-nlinks", nargs=3, type=int, default=[40, 100, 10],
+                        help="Minimum, maximum, and step for minimum no. of links between scaffolds/super-scaffolds to try to combine using HiC.")
+    parser.add_argument("--max-cM-dist", nargs=3, type=float, default=[5, 30, 5],
+                        help="Minimum, maximum, and step for maximum distance in cM length of scaffolds/super-scaffolds to try to combine using HiC.")
     parser.add_argument("--mem", default="20GB", type=str)
     parser.add_argument("--save", default=False, action="store_true")
     parser.add_argument("--dir", default=None)
@@ -122,15 +129,24 @@ def main():
     # 	min_nfrag_scaffold=50, max_cM_dist = 50,
     # 	binsize=1e5, min_nfrag_bin=20, gap_size=100)->hic_map_v1
 
-    sha = hashlib.sha256()
     assembly_10x = memory.cache(calculate_hic_link_weights)(assembly_10x, save_dir)
-    # links, max_cM, min_length
-    params = (10, 20, args.min_length)
-    sha.update(str(params).encode())
-    hash_string = sha.hexdigest()
-    hic_save_dir = os.path.join(save_dir, hash_string)
-    hic_map_v1 = hic_map(assembly=assembly_10x, client=client, fragment_data=fragment_data, species="wheat",
-                         ncores=args.procs, min_length=args.min_length, save_dir=save_dir)
+    for cM, min_nlinks, min_length in itertools.product(
+        np.arange(args.max_cM_dist[0], args.max_cM_dist[1] + args.max_cM_dist[2], args.max_cM_dist[2], dtype=float),
+        np.arange(args.min_nlinks[0], args.min_nlinks[1] + args.min_nlinks[2], args.min_nlinks[2], dtype=int),
+        np.arange(args.min_length[0], args.min_length[1] + args.min_length[2], args.min_length[2], dtype=int),
+    ):
+        sha = hashlib.sha256()
+        params = (cM, min_nlinks, min_length)
+        sha.update(str(params).encode())
+        hash_string = sha.hexdigest()
+        hic_save_dir = os.path.join(save_dir, hash_string)
+        os.makedirs(hic_save_dir, exist_ok=True)
+        params_dict = {"max_cM_dist": cM, "min_length": min_length, "min_nlinks": min_nlinks}
+        with open(os.path.join(hic_save_dir, "meta.json"), "wt") as meta_out:
+            json.dump(params_dict, meta_out)
+        hic_map_v1 = hic_map(assembly=assembly_10x, client=client, fragment_data=fragment_data, species="wheat",
+                             ncores=args.procs, min_length=min_length, save_dir=hic_save_dir, max_cM_dist=cM,
+                             min_nlinks=min_nlinks)
 
     # add_psmol_fpairs(assembly=assembly_v1, hic_map=hic_map_v1, map_10x=assembly_v1_10x,
     # 		 assembly_10x=assembly_v2, nucfile=f)->hic_map_v1

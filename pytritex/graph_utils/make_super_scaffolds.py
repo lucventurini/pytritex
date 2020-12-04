@@ -100,13 +100,13 @@ def add_missing_scaffolds(info, membership, maxidx, excluded_scaffolds, client, 
         else:
             _to_concatenate = info.loc[bait_index, ["chr", "cM", "length"]]
         assert _to_concatenate.shape[0].compute() == len(bait_index)
-        sup_column = pd.Series(maxidx + np.arange(1, len(bait_index) + 1, dtype=int), index=bait_index)        
+        sup_column = pd.Series(maxidx + np.arange(1, len(bait_index) + 1, dtype=int), index=bait_index)
         excl_vector = np.in1d(bait_index, excluded_scaffolds)
         if excl_vector.shape[0] != len(bait_index):
             logger.error("Wrong length of excl_vector")
             sys.exit(1)
         excl_column = pd.Series(excl_vector, index=bait_index, name="excluded")
-
+        
         _to_concatenate = _to_concatenate.assign(
             bin=1, rank=0, backbone=True,
             excluded=excl_column,
