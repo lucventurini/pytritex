@@ -45,6 +45,8 @@ def main():
                         help="Minimum, maximum, and step for minimum no. of links between scaffolds/super-scaffolds to try to combine using HiC.")
     parser.add_argument("--max-cM-dist", nargs=3, type=float, default=[5, 30, 5],
                         help="Minimum, maximum, and step for maximum distance in cM length of scaffolds/super-scaffolds to try to combine using HiC.")
+    parser.add_argument("--min-nfrags", nargs=3, type=float, default=[20, 50, 10],
+                        help="Minimum, maximum, and step for maximum distance in cM length of scaffolds/super-scaffolds to try to combine using HiC.")
     parser.add_argument("--mem", default="20GB", type=str)
     parser.add_argument("--save", default=False, action="store_true")
     parser.add_argument("--dir", default=None)
@@ -130,10 +132,11 @@ def main():
     # 	binsize=1e5, min_nfrag_bin=20, gap_size=100)->hic_map_v1
 
     assembly_10x = memory.cache(calculate_hic_link_weights)(assembly_10x, save_dir)
-    for cM, min_nlinks, min_length in itertools.product(
+    for cM, min_nlinks, min_length, min_nfrags in itertools.product(
         np.arange(args.max_cM_dist[0], args.max_cM_dist[1] + args.max_cM_dist[2], args.max_cM_dist[2], dtype=float),
         np.arange(args.min_nlinks[0], args.min_nlinks[1] + args.min_nlinks[2], args.min_nlinks[2], dtype=int),
         np.arange(args.min_length[0], args.min_length[1] + args.min_length[2], args.min_length[2], dtype=int),
+        np.arange(args.min_nfrags[0], args.min_nfrags[1] + args.min_nfrags[2], args.min_nfrags[2], dtype=int),
     ):
         sha = hashlib.sha256()
         params = (cM, min_nlinks, min_length)
@@ -146,6 +149,7 @@ def main():
             json.dump(params_dict, meta_out)
         memory.cache(hic_map, ignore=["client"])(assembly=assembly_10x, client=client, fragment_data=fragment_data, species="wheat",
                              ncores=args.procs, min_length=min_length, save_dir=hic_save_dir, max_cM_dist=cM,
+                             min_nfrag_scaffold=min_nfrags,
                              min_nlinks=min_nlinks)
 
     # add_psmol_fpairs(assembly=assembly_v1, hic_map=hic_map_v1, map_10x=assembly_v1_10x,
