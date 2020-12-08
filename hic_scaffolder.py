@@ -141,10 +141,10 @@ def main():
         hash_string = sha.hexdigest()
         hic_save_dir = os.path.join(save_dir, hash_string)
         os.makedirs(hic_save_dir, exist_ok=True)
-        params_dict = {"max_cM_dist": cM, "min_length": min_length, "min_nlinks": min_nlinks}
+        params_dict = {"max_cM_dist": int(cM), "min_length": int(min_length), "min_nlinks": int(min_nlinks)}
         with open(os.path.join(hic_save_dir, "meta.json"), "wt") as meta_out:
             json.dump(params_dict, meta_out)
-        hic_map_v1 = hic_map(assembly=assembly_10x, client=client, fragment_data=fragment_data, species="wheat",
+        memory.cache(hic_map, ignore=["client"])(assembly=assembly_10x, client=client, fragment_data=fragment_data, species="wheat",
                              ncores=args.procs, min_length=min_length, save_dir=hic_save_dir, max_cM_dist=cM,
                              min_nlinks=min_nlinks)
 

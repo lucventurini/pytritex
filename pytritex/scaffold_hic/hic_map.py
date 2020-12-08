@@ -100,12 +100,12 @@ def hic_map(assembly: dict, client: Client,
     #   cat("Scaffold map construction finished.\n")
     hic_map_bin = make_hic_map(hic_info=hic_info, links=hl, client=client, ncores=ncores, known_ends=known_ends,
                                save_dir=save_dir)
+    return hic_map_bin
     # Now we need to remove branches etc
 
-
-    hic_map_oriented = orient_hic_map(info=assembly["info"], assembly=assembly, hic_map=hic_map_bin,
-                                      frags=fragment_data, client=client, min_nfrag_bin=min_nfrag_bin, cores=ncores,
-                                      maxiter=maxiter, orient_old=False, min_nbin=min_nbin, min_binsize=min_binsize)
+    # hic_map_oriented = orient_hic_map(info=assembly["info"], assembly=assembly, hic_map=hic_map_bin,
+    #                                   frags=fragment_data, client=client, min_nfrag_bin=min_nfrag_bin, cores=ncores,
+    #                                   maxiter=maxiter, orient_old=False, min_nbin=min_nbin, min_binsize=min_binsize)
     # make_agp(hic_map_oriented, gap_size=gap_size, species=species)->a
     #
     #  a$agp[, .(length=sum(scaffold_length)), key=agp_chr]->chrlen
@@ -122,7 +122,7 @@ def hic_map(assembly: dict, client: Client,
     #  }))
     #  res
 
-    agp = make_agp(hic_map_oriented, gap_size=gap_size)
+    # agp = make_agp(hic_map_oriented, gap_size=gap_size)
 
 
     # if("orientation" %in% names(hic_info)){
@@ -137,58 +137,58 @@ def hic_map(assembly: dict, client: Client,
     #     f[, .(nfrag=.N), keyby=.(scaffold, binsize, pos = start %/% binsize * binsize)]->fragbin
     #     fragbin[, id := paste(sep=":", scaffold, pos)]
     #     fragbin<- hic_map[, .(scaffold, chr, cM=hic_bin)][fragbin, on="scaffold", nomatch=0]
-    fragged = assembly["info"].assign(
-        binsize=np.maximum(min_binsize, assembly["info"]["length"] // min_nbin)
-    )[["binsize"]].merge(frags, on="scaffold_index")
-    fragbin = fragged.assign(
-        pos=(fragged["start"] // binsize) * binsize).groupby(["scaffold_index", "binsize", "pos"]).size().toframe("nfrag")
-    fragbin = hic_map[["chr", "hic_bin"]].rename(columns={"hic_bin": "cM"}).merge(fragbin, on="scaffold_index",
-                                                                                  how="inner")
-    #     unique(fragbin[, .(scaffold1=scaffold, binsize1=binsize)])[assembly$fpairs, on='scaffold1']->fp
-    #     unique(fragbin[, .(scaffold2=scaffold, binsize2=binsize)])[fp, on='scaffold2']->fp
-    #     fp[, .(nlinks=.N), keyby=.(scaffold1, pos1 = pos1 %/% binsize1 * binsize1, scaffold2, pos2 = pos2 %/% binsize2 * binsize2)]->binl
-    #     binl[, id1 := paste(sep=":", scaffold1, pos1)]
-    #     binl[, id2 := paste(sep=":", scaffold2, pos2)]
-    #     binl[id1 != id2]->binl
+    # fragged = assembly["info"].assign(
+    #     binsize=np.maximum(min_binsize, assembly["info"]["length"] // min_nbin)
+    # )[["binsize"]].merge(frags, on="scaffold_index")
+    # fragbin = fragged.assign(
+    #     pos=(fragged["start"] // binsize) * binsize).groupby(["scaffold_index", "binsize", "pos"]).size().toframe("nfrag")
+    # fragbin = hic_map[["chr", "hic_bin"]].rename(columns={"hic_bin": "cM"}).merge(fragbin, on="scaffold_index",
+    #                                                                               how="inner")
+    # #     unique(fragbin[, .(scaffold1=scaffold, binsize1=binsize)])[assembly$fpairs, on='scaffold1']->fp
+    # #     unique(fragbin[, .(scaffold2=scaffold, binsize2=binsize)])[fp, on='scaffold2']->fp
+    # #     fp[, .(nlinks=.N), keyby=.(scaffold1, pos1 = pos1 %/% binsize1 * binsize1, scaffold2, pos2 = pos2 %/% binsize2 * binsize2)]->binl
+    # #     binl[, id1 := paste(sep=":", scaffold1, pos1)]
+    # #     binl[, id2 := paste(sep=":", scaffold2, pos2)]
+    # #     binl[id1 != id2]->binl
 
-    left = fragbin[["binsize"]].reset_index(drop=False).rename(columns={"binsize": "binsize1",
-                                                                        "scaffold_index": "scaffold_index1"}).drop_duplicates()
-    fp = left.merge(assembly["fpairs"], on="scaffold_index1")
-    if fp.index.name == "scaffold_index1":
-        fp = fp.reset_index(drop=False)
-    left = fragbin[["binsize"]].reset_index(drop=False).rename(columns={"binsize": "binsize2",
-                                                                        "scaffold_index": "scaffold_index2"}).drop_duplicates()
-    fp = left.merge(fp, on="scaffold_index2")
-    if fp.index.name == "scaffold_index2":
-        fp = fp.reset_index(drop=False)
-    # Calculate number of links per bin?
-    binl = fp.assign(pos1=(fp["pos1"] / fp["binsize1"]) * fp["binsize1"],
-                     pos2=(fp["pos2"] / fp["binsize2"]) * fp["binsize2"]).groupby(
-        ["scaffold_index1", "pos1", "scaffold_index2", "pos2"]).size().to_frame("nlinks")
-    # Ignore self-links
-    binl = binl.query("scaffold_index1 != scaffold_index2 | pos1 != pos2")
-    # Merge with fragbin
-    binl = fragbin.rename(columns={"scaffold_index": "scaffold_index1", "pos": "pos1", "chr": "chr1", "cM": "cM1"})[
-        ["scaffold_index1", "chr1", "cM1"]].merge(binl, on=["scaffold_index1", "pos1"])
-    binl = fragbin.rename(columns={"scaffold_index": "scaffold_index2", "pos": "pos2", "chr": "chr2", "cM": "cM2"})[
-        ["scaffold_index2", "chr2", "cM2"]].merge(binl, on=["scaffold_index2", "pos2"])
-    #     fragbin[, .(id1=id, chr1=chr, cM1=cM)][binl, on="id1"]->binl
-    #     fragbin[, .(id2=id, chr2=chr, cM2=cM)][binl, on="id2"]->binl
-    #     binl[, c("scaffold1", "scaffold2", "pos1", "pos2") := list(NULL, NULL, NULL, NULL)]
-    #     setnames(binl, c("id1", "id2"), c("scaffold1", "scaffold2"))
+    # left = fragbin[["binsize"]].reset_index(drop=False).rename(columns={"binsize": "binsize1",
+    #                                                                     "scaffold_index": "scaffold_index1"}).drop_duplicates()
+    # fp = left.merge(assembly["fpairs"], on="scaffold_index1")
+    # if fp.index.name == "scaffold_index1":
+    #     fp = fp.reset_index(drop=False)
+    # left = fragbin[["binsize"]].reset_index(drop=False).rename(columns={"binsize": "binsize2",
+    #                                                                     "scaffold_index": "scaffold_index2"}).drop_duplicates()
+    # fp = left.merge(fp, on="scaffold_index2")
+    # if fp.index.name == "scaffold_index2":
+    #     fp = fp.reset_index(drop=False)
+    # # Calculate number of links per bin?
+    # binl = fp.assign(pos1=(fp["pos1"] / fp["binsize1"]) * fp["binsize1"],
+    #                  pos2=(fp["pos2"] / fp["binsize2"]) * fp["binsize2"]).groupby(
+    #     ["scaffold_index1", "pos1", "scaffold_index2", "pos2"]).size().to_frame("nlinks")
+    # # Ignore self-links
+    # binl = binl.query("scaffold_index1 != scaffold_index2 | pos1 != pos2")
+    # # Merge with fragbin
+    # binl = fragbin.rename(columns={"scaffold_index": "scaffold_index1", "pos": "pos1", "chr": "chr1", "cM": "cM1"})[
+    #     ["scaffold_index1", "chr1", "cM1"]].merge(binl, on=["scaffold_index1", "pos1"])
+    # binl = fragbin.rename(columns={"scaffold_index": "scaffold_index2", "pos": "pos2", "chr": "chr2", "cM": "cM2"})[
+    #     ["scaffold_index2", "chr2", "cM2"]].merge(binl, on=["scaffold_index2", "pos2"])
+    # #     fragbin[, .(id1=id, chr1=chr, cM1=cM)][binl, on="id1"]->binl
+    # #     fragbin[, .(id2=id, chr2=chr, cM2=cM)][binl, on="id2"]->binl
+    # #     binl[, c("scaffold1", "scaffold2", "pos1", "pos2") := list(NULL, NULL, NULL, NULL)]
+    # #     setnames(binl, c("id1", "id2"), c("scaffold1", "scaffold2"))
 
-    # fragbin[, .(scaffold=id, nfrag, chr, cM)]->hic_info_bin
-    #     hic_info_bin[, excluded:=nfrag < min_nfrag_bin]
-    #     binl[chr1 == chr2 & (abs(cM1-cM2) <= 2 | is.na(cM1) | is.na(cM2))]->binl
-    #     binl[, weight:=-log10(nlinks)]
-    #
-    #     make_hic_map(hic_info=hic_info_bin, links=binl, ncores=ncores, maxiter=maxiter, known_ends=known_ends)->hic_map_bin
+    # # fragbin[, .(scaffold=id, nfrag, chr, cM)]->hic_info_bin
+    # #     hic_info_bin[, excluded:=nfrag < min_nfrag_bin]
+    # #     binl[chr1 == chr2 & (abs(cM1-cM2) <= 2 | is.na(cM1) | is.na(cM2))]->binl
+    # #     binl[, weight:=-log10(nlinks)]
+    # #
+    # #     make_hic_map(hic_info=hic_info_bin, links=binl, ncores=ncores, maxiter=maxiter, known_ends=known_ends)->hic_map_bin
 
-    hic_info_bin = fragbin[["scaffold_index", "pos", "nfrag", "chr", "cM"]]
-    hic_info_bin["excluded"] = hic_info_bin["nfrag"] < min_nfrag_bin
-    # TODO Why 2 centimorgans max?
-    binl = binl.query("chr1 == chr2 & (cM1 != cM1 | cM2 != cM2 | (-2 <= cM1 -cM2 <= 2))")[:]
-    # TODO why is the weight negatively correlated with the number of links?
-    binl["weight"] = 1 + np.log10(binl["nlinks"])
-    # TODO why are we recalculating the map?
-    hic_map_bin = make_hic_map(hic_info=hic_info_bin, links=binl, client=client, ncores=ncores, known_ends=known_ends)
+    # hic_info_bin = fragbin[["scaffold_index", "pos", "nfrag", "chr", "cM"]]
+    # hic_info_bin["excluded"] = hic_info_bin["nfrag"] < min_nfrag_bin
+    # # TODO Why 2 centimorgans max?
+    # binl = binl.query("chr1 == chr2 & (cM1 != cM1 | cM2 != cM2 | (-2 <= cM1 -cM2 <= 2))")[:]
+    # # TODO why is the weight negatively correlated with the number of links?
+    # binl["weight"] = 1 + np.log10(binl["nlinks"])
+    # # TODO why are we recalculating the map?
+    # hic_map_bin = make_hic_map(hic_info=hic_info_bin, links=binl, client=client, ncores=ncores, known_ends=known_ends)
