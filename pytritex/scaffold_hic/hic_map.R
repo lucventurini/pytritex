@@ -88,14 +88,21 @@ hic_map<-function(info, assembly, frags, species, ncores=1, min_nfrag_scaffold=5
     hic_map_oriented[, consensus_orientation := hic_orientation]
    } else {
     options(scipen = 1000)
+    # Check how many fragments are in each binsize
     assembly$info[, .(scaffold, binsize=pmax(min_binsize, length %/% min_nbin))][frags, on='scaffold']->f
     f[, .(nfrag=.N), keyby=.(scaffold, binsize, pos = start %/% binsize * binsize)]->fragbin
+    # Assign each fragment ("start") to a binned position ("pos"), then check how many fragments per "pos"
     fragbin[, id := paste(sep=":", scaffold, pos)]
+    # Merge with the HiC map
     fragbin<- hic_map[, .(scaffold, chr, cM=hic_bin)][fragbin, on="scaffold", nomatch=0]
 
+    # Merge with fpairs
     unique(fragbin[, .(scaffold1=scaffold, binsize1=binsize)])[assembly$fpairs, on='scaffold1']->fp
     unique(fragbin[, .(scaffold2=scaffold, binsize2=binsize)])[fp, on='scaffold2']->fp
+
+    # Count the links between the fragments
     fp[, .(nlinks=.N), keyby=.(scaffold1, pos1 = pos1 %/% binsize1 * binsize1, scaffold2, pos2 = pos2 %/% binsize2 * binsize2)]->binl
+    # Get new ID
     binl[, id1 := paste(sep=":", scaffold1, pos1)]
     binl[, id2 := paste(sep=":", scaffold2, pos2)]
     binl[id1 != id2]->binl

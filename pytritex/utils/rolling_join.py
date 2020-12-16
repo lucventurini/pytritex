@@ -64,7 +64,7 @@ def rolling_join(left: Union[pd.DataFrame, dd.DataFrame], right: Union[pd.DataFr
         assert left.shape[0] > 0
         grouped = left.groupby(on)
         left["__idx_pos"] = grouped[by].transform(rank)
-        s = grouped[by].agg(by=(by, lambda col: np.sort(col.values).tolist() ))
+        s = grouped[by].agg(lambda col: np.sort(col.values).tolist()).to_frame("by")
 
     merged = dd.merge(s, right, how="outer", on=on)
     assert pd.api.types.is_numeric_dtype(merged.index.dtype) is True, np.unique(merged.index.values.compute())

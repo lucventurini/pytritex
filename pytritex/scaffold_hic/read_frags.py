@@ -43,48 +43,44 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None, species="wheat"):
 
     """Read in the location of the restriction enzyme cleavage sites."""
 
-    if fragfile.endswith(".gz"):
-        import subprocess as sp
-        if savedir is None:
-            dirname = "."
-        else:
-            dirname = savedir
-        sp.call("gunzip -c {} > {}".format(fragfile, os.path.join(dirname, "frags.csv")), shell=True)
-        fragfile = os.path.join(dirname, "frags.csv")        
-
     if isinstance(fai, str):
         fai = dd.read_parquet(fai, infer_divisions=True)
     
     left = fai.query("derived_from_split == False")[:][
         ["scaffold", "orig_scaffold_index", "to_use"]].reset_index(drop=True).rename(
-        columns={"scaffold": "orig_scaffold"}).set_index("orig_scaffold").persist()
+        columns={"scaffold": "orig_scaffold"}).set_index("orig_scaffold")
 
-    frags = dd.read_csv(fragfile, names=["orig_scaffold", "start", "end"], delimiter="\t", header=None,
-                        dtype={"orig_scaffold": str, "start": int, "end": int}).persist()
-    frags["length"] = frags["end"] - frags["start"]
-    frags["start"] += 1
-    frags = frags.set_index("orig_scaffold")
-    # frags = frags.persist()
+    frags = dd.read_csv(fragfile, names=["orig_scaffold", "orig_frag_start", "orig_frag_end"],
+                        delimiter="\t", header=None,
+                        dtype={"orig_scaffold": str, "start": int, "end": int},
+                        compression="gzip" if fragfile.endswith("gz") else None,
+                        blocksize=None if fragfile.endswith("gz") else "default").set_index("orig_scaffold").eval(
+        "frag_length = orig_frag_end - orig_frag_start").eval("orig_frag_start = orig_frag_start + 1")
     
     frags = dd.merge(left, frags, on="orig_scaffold").reset_index(drop=True).set_index("orig_scaffold_index")
     # Select scaffolds that have not been broken up, we'll use them as-is
     frags_to_keep = frags.query("to_use == True")[:].drop("to_use", axis=1)
     frags_to_keep.index = frags_to_keep.index.rename("scaffold_index")
+    frags_to_keep = frags_to_keep.rename(columns={"orig_frag_start": "frag_start", "orig_frag_end": "frag_end"})
     # Roll-join the others
-    frags_to_roll = frags.query("to_use == False").drop("to_use", axis=1)
-    left = fai.query("to_use == True & orig_scaffold_index in @rolled",
+    frags_to_roll = frags.query("to_use == False").drop("to_use", axis=1).compute()
+    left2 = fai.query("to_use == True & orig_scaffold_index in @rolled",
                      local_dict={
-                         "rolled": np.unique(frags_to_roll.index.values.compute()).tolist()})
-    left = left[["orig_scaffold_index", "orig_start"]].reset_index(drop=False).set_index("orig_scaffold_index")
-    left["start"] = left["orig_start"]
-    frags_to_roll = rolling_join(left, frags_to_roll, on="orig_scaffold_index",
+                         "rolled": np.unique(frags_to_roll.index.values).tolist()}).compute()
+    left2 = left2[["orig_scaffold_index", "orig_start", "orig_end"]].reset_index(drop=False).set_index(
+        "orig_scaffold_index")
+    left2["start"] = left2["orig_start"]
+    frags_to_roll["start"] = frags_to_roll["orig_frag_start"]
+    frags_to_roll = rolling_join(left2, frags_to_roll, on="orig_scaffold_index",
                                  by="start").set_index("scaffold_index")
-    frags_to_roll["end"] -= frags_to_roll["orig_start"] + 1
-    frags_to_roll["start"] -= frags_to_roll["orig_start"] + 1
-    frags_to_roll = frags_to_roll.drop(["orig_start", "orig_scaffold_index"], axis=1)
+    frags_to_roll = frags_to_roll.query("orig_frag_end <= orig_end")
+    frags_to_roll["frag_start"] = frags_to_roll["orig_frag_start"] - frags_to_roll["orig_start"] + 1
+    frags_to_roll["frag_end"] = frags_to_roll["orig_frag_end"] - frags_to_roll["orig_start"] + 1
+    frags_to_roll = frags_to_roll[["frag_start", "frag_end", "frag_length"]]
 
     # Now concatenate for the final frag file.
-    frags = dd.concat([frags_to_keep, frags_to_roll], axis="index").astype({"start": np.int32, "end": np.int32}).persist()
+    frags = dd.concat([frags_to_keep, frags_to_roll], axis="index").astype(
+        {"frag_start": np.int32, "frag_end": np.int32, "frag_length": np.int32})
     # sort by scaffold_index
     frags = frags.reset_index(drop=False).set_index("scaffold_index")
     agp = map_10x["agp"]
@@ -103,12 +99,12 @@ def read_fragdata(fai, fragfile, map_10x, savedir=None, species="wheat"):
 
     fragbed = dd.merge(left, frags, on="scaffold_index").persist()
     # map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][fragbed, on="scaffold"]->fragbed
-    fragbed["frag_start"] = fragbed["start"].mask(fragbed["orientation"] == 1, fragbed["super_start"] - 1 + fragbed["start"])
-    fragbed["frag_end"] = fragbed["end"].mask(fragbed["orientation"] == 1, fragbed["super_start"] - 1 + fragbed["end"])    
-    fragbed["frag_start"] = fragbed["start"].mask(fragbed["orientation"] == -1, fragbed["super_end"] + 1 - fragbed["end"])
-    fragbed["frag_end"] = fragbed["end"].mask(fragbed["orientation"] == -1, fragbed["super_end"] + 1 - fragbed["start"])
+    fragbed["frag_start"] = fragbed["frag_start"].mask(fragbed["orientation"] == 1, fragbed["super_start"] - 1 + fragbed["frag_start"])
+    fragbed["frag_end"] = fragbed["frag_end"].mask(fragbed["orientation"] == 1, fragbed["super_start"] - 1 + fragbed["frag_end"])
+    fragbed["frag_start"] = fragbed["frag_start"].mask(fragbed["orientation"] == -1, fragbed["super_end"] + 1 - fragbed["frag_end"])
+    fragbed["frag_end"] = fragbed["frag_end"].mask(fragbed["orientation"] == -1, fragbed["super_end"] + 1 - fragbed["frag_start"])
     fragbed = fragbed.drop(["start", "end", "super_start", "super_end"], axis=1, errors="ignore")
-    fragbed = fragbed.rename(columns={"frag_start": "start", "frag_end": "end"})
+    # fragbed = fragbed.rename(columns={"frag_start": "start", "frag_end": "end"})
     # fragbed = fragbed.rename(columns={"super": "orig_scaffold_index"})
     fragbed = fragbed.reset_index(drop=True).repartition(
         npartitions=int(fragbed.shape[0].compute() // 10 ** 6)).persist().set_index("super")

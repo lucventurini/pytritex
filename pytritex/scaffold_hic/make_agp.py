@@ -44,11 +44,10 @@ def make_agp(hic_map_oriented: Union[pd.DataFrame, dd.DataFrame], gap_size=100, 
     initial = initial.merge(names, on="chr", how="left")
     initial["index"] = da.from_array(np.arange(1, initial.shape[0].compute() + 1) * 2 - 1,
                                      chunks=initial.map_partitions(len).compute().values.tolist())
-    if isinstance(initial, dd.DataFrame):
-        initial = initial.compute()
+    initial = initial.compute()
     initial = initial.sort_values(["chr", "hic_bin", "popseq_cM", "scaffold_length"],
                                   ascending=[True, True, True, False])
-    initial.loc[:, "agp_index"] = np.arange(1, initial.shape[0] + 1, dtype=int) * 2 - 1
+    initial.loc[:, "agp_index"] = np.arange(1, initial.shape[0].compute() + 1, dtype=int) * 2 - 1
     initial.loc[:, "gap"] = False
     initial.loc[:, "start"] = 1
     gaps = pd.DataFrame().assign(chr=initial["chr"].values.compute(),
@@ -59,6 +58,7 @@ def make_agp(hic_map_oriented: Union[pd.DataFrame, dd.DataFrame], gap_size=100, 
                                  index=initial.index.values.compute() + 1,
                                  alphachr=np.nan,
                                  cM=np.nan,
+                                 popseq_cM=np.nan,
                                  scaffold_index=-1,
                                  gap=True)
     with_gaps = (initial.groupby("chr").size() > 1).compute().to_frame("with_gaps")
