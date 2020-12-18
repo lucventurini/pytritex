@@ -150,10 +150,16 @@ def main():
         params_dict = {"max_cM_dist": int(cM), "min_length": int(min_length), "min_nlinks": int(min_nlinks)}
         with open(os.path.join(hic_save_dir, "meta.json"), "wt") as meta_out:
             json.dump(params_dict, meta_out)
-        memory.cache(hic_map, ignore=["client"])(assembly=assembly_10x, client=client, fragment_data=fragment_data, species="wheat",
+        try:
+            memory.cache(hic_map, ignore=["client"])(assembly=assembly_10x, client=client, fragment_data=fragment_data, species="wheat",
                              ncores=args.procs, min_length=min_length, save_dir=hic_save_dir, max_cM_dist=cM,
                              min_nfrag_scaffold=min_nfrags,
                              min_nlinks=min_nlinks)
+        except KeyboardInterrupt:
+            raise
+        except Exception:
+            logger.error("Run {} with following parameters FAILED: {}".format(hash_string[:10], params_dict))
+        break
 
     # Now select the best
     best_hic = None
