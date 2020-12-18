@@ -12,17 +12,10 @@ def orient_hic_map(info, assembly: dict, hic_map: dd.DataFrame, frags: dd.DataFr
                    maxiter=100, orient_old=False, min_nbin=5, min_binsize=1e5):
 
     # assembly$info[, .(scaffold, binsize=pmax(min_binsize, length %/% min_nbin))][frags, on='scaffold']->f
-    if isinstance(assembly["fai"], str):
-        fai = dd.read_parquet(assembly["fai"], infer_divisions=True)
-    else:
-        fai = assembly["fai"]
-    fai["binsize"] = fai.eval("length / @min_nbin", local_dict={"min_nbin": min_nbin})
-    fai["min_nbinsize"] = min_binsize
-    fai["binsize"] = fai[["binsize", "min_nbinsize"]].max(axis=1).drop("min_nbinsize", axis=1)
-    f = fai.merge(frags, on="scaffold_index")
-    f["pos"] = f["frag_start"] // f["binsize"] * f["binsize"]
+
     if orient_old is False:
         hic_map_oriented = _new_orientation(info, assembly, hic_map, frags, client, min_nfrag_bin=min_nfrag_bin,
+                                            save_dir=save_dir,
                                             cores=cores, maxiter=maxiter, min_nbin=min_nbin, min_binsize=min_binsize)
     else:
         hic_map_oriented = _use_old_orient(info, assembly, hic_map, frags, client, min_nfrag_bin=min_nfrag_bin,
@@ -42,7 +35,7 @@ def _use_old_orient(*args, **kwargs):
 
 
 def _new_orientation(info, assembly: dict, hic_map: dd.DataFrame, frags: dd.DataFrame, client: Client,
-                     cores=1, binsize=5e5, min_nfrag_bin=30,
+                     cores=1, binsize=5e5, min_nfrag_bin=30, save_dir=None,
                      known_ends=True, maxiter=100, min_nbin=5, min_binsize=1e5):
 
     # info = assembly["info"]
@@ -60,52 +53,76 @@ def _new_orientation(info, assembly: dict, hic_map: dd.DataFrame, frags: dd.Data
     temp_info = np.maximum(info[["length"]] // min_nbin, min_binsize).rename(columns={"length": "binsize"})
     fragbin = dd.merge(temp_info, frags, how="right", on="scaffold_index")
     #     f[, .(nfrag=.N), keyby=.(scaffold, binsize, pos = start %/% binsize * binsize)]->fragbin
+    fragbin["pos"] = fragbin["frag_start"] // fragbin["binsize"] * fragbin["binsize"]
     #     fragbin[, id := paste(sep=":", scaffold, pos)]
     #     fragbin<- hic_map[, .(scaffold, chr, cM=hic_bin)][fragbin, on="scaffold", nomatch=0]
-    fragbin["pos"] = fragbin["frag_start"] // binsize * binsize
     fragbin = fragbin.groupby(["scaffold_index", "binsize", "pos"]).size().to_frame("nfrag").reset_index(drop=False)
-    fragbin = dd.merge(hic_map[["chr", "hic_bin"]].rename(colums={"hic_bin": "cM"}), fragbin, on="scaffold_index",
-                       how="inner")
+    fragbin = fragbin.set_index("scaffold_index")
+    fragbin = dd.merge(hic_map[["chr", "hic_bin"]].rename(columns={"hic_bin": "cM"}),
+                       fragbin, on="scaffold_index", how="inner")
+    ids = fragbin[["pos"]].reset_index(drop=False).drop_duplicates().compute()
+
     #     unique(fragbin[, .(scaffold1=scaffold, binsize1=binsize)])[assembly$fpairs, on='scaffold1']->fp
-    left = fragbin[["binsize"]].reset_index(drop=False).unique().set_index("scaffold_index")
-    left = left.rename(columns={"binsize": "binsize1"})
-    left.index = left.index.rename("scaffold_index1")
-    fragged_fpairs = dd.merge(left, assembly["fpairs"], on="scaffold_index1")
-    #     unique(fragbin[, .(scaffold2=scaffold, binsize2=binsize)])[fp, on='scaffold2']->fp
-    left = left.rename(columns={"binsize": "binsize2"})
-    left.index = left.index.rename("scaffold_index2")
-    fragged_fpairs = dd.merge(left, fragged_fpairs, on="scaffold_index2")
-    # fp[, .(nlinks=.N), keyby=.(scaffold1, pos1 = pos1 %/% binsize1 * binsize1, scaffold2, pos2 = pos2 %/% binsize2 * binsize2)]->binl
+    left_template = fragbin[["binsize", "scaffold_index"]].drop_duplicates().set_index("scaffold_index")
+    fpairs = assembly["fpairs"]
+    if isinstance(fpairs, (str, bytes)):
+        fpairs = dd.read_parquet(fpairs, infer_divisions=True)
+    fragged_fpairs = fpairs
+    for num in (1, 2):
+        left = left_template.rename(columns={"binsize": "binsize{}".format(num)})
+        left.index = left.index.rename("scaffold_index{}".format(num))
+        fragged_fpairs = dd.merge(left, fragged_fpairs, on="scaffold_index{}".format(num))
+
     fragged_fpairs = fragged_fpairs.assign(
         pos1=fragged_fpairs["pos1"] // fragged_fpairs["binsize1"] * fragged_fpairs["binsize1"],
         pos2=fragged_fpairs["pos2"] // fragged_fpairs["binsize2"] * fragged_fpairs["binsize2"])
+    # Now create the ids
+    concat1 = fragged_fpairs[["scaffold_index1", "pos1"]].rename(
+        columns={"scaffold_index1": "scaffold_index", "pos1": "pos"}).drop_duplicates().reset_index(
+        drop=True).compute().assign(pos_index=np.nan)
+    concat2 = fragged_fpairs[["scaffold_index2", "pos2"]].rename(
+        columns={"scaffold_index2": "scaffold_index", "pos2": "pos"}).drop_duplicates().reset_index(
+        drop=True).compute().assign(pos_index=np.nan)
+    ids = pd.concat([ids, concat1, concat2], axis=0).drop_duplicates(["scaffold_index", "pos"], keep="first")
+    ids["pos_index"] = np.arange(1, ids.shape[0] + 1, dtype=int)
+    ids = ids.merge(info.loc[ids["scaffold_index"].values, "length"].compute(), on="scaffold_index")
+    fragbin = fragbin.merge(ids, on=["scaffold_index", "pos"],
+                            how="left").set_index("pos_index").drop(["scaffold_index", "pos"], axis=1)
+    for num in (1, 2):
+        on = ["scaffold_index" + str(num), "pos" + str(num)]
+        fragged_fpairs = fragged_fpairs.merge(
+            ids.rename(columns=dict((_, _ + str(num)) for _ in ids.columns)),
+            on=on).drop(on, axis=1)
+
     #     binl[, id1 := paste(sep=":", scaffold1, pos1)]
     #     binl[, id2 := paste(sep=":", scaffold2, pos2)]
     #     binl[id1 != id2]->binl
-    binned_fpairs = fragged_fpairs.groupby(
-        ["scaffold_index1", "scaffold_index2", "pos1", "pos2"]).size().to_frame("nlinks")
-    binned_fpairs = binned_fpairs.query("chr1 != chr2 | pos1 != pos2")  # remove self-links
-    #     fragbin[, .(id1=id, chr1=chr, cM1=cM)][binl, on="id1"]->binl
-    #     fragbin[, .(id2=id, chr2=chr, cM2=cM)][binl, on="id2"]->binl
-    left = fragbin[["chr", "pos", "cM"]].rename(columns={"chr": "chr1", "pos": "pos1", "cM": "cM1"})
-    left.index = left.index.rename("scaffold_index1")
-    binned_fpairs = dd.merge(left, binned_fpairs, on=["scaffold_index1", "pos1"], how="right")
-    left = fragbin[["chr", "pos", "cM"]].rename(columns={"chr": "chr2", "pos": "pos2", "cM": "cM2"})
-    left.index = left.index.rename("scaffold_index2")
-    binned_fpairs = dd.merge(left, binned_fpairs, on=["scaffold_index2", "pos2"], how="right")
+    binned_fpairs = fragged_fpairs.groupby(["pos_index1", "pos_index2"]).size().to_frame("nlinks").reset_index(
+        drop=False).persist()
+    for num in (1, 2):
+        left = fragbin[["chr", "cM"]].rename(columns={"chr": "chr" + str(num), "cM": "cM" + str(num)})
+        left.index = left.index.rename("pos_index" + str(num))
+        binned_fpairs = dd.merge(left, binned_fpairs, on="pos_index" + str(num), how="right")
+
     #     fragbin[, .(scaffold=id, nfrag, chr, cM)]->hic_info_bin
     #     hic_info_bin[, excluded:=nfrag < min_nfrag_bin]
     #     binl[chr1 == chr2 & (abs(cM1-cM2) <= 2 | is.na(cM1) | is.na(cM2))]->binl
     #     binl[, weight:=-log10(nlinks)]
-    hic_info_bin = fragbin[["pos", "nfrag", "chr", "cM"]].eval("excluded = nfrag < @min_nfrag_bin",
-                                                               local_dict={"min_nfrag_bin": min_nfrag_bin})
-    binned_fpairs = binned_fpairs.query(
-        "chr1 == chr2 & (cM1 != cM1 | cM2 != cM2 | (cM1 - cM2 >= -2 & cM1 - cM2 <= 2)").eval(
-        "weight = - log(nlinks) / log(10)")
+
+    hic_info_bin = fragbin[["nfrag", "chr", "cM", "length"]].reset_index(
+        drop=False).drop_duplicates().set_index("pos_index")
+    hic_info_bin["excluded"] = hic_info_bin["nfrag"] < min_nfrag_bin
+
+    links = binned_fpairs.query(
+        "chr1 == chr2 & (cM1 != cM1 | cM2 != cM2 | (cM1 - cM2 >= -2 & cM1 - cM2 <= 2))").eval(
+        "weight = - log(nlinks) / log(10)").persist()
+
     #  make_hic_map(hic_info=hic_info_bin, links=binl, ncores=ncores, maxiter=maxiter, known_ends=known_ends)->hic_map_bin
-    hic_map_bin = make_hic_map(hic_info=hic_info_bin, links=binned_fpairs, ncores=cores, maxiter=maxiter,
-                               save_dir=None,
+    hic_map_bin = make_hic_map(hic_info=hic_info_bin, links=links, ncores=cores, maxiter=maxiter,
+                               save_dir=os.path.join(save_dir, "orientation"),
                                known_ends=known_ends, client=client)
+
+    # After this step we have to re-go to the original scaffold_index ...
 
     # TODO what is this w?
     #     w<-hic_map_bin[!is.na(hic_bin), .(id=scaffold, scaffold=sub(":.*$", "", scaffold), pos=as.integer(sub("^.*:", "", scaffold)), chr, hic_bin)]

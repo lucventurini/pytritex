@@ -110,6 +110,7 @@ def make_super(hl: dd.DataFrame,
 
     # Unique cluster IDs
     cidx = np.unique(edge_list[["cluster1", "cluster2"]].values.flatten())
+    cidx = np.hstack([cidx, np.setdiff1d(cluster_info.index.values.compute(), cidx)])
     cidx = np.vstack([cidx, np.arange(cidx.shape[0])])
     cidx = pd.DataFrame().assign(cluster=cidx[0, :], cidx=cidx[1, :]).set_index("cluster")
 
@@ -170,9 +171,7 @@ def make_super(hl: dd.DataFrame,
     hl = hl.astype({"cluster1": int, "cluster2": int}).set_index("cluster1").persist()
     edge_list = edge_list.merge(hl, on="cluster1", how="right").reset_index(drop=False).persist()
     assert edge_list.query("super != super").shape[0].compute() == 0  # Check no undefined row is present
-    # Check we have the same supers
-    assert (edge_list["super"].unique().compute() == membership["super"].unique().compute()).all()
-    
+
     super_object = {"super_info": info,
                     "membership": membership, "graph": graph, "edges": edge_list}
 

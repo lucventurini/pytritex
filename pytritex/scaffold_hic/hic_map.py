@@ -103,7 +103,7 @@ def hic_map(assembly: dict, client: Client,
 
     # Now orient the HiC map
     hic_map_oriented = orient_hic_map(info=assembly["info"], assembly=assembly, hic_map=hic_map_bin,
-                                      frags=fragment_data["info"], client=client, min_nfrag_bin=min_nfrag_bin,
+                                      frags=fragment_data["bed"], client=client, min_nfrag_bin=min_nfrag_bin,
                                       cores=ncores,
                                       maxiter=maxiter, orient_old=False, min_nbin=min_nbin, min_binsize=min_binsize)
     if save_dir is not None:
