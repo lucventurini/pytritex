@@ -52,7 +52,7 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     # counter = 1
     # out, excluded, run = _iterator(counter=counter, membership=None, excluded=excluded)
     # membership = out["membership"]
-    run = True    
+    run = True
     excluded_scaffolds = cluster_info["excluded"].compute()
     # excluded = excluded_scaffolds.query(
     

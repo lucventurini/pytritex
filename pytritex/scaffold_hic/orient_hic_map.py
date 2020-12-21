@@ -115,8 +115,11 @@ def _new_orientation(info, assembly: dict, hic_map: dd.DataFrame, frags: dd.Data
 
     links = binned_fpairs.query(
         "chr1 == chr2 & (cM1 != cM1 | cM2 != cM2 | (cM1 - cM2 >= -2 & cM1 - cM2 <= 2))").eval(
-        "weight = - log(nlinks) / log(10)").persist()
+        "weight = log(nlinks) / log(10)").query("weight > 0")
 
+    # Necessary to make the function call work
+    links = links.rename(columns={"pos_index1": "scaffold_index1", "pos_index2": "scaffold_index2"})
+    hic_info_bin.index = hic_info_bin.index.rename("scaffold_index")
     #  make_hic_map(hic_info=hic_info_bin, links=binl, ncores=ncores, maxiter=maxiter, known_ends=known_ends)->hic_map_bin
     hic_map_bin = make_hic_map(hic_info=hic_info_bin, links=links, ncores=cores, maxiter=maxiter,
                                save_dir=os.path.join(save_dir, "orientation"),

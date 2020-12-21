@@ -37,75 +37,100 @@ def remove_tips(links: Union[str, pd.DataFrame, dd.DataFrame],
         return out
 
     dask_logger.warning("%s Removing short tips", ctime())
-    membership, res, excluded = _remove_short_tips(links, excluded, membership, info,
+    new_membership, new_res, excluded = _remove_short_tips(links, excluded, membership, info,
                                                    client=client, save_dir=save_dir,
                                                    min_dist=min_dist, ncores=ncores)
 
     dask_logger.warning("%s Removed short tips", ctime())    
 
-    if membership.head(npartitions=-1).shape[0] == 0:
+    if new_membership.head(npartitions=-1).shape[0] == 0:
         dask_logger.warning("%s This set of parameters leads to lose everything.", ctime())
         return membership, info, excluded
-    if res is not None:
-        out["info"] = res
-        out["membership"] = membership        
+    if new_res is not None:
+        out["info"] = new_res
+        out["membership"] = new_membership
+        membership = new_membership
+        info = out["info"]
 
     dask_logger.warning("%s Removing bifurcations", ctime())        
-    membership, res, excluded = _remove_bifurcations(links, excluded, membership, info,
-                                                     client=client, save_dir=save_dir,
-                                                     min_dist=min_dist, ncores=ncores)
+    new_membership, new_res, excluded = _remove_bifurcations(
+        links, excluded, out["membership"], out["info"],
+        client=client, save_dir=save_dir,
+        min_dist=min_dist, ncores=ncores)
     dask_logger.warning("%s Removed bifurcations", ctime())
     
-    if isinstance(membership, str):
-        membership = dd.read_parquet(membership, infer_divisions=True)
+    if isinstance(new_membership, str):
+        new_membership = dd.read_parquet(new_membership, infer_divisions=True)
     else:
-        assert isinstance(membership, dd.DataFrame)
+        assert isinstance(new_membership, dd.DataFrame)
 
-    if isinstance(res, str):
-        res = dd.read_parquet(res, infer_divisions=True)
+    if isinstance(new_res, str):
+        new_res = dd.read_parquet(new_res, infer_divisions=True)
     else:
-        assert isinstance(res, dd.DataFrame) or res is None
+        assert isinstance(new_res, dd.DataFrame) or new_res is None
 
-    if membership.shape[0].compute() == 0:
+    if new_membership.shape[0].compute() == 0:
         dask_logger.warning("%s This set of parameters leads to lose everything.", ctime())
         return membership, info, excluded
-    if res is not None:
-        out["info"] = res
-        out["membership"] = membership        
+    if new_res is not None:
+        out["info"] = new_res
+        out["membership"] = new_membership
+        info = out["info"]
+        membership = new_membership
 
     dask_logger.warning("%s Removing the last tips", ctime())
     degree = _calculate_degree(links, excluded)
     scattered = membership.query("rank == 1")
     add = dd.merge(scattered, degree, on="scaffold_index").query("degree == 1")
     add = add.index.compute().values
+    membership = out["membership"].copy()
+
     if add.shape[0] > 0:
         excluded.update(set(add.tolist()))
-        out = make_super_scaffolds(links=links, info=info,
-                                   membership=membership,
+        new_out = make_super_scaffolds(links=links, info=out["info"],
+                                   membership=out["membership"],
                                    excluded=excluded,
                                    ncores=ncores,
                                    client=client, save_dir=save_dir,
                                    to_parquet=False)
-        membership = out["membership"]
-        if isinstance(membership, str):
-            membership = dd.read_parquet(membership, infer_divisions=True)
+        if isinstance(new_out["membership"], str):
+            new_membership = dd.read_parquet(new_out["membership"], infer_divisions=True)
         else:
-            assert isinstance(membership, dd.DataFrame)
+            new_membership = new_out["membership"]
+            assert isinstance(new_membership, dd.DataFrame)
+        if new_out["info"] is not None and new_membership.shape[0].compute() > 0:
+            out["info"] = new_res
+            out["membership"] = new_membership
+            info = out["info"]
+            membership = new_membership
 
     dask_logger.warning("%s Removing any stray non-0 rank scaffolds.", ctime())            
     add = membership.query("rank > 0").index.compute().values
     if add.shape[0] > 0:
-        excluded.update(set(add.tolist()))
-        out = make_super_scaffolds(links=links, info=info, excluded=excluded,
-                                   membership=membership,
+        new_excluded = {}
+        new_excluded.update(excluded)
+        new_excluded.update(set(add.tolist()))
+        new_out = make_super_scaffolds(links=links, info=out["info"], excluded=new_excluded,
+                                   membership=out["membership"],
                                    ncores=ncores,
                                    client=client, save_dir=save_dir,
                                    to_parquet=False)
-        if isinstance(membership, str):
-            membership = dd.read_parquet(membership, infer_divisions=True)
+        if isinstance(new_out["membership"], str):
+            new_membership = dd.read_parquet(new_out["membership"], infer_divisions=True)
         else:
             assert isinstance(membership, dd.DataFrame)
-        
+        if isinstance(new_out["membership"], str):
+            new_membership = dd.read_parquet(new_out["membership"], infer_divisions=True)
+        else:
+            new_membership = new_out["membership"]
+            assert isinstance(new_membership, dd.DataFrame)
+        if new_out["info"] is not None and new_membership.shape[0].compute() > 0:
+            out["info"] = new_res
+            out["membership"] = new_membership
+            info = out["info"]
+            membership = new_membership
+            excluded = new_excluded
+
     mem_name = os.path.join(save_dir, "membership")
     if isinstance(out["membership"], dd.DataFrame):  # We have removed some stuff.
         dd.to_parquet(out["membership"], mem_name, compute=True, compression="gzip", engine="pyarrow",
