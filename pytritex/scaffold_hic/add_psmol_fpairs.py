@@ -5,6 +5,57 @@ import numpy as np
 from ..utils.rolling_join import rolling_join
 
 
+# add_psmol_fpairs<-function(assembly, hic_map, nucfile, map_10x=NULL, assembly_10x=NULL, cov=NULL){
+#  if(is.null(map_10x)){
+#   assembly$fpairs[, .(scaffold1, scaffold2, pos1, pos2)] -> z
+#  } else {
+#   assembly_10x$fpairs[, .(scaffold1, scaffold2, pos1, pos2)] -> z
+#  }
+#  hic_map$agp[agp_chr != "chrUn", .(chr, scaffold, orientation=orientation, agp_start, agp_end)]->a
+#  a[is.na(orientation), orientation := 1]
+#  setnames(copy(a), paste0(names(a), 1))[z, on="scaffold1"]->z
+#  setnames(copy(a), paste0(names(a), 2))[z, on="scaffold2"]->z
+#  z[orientation1 == 1, pos1 := agp_start1 - 1 + pos1]
+#  z[orientation1 == -1, pos1 := agp_end1 + 1 - pos1]
+#  z[orientation2 == 1, pos2 := agp_start2 - 1 + pos2]
+#  z[orientation2 == -1, pos2 := agp_end2 + 1 - pos2]
+#  z[!is.na(chr1) & !is.na(chr2), .(chr1, chr2, start1=pos1, start2=pos2)]->links
+#
+#  n<-c("orig_scaffold", "orig_start", "orig_end", "frag_id", "nA", "nC", "nG", "nT", "nN", "length")
+#  nuc<-fread(nucfile, select=c(1:4,7:11,13), head=T, col.names=n)
+#  assembly$info[, .(scaffold, orig_scaffold, orig_start, off=orig_start)][nuc, on=c("orig_scaffold", "orig_start"), roll=T]->z
+#  z[, start := orig_start - off + 1]
+#  z[, end := orig_end - off + 1]
+#  if(!is.null(map_10x)){
+#   map_10x$agp[gap == F, .(super, orientation, super_start, super_end, scaffold)][z, on="scaffold"]->z
+#   z[orientation == 1, start := super_start - 1 + start]
+#   z[orientation == 1, end := super_start - 1 + end]
+#   z[orientation == -1, start := super_end - end + 1]
+#   z[orientation == -1, end := super_end - start + 1]
+#   z[, c("orientation", "super_start", "super_end", "scaffold") := list(NULL, NULL, NULL, NULL)]
+#   setnames(z, "super", "orig_scaffold")
+#   assembly_10x$info[, .(scaffold, start=orig_start, orig_start, orig_scaffold)][z, on=c("orig_scaffold", "start"), roll=T]->z
+#   z[, start := start - orig_start + 1]
+#   z[, end := end - orig_start + 1]
+#   z[, orig_start := NULL]
+#   z[, orig_scaffold := NULL]
+#  }
+#  a[z, on="scaffold", nomatch=0]->z
+#  z[orientation == 1, start := agp_start - 1 + start]
+#  z[orientation == -1, start := agp_end + 1 - start]
+#  z[orientation == 1, end := agp_start - 1 + end]
+#  z[orientation == -1, end := agp_end + 1 - end]
+#  z[, c("chr", "start", "end", n[4:length(n)]), with=F]->z
+#  z[, cov := 1]
+#  z->frags
+#
+#  copy(hic_map) -> res
+#  res$links <- links
+#  res$frags <- frags
+#  res
+# }
+
+
 def add_psmol_fpairs(assembly: dict, hic_map: dict, nucfile: str,
                      map_10x=None, assembly_10x=None, cov=None):
     #  if(is.null(map_10x)){

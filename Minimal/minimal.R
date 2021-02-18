@@ -1,5 +1,5 @@
 #source TRITEX R code 
-source('../pseudomolecule_construction.R')
+source('../R source/pseudomolecule_construction.R')
 options(error=function() { traceback(2); if(!interactive()) quit("no", status = 1, runLast = FALSE) })
 
 #wheat POPSEQ map

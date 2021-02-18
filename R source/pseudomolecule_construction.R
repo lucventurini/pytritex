@@ -534,7 +534,7 @@ find_10x_breaks<-function(assembly, scaffolds=NULL, interval = 5e4, minNbin = 20
   return(NULL)
  }
  e[order(r)][, idx := 1:.N, by=.(scaffold, b)][idx == 1]->e
- setnames(e, "bin", "br")[]
+ setnames(e, "../bin", "br")[]
  e[]
 }
 
@@ -901,7 +901,7 @@ scaffold_10x <- function(assembly, prefix="super", min_npairs=5, max_dist=1e5, m
    make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=ex, ncores=ncores) -> out
    copy(out$membership) -> m
    copy(out$info) -> res
-   m[unique(m[rank > 1][, .(super, bin)]), on=c("super", "bin")]->a
+   m[unique(m[rank > 1][, .(super, bin)]), on=c("super", "../bin")]->a
    a[rank == 0] -> add
    if(nrow(add) == 0){
     run <- F
@@ -921,7 +921,7 @@ scaffold_10x <- function(assembly, prefix="super", min_npairs=5, max_dist=1e5, m
   }
   # remove short tips of rank 1 
   links[!scaffold2 %in% ex][, .(degree=.N), key=.(scaffold=scaffold1)]->b
-  a <- b[m[m[rank == 1][, .(super=c(super, super, super), bin=c(bin, bin-1, bin+1))], on=c("super", "bin")], on="scaffold"]
+  a <- b[m[m[rank == 1][, .(super=c(super, super, super), bin=c(bin, bin-1, bin+1))], on=c("super", "../bin")], on="scaffold"]
   a[degree == 1 & length <= 1e4]$scaffold->add
   if(length(add) > 0){
    ex <- c(ex, add)
@@ -941,8 +941,8 @@ scaffold_10x <- function(assembly, prefix="super", min_npairs=5, max_dist=1e5, m
   # resolve length-one-bifurcations at the ends of paths
   m[rank > 0][bin == 2 | super_nbin - 1 == bin ][, .(super, super_nbin, type = bin == 2, scaffold, length, bin0=bin)]->x
   unique(rbind(
-  m[x[type == T, .(super, bin0, bin=1)], on=c("super", "bin")],
-  m[x[type == F, .(super, bin0, bin=super_nbin)], on=c("super", "bin")]
+  m[x[type == T, .(super, bin0, bin=1)], on=c("super", "../bin")],
+  m[x[type == F, .(super, bin0, bin=super_nbin)], on=c("super", "../bin")]
   ))->a
   a[, .(super, bin0, scaffold2=scaffold, length2=length)][x, on=c("super", "bin0")][, ex := ifelse(length >= length2, scaffold2, scaffold)]$ex -> add
 
@@ -1003,8 +1003,8 @@ scaffold_10x <- function(assembly, prefix="super", min_npairs=5, max_dist=1e5, m
    #resolve branches
    m[rank > 0][bin == 2 | super_nbin - 1 == bin ][, .(super, super_nbin, type = bin == 2, scaffold, length, bin0=bin)]->x
    unique(rbind(
-   m[x[type == T, .(super, bin0, bin=1)], on=c("super", "bin")],
-   m[x[type == F, .(super, bin0, bin=super_nbin)], on=c("super", "bin")]
+   m[x[type == T, .(super, bin0, bin=1)], on=c("super", "../bin")],
+   m[x[type == F, .(super, bin0, bin=super_nbin)], on=c("super", "../bin")]
    ))->a
    a[, .(super, bin0, scaffold2=scaffold, length2=length)][x, on=c("super", "bin0")][, ex := ifelse(length >= length2, scaffold2, scaffold)]$ex -> add
 
@@ -1344,7 +1344,7 @@ make_hic_info<-function(cluster_info, super_global, chrs){
 # Insert nodes not in MST backbone to where they fit best
 insert_node<-function(df, el){
  while({
-  setkey(el[cluster2 %in% df$cluster & cluster1 %in% unique(el[!cluster1 %in% df$cluster & cluster2 %in% df$cluster]$cluster1)], "cluster2")[setkey(setnames(df[, .(cluster, bin)], c("cluster2", "bin")), "cluster2"), allow.cartesian=T][!is.na(cluster1)][
+  setkey(el[cluster2 %in% df$cluster & cluster1 %in% unique(el[!cluster1 %in% df$cluster & cluster2 %in% df$cluster]$cluster1)], "cluster2")[setkey(setnames(df[, .(cluster, bin)], c("cluster2", "../bin")), "cluster2"), allow.cartesian=T][!is.na(cluster1)][
    order(cluster1, bin)][, dist:={if(.N == 1) {as.integer(NA)} else { as.integer(c(bin[2:.N],NA)-bin)}}, by=cluster1]->y
    y[order(cluster1, bin)]->y
    length(which(y$dist == 1)->idx) > 0
@@ -1429,8 +1429,8 @@ kopt2<-function(df, el){
   m[ ,.(cluster1, cluster2, weight)]->m
   setnames(m, "weight", "weight12")->m
   m[, dummy:=1]
-  setkey(setnames(copy(df), c("cluster", "bin"), c("cluster1", "bin1")), "cluster1")[setkey(m, "cluster1")]->m
-  setkey(setnames(copy(df), c("cluster", "bin"), c("cluster2", "bin2")), "cluster2")[setkey(m, "cluster2")]->m
+  setkey(setnames(copy(df), c("cluster", "../bin"), c("cluster1", "bin1")), "cluster1")[setkey(m, "cluster1")]->m
+  setkey(setnames(copy(df), c("cluster", "../bin"), c("cluster2", "bin2")), "cluster2")[setkey(m, "cluster2")]->m
   copy(m)->n
   setnames(n, c("cluster1", "cluster2", "bin1", "bin2", "weight12"), c("cluster3", "cluster4", "bin3", "bin4", "weight34"))
   setkey(m, "dummy")[setkey(n, "dummy"), allow.cartesian=T]->mn
@@ -1542,7 +1542,7 @@ make_super_path<-function(super, idx=NULL, start=NULL, end=NULL, maxiter=100, ve
   # Add the length of the tips to the rank dataframe
   rbind(ranks, data.frame(cluster=tmp$cluster1, rank=r))->ranks
   # Now add the missing vertices to the list. The outward tips will be added to the same bin as the present ones.
-  merge(tmp, df[c("cluster", "bin")], by.x="cluster2", by.y="cluster")->x
+  merge(tmp, df[c("cluster", "../bin")], by.x="cluster2", by.y="cluster")->x
   rbind(df, data.frame(cluster=x$cluster1, bin=x$bin))->df
  }
 
@@ -1647,27 +1647,29 @@ hic_map<-function(info, assembly, frags, species, ncores=1, min_nfrag_scaffold=5
     binl[chr1 == chr2 & (abs(cM1-cM2) <= max_cM_dist | is.na(cM1) | is.na(cM2))]->binl
     binl[, weight:=-log10(nlinks)]
 
-    make_hic_map(hic_info=hic_info_bin, links=binl, ncores=ncores, maxiter=maxiter, known_ends=known_ends)->hic_map_bin
+    hic_map_bin <- make_hic_map(hic_info=hic_info_bin, links=binl, ncores=ncores, maxiter=maxiter, known_ends=known_ends)
     cat("Scaffold bin map construction finished.\n")
 
-    w<-hic_map_bin[!is.na(hic_bin), .(id=scaffold, scaffold=sub(":.*$", "", scaffold), pos=as.integer(sub("^.*:", "", scaffold)), chr, hic_bin)]
+    w<-hic_map_bin[!is.na(hic_bin),
+                   .(id=scaffold, scaffold=sub(":.*$", "", scaffold),
+                     pos=as.integer(sub("^.*:", "", scaffold)), chr, hic_bin)]
     w<-w[, .(gbin=mean(na.omit(hic_bin)),
 	     hic_cor=as.numeric(suppressWarnings(cor(method='s', hic_bin, pos, use='p')))), keyby=scaffold][!is.na(hic_cor)]
     hic_map[!is.na(hic_bin) & scaffold %in% w$scaffold][order(chr, hic_bin)]->z0
-    z0[,.(scaffold1=scaffold[1:(.N-2)], scaffold2=scaffold[2:(.N-1)], scaffold3=scaffold[3:(.N)]), by=chr]->z
-    z0[, data.table(key="scaffold1", scaffold1=scaffold, hic_bin1=hic_bin)][setkey(z, "scaffold1")]->z
-    z0[, data.table(key="scaffold2", scaffold2=scaffold, hic_bin2=hic_bin)][setkey(z, "scaffold2")]->z
-    z0[, data.table(key="scaffold3", scaffold3=scaffold, hic_bin3=hic_bin)][setkey(z, "scaffold3")]->z
-    w[, data.table(key="scaffold1", scaffold1=scaffold, gbin1=gbin)][setkey(z, "scaffold1")]->z
-    w[, data.table(key="scaffold2", scaffold2=scaffold, gbin2=gbin)][setkey(z, "scaffold2")]->z
-    w[, data.table(key="scaffold3", scaffold3=scaffold, gbin3=gbin)][setkey(z, "scaffold3")]->z
+    z <- z0[,.(scaffold1=scaffold[1:(.N-2)], scaffold2=scaffold[2:(.N-1)], scaffold3=scaffold[3:(.N)]), by=chr]
+    z <- z0[, data.table(key="scaffold1", scaffold1=scaffold, hic_bin1=hic_bin)][setkey(z, "scaffold1")]
+    z <- z0[, data.table(key="scaffold2", scaffold2=scaffold, hic_bin2=hic_bin)][setkey(z, "scaffold2")]
+    z <- z0[, data.table(key="scaffold3", scaffold3=scaffold, hic_bin3=hic_bin)][setkey(z, "scaffold3")]
+    z <- w[, data.table(key="scaffold1", scaffold1=scaffold, gbin1=gbin)][setkey(z, "scaffold1")]
+    z <- w[, data.table(key="scaffold2", scaffold2=scaffold, gbin2=gbin)][setkey(z, "scaffold2")]
+    z <- w[, data.table(key="scaffold3", scaffold3=scaffold, gbin3=gbin)][setkey(z, "scaffold3")]
     z[, cc:= apply(z[, .(hic_bin1, hic_bin2, hic_bin3, gbin1, gbin2, gbin3)],1,function(x) {
 		    suppressWarnings(cor(x[1:3], x[4:6]))
 		    })]
-    z[, data.table(key="scaffold", scaffold=scaffold2, cc=ifelse(cc > 0, 1, -1))]->ccor
-    ccor[w]->m
+    ccor <- z[, data.table(key="scaffold", scaffold=scaffold2, cc=ifelse(cc > 0, 1, -1))]
+    m <- ccor[w]
     m[, hic_orientation:=ifelse(hic_cor > 0, 1 * cc, -1 * cc)]
-    m[, .(scaffold, hic_cor, hic_invert=cc, hic_orientation)][hic_map, on="scaffold"]->hic_map_oriented
+    hic_map_oriented <- m[, .(scaffold, hic_cor, hic_invert=cc, hic_orientation)][hic_map, on="scaffold"]
 
     setnames(hic_map_oriented, "chr", "consensus_chr")
     setnames(hic_map_oriented, "cM", "consensus_cM")
@@ -1732,7 +1734,7 @@ hic_map<-function(info, assembly, frags, species, ncores=1, min_nfrag_scaffold=5
   }
 
   if("orientation" %in% names(hic_info)){
-   hic_info[, .(scaffold, old_orientation=orientation)][hic_map_oriented, on="scaffold"]->hic_map_oriented
+   hic_map_oriented <- hic_info[, .(scaffold, old_orientation=orientation)][hic_map_oriented, on="scaffold"]
    hic_map_oriented[!is.na(old_orientation), consensus_orientation := old_orientation]
    hic_map_oriented[, old_orientation := NULL]
   }
@@ -1748,17 +1750,17 @@ hic_map<-function(info, assembly, frags, species, ncores=1, min_nfrag_scaffold=5
   gap_size <- map$gap_size
  }
 
- make_agp(hic_map_oriented, gap_size=gap_size, species=species)->a
+ a <- make_agp(hic_map_oriented, gap_size=gap_size, species=species)
 
- a$agp[, .(length=sum(scaffold_length)), key=agp_chr]->chrlen
+ chrlen <- a$agp[, .(length=sum(scaffold_length)), key=agp_chr]
  chrlen[, alphachr := sub("chr", "", agp_chr)]
- chrNames(species=species)[chrlen, on="alphachr"]->chrlen
+ chrlen <- chrNames(species=species)[chrlen, on="alphachr"]
  chrlen[, truechr := !grepl("Un", alphachr)]
- chrlen[order(!truechr, chr)]->chrlen
+ chrlen <- chrlen[order(!truechr, chr)]
  chrlen[, offset := cumsum(c(0, length[1:(.N-1)]))]
  chrlen[, plot_offset := cumsum(c(0, length[1:(.N-1)]+1e8))]
 
- list(agp=a$agp, agp_bed=a$agp_bed, chrlen=chrlen, hic_map=hic_map_oriented, hic_map_bin=hic_map_bin)->res
+ res <- list(agp=a$agp, agp_bed=a$agp_bed, chrlen=chrlen, hic_map=hic_map_oriented, hic_map_bin=hic_map_bin)
  invisible(lapply(sort(c("min_nfrag_scaffold", "max_cM_dist", "binsize", "min_nfrag_bin", "gap_size")), function(i){
   res[[i]] <<- get(i)
  }))
@@ -1974,7 +1976,7 @@ find_inversions<-function(hic_map, links, species, chrs=NULL, cores=1, winsize=1
  hic_map$agp[gap == F, .(agp_chr, bin=agp_start, scaffold)]->x
  copy(w)->y
  y[, bin := bin + 1]
- x[y, on=c("agp_chr", "bin"), roll=T]->y
+ x[y, on=c("agp_chr", "../bin"), roll=T]->y
  y[agp_chr != "chrUn"]->y
  y[, .(s=sd(r)), key=scaffold][!is.na(s)][order(-s)]->yy
  hic_map$hic_map[, .(scaffold, chr=consensus_chr, hic_bin)][yy, on="scaffold"]->yy
@@ -2026,7 +2028,7 @@ lift_nucfile<-function(assembly, map_10x, nucfile, outfile){
  z[orientation == 1, end := super_start - 1 + end]
  z[orientation == -1, start := super_end - end + 1]
  z[orientation == -1, end := super_end - start + 1]
- z[, .(super, start - 1, end, frag_id, ".", ".", nA, nC, nG, nT, nN, ".", length)]->zz
+ z[, .(super, start - 1, end, frag_id, "..", ".", nA, nC, nG, nT, nN, ".", length)]->zz
  fwrite(zz, file=outfile, col.names=T, row.names=F, sep="\t", quote=F)
 }
 
@@ -2037,7 +2039,7 @@ inspector_export<-function(hic_map, assembly, inversions, species, file, trafo=N
   x[, nlinks_norm := trafo(nlinks_norm)]
  }
  wheatchr(agp=T, species=species)[, .(chr1=chr, agp_chr)][x, on="chr1"]->x
- x[, c("chr1", "chr2", "id2", "id1", "dist") := list(NULL, NULL, NULL, NULL, NULL)]
+ x[, c("chr1", "chr2", "id2", "id1", "../dist") := list(NULL, NULL, NULL, NULL, NULL)]
  
  inversions$ratio[, .(agp_chr, bin, r)] -> y
 
@@ -2347,7 +2349,7 @@ scaffold_10x_hic <- function(assembly, prefix="super", min_npairs=5, max_dist=1e
    make_super_scaffolds(links=links, prefix=prefix, info=info, excluded=ex, ncores=ncores) -> out
    copy(out$membership) -> m
    copy(out$info) -> res
-   m[unique(m[rank > 1][, .(super, bin)]), on=c("super", "bin")]->a
+   m[unique(m[rank > 1][, .(super, bin)]), on=c("super", "../bin")]->a
    a[rank == 0] -> add
    if(nrow(add) == 0){
     run <- F
@@ -2367,7 +2369,7 @@ scaffold_10x_hic <- function(assembly, prefix="super", min_npairs=5, max_dist=1e
   }
   # remove short tips of rank 1 
   links[!scaffold2 %in% ex][, .(degree=.N), key=.(scaffold=scaffold1)]->b
-  a <- b[m[m[rank == 1][, .(super=c(super, super, super), bin=c(bin, bin-1, bin+1))], on=c("super", "bin")], on="scaffold"]
+  a <- b[m[m[rank == 1][, .(super=c(super, super, super), bin=c(bin, bin-1, bin+1))], on=c("super", "../bin")], on="scaffold"]
   a[degree == 1 & length <= 1e4]$scaffold->add
   if(length(add) > 0){
    ex <- c(ex, add)
@@ -2387,8 +2389,8 @@ scaffold_10x_hic <- function(assembly, prefix="super", min_npairs=5, max_dist=1e
   # resolve length-one-bifurcations at the ends of paths
   m[rank > 0][bin == 2 | super_nbin - 1 == bin ][, .(super, super_nbin, type = bin == 2, scaffold, length, bin0=bin)]->x
   unique(rbind(
-  m[x[type == T, .(super, bin0, bin=1)], on=c("super", "bin")],
-  m[x[type == F, .(super, bin0, bin=super_nbin)], on=c("super", "bin")]
+  m[x[type == T, .(super, bin0, bin=1)], on=c("super", "../bin")],
+  m[x[type == F, .(super, bin0, bin=super_nbin)], on=c("super", "../bin")]
   ))->a
   a[, .(super, bin0, scaffold2=scaffold, length2=length)][x, on=c("super", "bin0")][, ex := ifelse(length >= length2, scaffold2, scaffold)]$ex -> add
 
@@ -2449,8 +2451,8 @@ scaffold_10x_hic <- function(assembly, prefix="super", min_npairs=5, max_dist=1e
    #resolve branches
    m[rank > 0][bin == 2 | super_nbin - 1 == bin ][, .(super, super_nbin, type = bin == 2, scaffold, length, bin0=bin)]->x
    unique(rbind(
-   m[x[type == T, .(super, bin0, bin=1)], on=c("super", "bin")],
-   m[x[type == F, .(super, bin0, bin=super_nbin)], on=c("super", "bin")]
+   m[x[type == T, .(super, bin0, bin=1)], on=c("super", "../bin")],
+   m[x[type == F, .(super, bin0, bin=super_nbin)], on=c("super", "../bin")]
    ))->a
    a[, .(super, bin0, scaffold2=scaffold, length2=length)][x, on=c("super", "bin0")][, ex := ifelse(length >= length2, scaffold2, scaffold)]$ex -> add
 
@@ -2547,14 +2549,14 @@ big_hic_plot<-function(hic_map, cov, inv, species, file, chrs=NULL, cores=1, bre
     abline(col="blue", lty=2, v=breaks[chr == i, bin/1e6])
    }
    abline(h=-2, lty=2, col='red')
-   cov[chr == i][, points(bin/1e6, r, pch=".")]
+   cov[chr == i][, points(bin/1e6, r, pch= "..")]
    title(main="physical Hi-C coverage")
 
    inv$ratio[chr == i][, plot(bin/1e6, type='n', las=1, 
 			      xlab="genomic position (Mb)",
 			      ylab="r", bty='l', r)]
    hmap$agp[chr == i, abline(col="gray", v=c(0,agp_end/1e6))]
-   inv$ratio[chr == i][, points(bin/1e6, pch=".", r)]
+   inv$ratio[chr == i][, points(bin/1e6, pch= "..", r)]
    title(main="directionality bias")
   dev.off()
   system(paste("convert", f, sub(".png$", ".pdf", f)))

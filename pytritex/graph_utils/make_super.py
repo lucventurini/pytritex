@@ -52,7 +52,6 @@ def add_statistics(membership, client):
     return membership, res
 
 
-
 def find_previous_results(raw_membership, previous_membership) -> (set, list):
     # TODO: first off, we need to format the previous_membership
     # previous_membership = previous_membership.merge(cidx, right_index=True, left_index=True)
