@@ -145,8 +145,8 @@ def node_relocation(np.ndarray[DTYPE_f, ndim=2, mode="c"] edges,
             # The *splicing* cost (given previous, node, next) is equal to:
             # weight[previous, next] - weight[node, next] - weight[previous, node]
             node = path_view[pos]
-            splicing_cost = _get_splicing_cost(edges, pairs, node)
-            insertion_cost, opt_pos = _get_insertion_cost(edges, pairs, header, node)
+            splicing_cost = _get_splicing_cost(edge_view, pairs, node)
+            insertion_cost, opt_pos = _get_insertion_cost(edge_view, pairs, header, node)
             if splicing_cost + insertion_cost < 0:
                 # Moving the node costs less than keeping it in place. Exchange.
                 ever_changed = True

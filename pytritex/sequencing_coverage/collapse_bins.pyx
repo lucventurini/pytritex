@@ -6,9 +6,13 @@ from libcpp.map cimport map as cpp_map
 np.import_array()
 
 
-# @cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
-cpdef collapse_bins(np.ndarray bins, long binsize):
+@cython.cdivision(True)
+cpdef cpp_map[long,long] collapse_bins(np.ndarray[dtype=long, ndim=2] bins, long binsize) except +ValueError:
+    if binsize <= 0:
+        raise ValueError("This function requires a positive, non-0 binsize")
+
     cdef cpp_map[long, long] mapper
     cdef cpp_map[long, long].iterator it
     cdef long pos1, pos2
@@ -23,7 +27,7 @@ cpdef collapse_bins(np.ndarray bins, long binsize):
     for row_pos in range(0, nrows, 1):
         pos1 = bin_view[row_pos, 0]
         pos2 = bin_view[row_pos, 1]
-        for step in range(1, (pos2 - pos1) // binsize):
+        for step in range(1, (pos2 - pos1) // binsize_c):
             if pos1 + step * binsize_c >= pos2:
                 break
             it = mapper.find(pos1 + step * binsize_c)
