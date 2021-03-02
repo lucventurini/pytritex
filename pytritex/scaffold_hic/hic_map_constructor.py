@@ -4,6 +4,8 @@ from typing import Union
 from ..graph_utils.make_super import make_super, add_statistics
 from ..graph_utils.tip_removal.tip_remover import remove_tips
 from dask.distributed import Client
+import logging
+logger = logging.getLogger("distributed.worker")
 import os
 import dask.array as da
 import numpy as np
@@ -55,8 +57,11 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     run = True
     excluded_scaffolds = cluster_info["excluded"].compute()
     # excluded = excluded_scaffolds.query(
-    
+
+    counter = 0
     while run is True:
+        counter += 1
+        logger.warning("Run {} for making super scaffolds".format(counter))
         cluster_info["excluded"] = excluded_scaffolds
         super_object = make_super(hl, cluster_info=cluster_info, client=client,
                       cores=ncores, maxiter=maxiter, known_ends=known_ends,
@@ -78,13 +83,15 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
             # Drop all the links between the backbone of the "fuzzy" scaffolds and the spikes.
             _to_exclude = set(add["cluster"].values.compute().tolist())
             excluded_scaffolds.loc[_to_exclude] = True
-            
+
+    logger.warning("Finished the initial run")
     excluded = set(excluded_scaffolds[excluded_scaffolds == True].index.values)
     super_object["membership"].index = super_object["membership"].index.rename("scaffold_index")
     # membership = super_object["membership"]
     super_object["membership"], super_object["super_info"] = add_statistics(super_object["membership"].reset_index(drop=False),
                                                                             client)
 
+    logger.warning("Starting tip removal")
     membership, res, excluded = remove_tips(
         links=links, excluded=excluded,
         out=super_object, info=hic_info,
@@ -93,6 +100,7 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
         ncores=ncores, verbose=verbose,
         min_dist=1e4)
 
+    logger.info("Finished tip removal")
     super_object = {"membership": membership, "super_info": res}
 
     # TODO This is probably the wrong key
