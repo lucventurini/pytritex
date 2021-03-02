@@ -9,7 +9,7 @@ np.import_array()
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
 @cython.cdivision(True)
-cpdef cpp_map[long,long] collapse_bins(np.ndarray[dtype=long, ndim=2] bins, long binsize) except +ValueError:
+cpdef cpp_map[long,long] collapse_bins(np.ndarray[dtype=long, ndim=2] bins, long binsize) except +:
     if binsize <= 0:
         raise ValueError("This function requires a positive, non-0 binsize")
 
