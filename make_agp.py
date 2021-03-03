@@ -22,7 +22,7 @@ def n50(array: np.array, p=0.5):
     return array[np.where(array.cumsum() >= (1 - p) * array.sum())[0][0]]
 
 
-def create_agp(res, gap_size=100):
+def create_agp(res, gap_size=100, do_write_agp=False):
     # row = res["row"]        
     row = dict()
     # npairs  nmol    nsample dist    folder  n50     n50_sup sum_sup
@@ -46,7 +46,8 @@ def create_agp(res, gap_size=100):
     names = dd.read_parquet(os.path.join(os.path.dirname(res["fai"]), "cssaln"))[
         ["popseq_chr", "popseq_alphachr"]].drop_duplicates().compute().reset_index(drop=True)
     names = names.rename(columns={"popseq_chr": "chr", "popseq_alphachr": "alphachr"})
-    write_agp(mem_name, info_name, names, folder, gap_size=gap_size)
+    if do_write_agp is True:
+        write_agp(mem_name, info_name, names, folder, gap_size=gap_size)
     return list(row.items())
     
     
@@ -54,8 +55,28 @@ def write_agp(mem_name, info_name, names, folder, gap_size=100):
     membership = dd.read_parquet(mem_name)
     info = dd.read_parquet(info_name)
     agp_dict = make_agp(membership, info, names, gap_size=100)
+
+    # Index(['super', 'super_start', 'super_end', 'super_index', 'gap',
+    #       'orig_scaffold_index', 'orig_start', 'orig_end', 'orientation',
+    #              'alphachr', 'cM', 'scaffold_index', 'length', 'super_length',
+    #                     'super_size', 'scaffold', 'orig_scaffold_length', 'super_name'],
+    #                           dtype='object')
+    # 0       1       151729  1       False   16653   1       151729  1.0     7A      66.4445796324655     16653    151729  1643348 16      Triticum_aestivum_Cadenza_EIv1.1_scaffold_016653        151729  super_0
+    # 0       151730  151829  2       True    -1      1       100                             -1      100  1643348  16      gap     100     super_0
+    
     with open(f"{folder}/genome.agp", "wt", newline="") as agp_out:
-        agp_dict["agp"].to_csv(agp_out, sep="\t", header=False, index=False)    
+        print(agp_out.name)
+        agp = agp_dict["agp"].compute()
+        _agp = agp[["super_name", "super_start", "super_end", "super_index",
+                    "gap", "scaffold", "orig_start", "orig_end", "orientation",
+                    "alphachr", "cM"]]
+        is_gap = _agp["gap"] == True
+        _agp.loc[is_gap, "orig_start"] = "scaffold"
+        _agp.loc[is_gap, "orientation"] = "paired-ends"
+        _agp.loc[is_gap, "gap"] = "U"
+        _agp.loc[~is_gap, "gap"] = "W"
+        assert isinstance(agp, (pd.DataFrame, dd.DataFrame)), type(agp)
+        _agp.to_csv(agp_out, sep="\t", header=False, index=False)
 
 
 def main():
@@ -84,14 +105,18 @@ def main():
     print(len(rows))
     assert len(rows) == len(dirs)
     rtable = pd.concat([pd.Series(dict(row)) for row in rows], axis=1).T.sort_values("n50", ascending=False)
-    os.makedirs(os.path.dirname(args.table_out), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(args.table_out)), exist_ok=True)
     with open(args.table_out, "wt", newline="") as table_out:
         rtable.to_csv(table_out, sep="\t", header=True, index=False)
 
     # Now make AGP
     best = rtable.iloc[0]
+    best_result = [result for result in results if result["folder"] == best["folder"]][0]
+    create_agp(best_result, do_write_agp=True)
     agp_src = os.path.relpath(os.path.join(best["folder"], "genome.agp"), start=os.path.dirname(args.out))
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    if os.path.exists(args.out):
+        os.remove(args.out)
     os.symlink(agp_src, args.out)
     return
 
