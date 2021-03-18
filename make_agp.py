@@ -75,6 +75,8 @@ def write_agp(mem_name, info_name, names, folder, gap_size=100):
         _agp.loc[is_gap, "orientation"] = "paired-ends"
         _agp.loc[is_gap, "gap"] = "U"
         _agp.loc[~is_gap, "gap"] = "W"
+        _agp.loc[~is_gap & (_agp["orientation"] == 1), "orientation"] = "+"
+        _agp.loc[~is_gap & (_agp["orientation"] == -1), "orientation"] = "-"
         assert isinstance(agp, (pd.DataFrame, dd.DataFrame)), type(agp)
         _agp.to_csv(agp_out, sep="\t", header=False, index=False)
 
