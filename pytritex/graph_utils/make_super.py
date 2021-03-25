@@ -78,8 +78,8 @@ def find_previous_results(raw_membership, previous_membership) -> (set, list):
     previous = previous_membership.loc[
         set(merged["previous_super"].values.tolist()),
         ["scaffold_index", "bin", "rank", "backbone"]].drop_duplicates(subset=["scaffold_index"])
-    assert previous["rank"].max() <= 1
-    assert scaffolds_to_skip == set(previous["scaffold_index"].values)
+    # assert previous["rank"].max() <= 1
+    # assert scaffolds_to_skip == set(previous["scaffold_index"].values)
     logger.warning("Retaining %s groups, with %s scaffolds, from the previous iteration",
                    len(to_skip), len(scaffolds_to_skip))
     previous = previous.values
