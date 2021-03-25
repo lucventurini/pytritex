@@ -160,7 +160,7 @@ def main():
         except Exception as exc:
             logger.error("Run {} with following parameters FAILED: {}".format(hash_string[:10], params_dict))
             logger.error(exc)
-            continue
+            raise exc
 
     # Now select the best
     best_hic = None
