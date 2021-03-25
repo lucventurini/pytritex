@@ -1,3 +1,5 @@
+import pickle
+
 import dask.dataframe as dd
 import pandas as pd
 from typing import Union
@@ -48,6 +50,10 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     hl = links.copy().rename(columns={"scaffold_index1": "cluster1", "scaffold_index2": "cluster2"})
     cluster_info = hic_info.copy()
     cluster_info.index = cluster_info.index.rename("cluster")
+    if save_dir is not None:
+        dd.to_parquet(hl, os.path.join(save_dir, "hl"))
+        dd.to_parquet(cluster_info, os.path.join(save_dir, "cluster_info"))
+
     chrs = cluster_info.query("chr == chr")["chr"].unique().compute()
     # Execute make_super until no branches of length > 1 are present
 
@@ -88,14 +94,17 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     excluded = set(excluded_scaffolds[excluded_scaffolds == True].index.values)
     super_object["membership"].index = super_object["membership"].index.rename("scaffold_index")
     # membership = super_object["membership"]
-    super_object["membership"], super_object["info"] = add_statistics(super_object["membership"].reset_index(drop=False),
-                                                                            client)
+    super_object["membership"], super_object["info"] = add_statistics(
+        super_object["membership"].reset_index(drop=False), client)
 
     if save_dir is not None:
         temp_save_dir = os.path.join(save_dir, "add_stats")
         os.makedirs(temp_save_dir, exist_ok=True)
         dd.to_parquet(super_object["info"], os.path.join(temp_save_dir, "result"))
         dd.to_parquet(super_object["membership"], os.path.join(temp_save_dir, "membership"))
+        dd.to_parquet(cluster_info, os.path.join(temp_save_dir, "cluster_info"))
+        with open(os.path.join(temp_save_dir, "excluded"), "wb") as out:
+            pickle.dump(excluded, out)
 
     logger.warning("Starting tip removal")
     membership, res, excluded = remove_tips(
