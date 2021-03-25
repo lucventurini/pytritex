@@ -140,11 +140,11 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     excluded = set(excluded_scaffolds[excluded_scaffolds == True].index.values)
     super_object["membership"].index = super_object["membership"].index.rename("scaffold_index")
     # membership = super_object["membership"]
-    super_object["membership"], super_object["super_info"] = add_statistics(
+    super_object["membership"], super_object["info"] = add_statistics(
         super_object["membership"].reset_index(drop=False),
         client)
 
-    super_info = super_object["super_info"]
+    super_info = super_object["info"]
 
     if remove_tips:
         super_object = remove_tips_from_hic(super_object, excluded, client, links, cluster_info, save_dir,
