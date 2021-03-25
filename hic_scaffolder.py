@@ -164,7 +164,7 @@ def main():
 
     # Now select the best
     best_hic = None
-    something = add_psmol_fpairs(assembly=assembly_10x, hic_map=best_hic, nucfile=args.fragments)
+    # something = add_psmol_fpairs(assembly=assembly_10x, hic_map=best_hic, nucfile=args.fragments)
 
     # best_hic["hic_1Mb"] = bin_hic_step(hic=best_hic["links"], frags=best_hic["frags"],
     #                                    binsize=10**6, chrlen=best_hic["chrlen"], chrs=np.arange(1, 22, 1, dtype=int))

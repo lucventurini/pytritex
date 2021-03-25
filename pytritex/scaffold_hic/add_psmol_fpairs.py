@@ -74,7 +74,6 @@ def add_psmol_fpairs(assembly: dict, hic_map: dict, nucfile: str,
     #  z[!is.na(chr1) & !is.na(chr2), .(chr1, chr2, start1=pos1, start2=pos2)]->links
 
     fpairs_keys = ["scaffold_index1", "scaffold_index2", "pos1", "pos2"]
-    fpairs =
 
     if map_10x is None:
         fpairs = assembly["fpairs"][fpairs_keys]
