@@ -88,7 +88,7 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     excluded = set(excluded_scaffolds[excluded_scaffolds == True].index.values)
     super_object["membership"].index = super_object["membership"].index.rename("scaffold_index")
     # membership = super_object["membership"]
-    super_object["membership"], super_object["super_info"] = add_statistics(super_object["membership"].reset_index(drop=False),
+    super_object["membership"], super_object["info"] = add_statistics(super_object["membership"].reset_index(drop=False),
                                                                             client)
 
     logger.warning("Starting tip removal")
@@ -101,12 +101,12 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
         min_dist=1e4)
 
     logger.info("Finished tip removal")
-    super_object = {"membership": membership, "super_info": res}
+    super_object = {"membership": membership, "info": res}
 
     # TODO This is probably the wrong key
     # super_info = super_object["super_info"].drop_duplicates(["chr"]).query("chr in @chrs", local_dict={"chrs": chrs})
-    super_object["super_info"] = dd.read_parquet(super_object["super_info"], infer_divisions=True)
-    super_info = super_object["super_info"]
+    super_object["info"] = dd.read_parquet(super_object["info"], infer_divisions=True)
+    super_info = super_object["info"]
     # assert super_object["super_info"].shape[0].compute() == chrs.shape[0]
     super_object["membership"] = dd.read_parquet(super_object["membership"], infer_divisions=True)
     # Get a temporary membership table
@@ -135,7 +135,7 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     chr_result = dd.from_pandas(chr_result, chunksize=int(1e6))
     if save_dir is not None:
         dd.to_parquet(chr_result, os.path.join(save_dir, "chr_result"))
-        dd.to_parquet(super_object["super_info"], os.path.join(save_dir, "result"))
+        dd.to_parquet(super_object["info"], os.path.join(save_dir, "result"))
         dd.to_parquet(super_object["membership"], os.path.join(save_dir, "membership"))
         print(chr_result, os.path.join(save_dir, "chr_result"))
 

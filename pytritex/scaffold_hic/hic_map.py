@@ -111,7 +111,6 @@ def hic_map(assembly: dict, client: Client,
         return os.path.join(save_dir, "hic_map_oriented")
     return hic_map_oriented
 
-
     # make_agp(hic_map_oriented, gap_size=gap_size, species=species)->a
     #
     #  a$agp[, .(length=sum(scaffold_length)), key=agp_chr]->chrlen

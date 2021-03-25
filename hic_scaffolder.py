@@ -151,24 +151,24 @@ def main():
         with open(os.path.join(hic_save_dir, "meta.json"), "wt") as meta_out:
             json.dump(params_dict, meta_out)
         try:
-            memory.cache(hic_map, ignore=["client"])(assembly=assembly_10x, client=client, fragment_data=fragment_data, species="wheat",
-                             ncores=args.procs, min_length=min_length, save_dir=hic_save_dir, max_cM_dist=cM,
-                             min_nfrag_scaffold=min_nfrags,
-                             min_nlinks=min_nlinks)
+            memory.cache(hic_map, ignore=["client"])(
+                assembly=assembly_10x, client=client, fragment_data=fragment_data, species="wheat",
+                ncores=args.procs, min_length=min_length, save_dir=hic_save_dir, max_cM_dist=cM,
+                min_nfrag_scaffold=min_nfrags, min_nlinks=min_nlinks)
         except KeyboardInterrupt:
             raise
-        except Exception:
+        except Exception as exc:
             logger.error("Run {} with following parameters FAILED: {}".format(hash_string[:10], params_dict))
-        break
+            logger.error(exc)
+            continue
 
     # Now select the best
     best_hic = None
-
     something = add_psmol_fpairs(assembly=assembly_10x, hic_map=best_hic, nucfile=args.fragments)
-    best_hic["hic_1Mb"] = bin_hic_step(hic=best_hic["links"], frags=best_hic["frags"],
-                                       binsize=10**6, chrlen=best_hic["chrlen"], chrs=np.arange(1, 22, 1, dtype=int))
-    best_hic["hic_1Mb"]["norm"] = normalize_cis()
 
+    # best_hic["hic_1Mb"] = bin_hic_step(hic=best_hic["links"], frags=best_hic["frags"],
+    #                                    binsize=10**6, chrlen=best_hic["chrlen"], chrs=np.arange(1, 22, 1, dtype=int))
+    # best_hic["hic_1Mb"]["norm"] = normalize_cis()
 
     # bin_hic_step(hic=hic_map_v1$links, frags=hic_map_v1$frags, binsize=1e6,
     # 	    chrlen=hic_map_v1$chrlen, chrs=1:21, cores=21)->hic_map_v1$hic_1Mb
