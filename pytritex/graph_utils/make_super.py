@@ -40,6 +40,7 @@ def add_statistics(membership, client):
         left = left.reset_index(drop=False)
         left["super"] = left["super"].astype(membership.index.dtype)
         left = left.set_index("super")
+
     func = delayed(dd.merge)(left, membership, left_index=True, right_on="super",
                              how="right")
     membership = client.compute(func).result()
