@@ -72,7 +72,13 @@ def _remove_bifurcations(links: dd.DataFrame,
             extra.columns = ["chr", "cM", "min_cM", "max_cM"]
             info = dd.merge(info.loc[:, [col for col in info.columns if col not in extra.columns]], extra)
 
-        out = make_super_scaffolds(links=links, info=info,
+        retained = membership.index.values
+        if not isinstance(retained, np.ndarray):
+            retained = retained.compute()
+
+        out = make_super_scaffolds(links=links[
+            links.scaffold_index1.isin(retained) & links.scaffold_index2.isin(retained)],
+                                   info=info,
                                    membership=membership,
                                    excluded=excluded, ncores=ncores,
                                    client=client, save_dir=save_dir,

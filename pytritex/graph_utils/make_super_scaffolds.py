@@ -54,7 +54,6 @@ def prepare_tables(links, info, membership, excluded):
         cluster_info = info.loc[:, ["chr", "cM", "length"]]
     else:
         raise KeyError("I need chr and cM in info, they are absent")
-
     assert "popseq_chr" not in cluster_info.columns and "chr" in cluster_info.columns
     assert "popseq_cM" not in cluster_info.columns and "cM" in cluster_info.columns
     if excluded is not None:
@@ -171,6 +170,7 @@ def make_super_scaffolds(links: Union[str, dd.DataFrame],
                          client: Client,
                          excluded=None,
                          to_parquet=True,
+                         known_ends=False,
                          ncores=1):
 
     # Links, info are as they were.
@@ -190,9 +190,10 @@ def make_super_scaffolds(links: Union[str, dd.DataFrame],
         cluster_info=cluster_info,
         previous_membership=membership,
         client=client,
+        known_ends=known_ends,
         verbose=False, cores=ncores,
-        paths=True, path_max=0, known_ends=False, maxiter=100)
-    logger.warning("%s Finished make_super", time.ctime())    
+        paths=True, path_max=0, maxiter=100)
+    logger.warning("%s Finished make_super", time.ctime())
 
     # Take the membership table. Extract the scaffolds IDs which are *not* present in the table.
     membership = super_scaffolds["membership"]

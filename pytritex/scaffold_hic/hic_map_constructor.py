@@ -13,10 +13,54 @@ import dask.array as da
 import numpy as np
 
 
+def remove_tips_from_hic(super_object, excluded_scaffolds, client, links, cluster_info, save_dir,
+                         hic_info, known_ends=False, verbose=False, ncores=1):
+    excluded = set(excluded_scaffolds[excluded_scaffolds == True].index.values)
+    super_object["membership"].index = super_object["membership"].index.rename("scaffold_index")
+    # membership = super_object["membership"]
+    super_object["membership"], super_object["info"] = add_statistics(
+        super_object["membership"].reset_index(drop=False), client)
+
+    if save_dir is not None:
+        temp_save_dir = os.path.join(save_dir, "add_stats")
+        os.makedirs(temp_save_dir, exist_ok=True)
+        dd.to_parquet(super_object["info"], os.path.join(temp_save_dir, "result"))
+        dd.to_parquet(super_object["membership"], os.path.join(temp_save_dir, "membership"))
+        dd.to_parquet(cluster_info, os.path.join(temp_save_dir, "cluster_info"))
+        with open(os.path.join(temp_save_dir, "excluded"), "wb") as out:
+            pickle.dump(excluded, out)
+
+    logger.warning("Starting tip removal")
+
+    retained = set(super_object["membership"].index.values.compute())
+
+    excluded = set.intersection(excluded, retained)
+    links = links[links.scaffold_index1.isin(retained) & links.scaffold_index2.isin(retained)]
+
+    membership, res, excluded = remove_tips(
+        links=links, excluded=excluded,
+        out=super_object, info=hic_info,
+        client=client,
+        save_dir=os.path.join(save_dir, "tip_removal"),
+        ncores=ncores, verbose=verbose, known_ends=known_ends,
+        min_dist=1e4)
+
+    logger.info("Finished tip removal")
+    super_object = {"membership": membership, "info": res}
+
+    # TODO This is probably the wrong key
+    # super_info = super_object["super_info"].drop_duplicates(["chr"]).query("chr in @chrs", local_dict={"chrs": chrs})
+    super_object["info"] = dd.read_parquet(super_object["info"], infer_divisions=True)
+    super_info = super_object["info"]
+    # assert super_object["super_info"].shape[0].compute() == chrs.shape[0]
+    super_object["membership"] = dd.read_parquet(super_object["membership"], infer_divisions=True)
+
+
 def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
                  links: Union[pd.DataFrame, dd.DataFrame],
                  client: Client,
                  save_dir=None,
+                 remove_tips=False,
                  verbose=False,
                  ncores=1, maxiter=100, known_ends=True):
     # make_hic_map<-function(hic_info, links, ncores=1, maxiter=100, known_ends=T){
@@ -91,39 +135,11 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
             excluded_scaffolds.loc[_to_exclude] = True
 
     logger.warning("Finished the initial run")
-    excluded = set(excluded_scaffolds[excluded_scaffolds == True].index.values)
-    super_object["membership"].index = super_object["membership"].index.rename("scaffold_index")
-    # membership = super_object["membership"]
-    super_object["membership"], super_object["info"] = add_statistics(
-        super_object["membership"].reset_index(drop=False), client)
 
-    if save_dir is not None:
-        temp_save_dir = os.path.join(save_dir, "add_stats")
-        os.makedirs(temp_save_dir, exist_ok=True)
-        dd.to_parquet(super_object["info"], os.path.join(temp_save_dir, "result"))
-        dd.to_parquet(super_object["membership"], os.path.join(temp_save_dir, "membership"))
-        dd.to_parquet(cluster_info, os.path.join(temp_save_dir, "cluster_info"))
-        with open(os.path.join(temp_save_dir, "excluded"), "wb") as out:
-            pickle.dump(excluded, out)
+    if remove_tips:
+        super_object = remove_tips_from_hic(super_object, excluded_scaffolds, client, links, cluster_info, save_dir,
+                                            hic_info, known_ends=False, verbose=False, ncores=1)
 
-    logger.warning("Starting tip removal")
-    membership, res, excluded = remove_tips(
-        links=links, excluded=excluded,
-        out=super_object, info=hic_info,
-        client=client,
-        save_dir=os.path.join(save_dir, "tip_removal"),
-        ncores=ncores, verbose=verbose,
-        min_dist=1e4)
-
-    logger.info("Finished tip removal")
-    super_object = {"membership": membership, "info": res}
-
-    # TODO This is probably the wrong key
-    # super_info = super_object["super_info"].drop_duplicates(["chr"]).query("chr in @chrs", local_dict={"chrs": chrs})
-    super_object["info"] = dd.read_parquet(super_object["info"], infer_divisions=True)
-    super_info = super_object["info"]
-    # assert super_object["super_info"].shape[0].compute() == chrs.shape[0]
-    super_object["membership"] = dd.read_parquet(super_object["membership"], infer_divisions=True)
     # Get a temporary membership table
     #  super_global$membership[, .(cluster, super, bin, rank, backbone)]->tmp
     if super_object["membership"].index.name == "scaffold_index":

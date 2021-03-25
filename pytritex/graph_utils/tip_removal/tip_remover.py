@@ -20,6 +20,7 @@ def remove_tips(links: Union[str, pd.DataFrame, dd.DataFrame],
                 client: Client,
                 save_dir: str,
                 ncores=1,
+                known_ends=False,
                 verbose=False, min_dist=minimum_distance):
 
     if verbose:
@@ -38,7 +39,7 @@ def remove_tips(links: Union[str, pd.DataFrame, dd.DataFrame],
 
     dask_logger.warning("%s Removing short tips", ctime())
     new_membership, new_res, excluded = _remove_short_tips(links, excluded, membership, info,
-                                                   client=client, save_dir=save_dir,
+                                                   client=client, save_dir=save_dir, known_ends=known_ends,
                                                    min_dist=min_dist, ncores=ncores)
 
     dask_logger.warning("%s Removed short tips", ctime())    
