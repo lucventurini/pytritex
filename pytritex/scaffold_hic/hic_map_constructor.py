@@ -91,6 +91,12 @@ def make_hic_map(hic_info: Union[pd.DataFrame, dd.DataFrame],
     super_object["membership"], super_object["info"] = add_statistics(super_object["membership"].reset_index(drop=False),
                                                                             client)
 
+    if save_dir is not None:
+        temp_save_dir = os.path.join(save_dir, "add_stats")
+        os.makedirs(temp_save_dir, exist_ok=True)
+        dd.to_parquet(super_object["info"], os.path.join(temp_save_dir, "result"))
+        dd.to_parquet(super_object["membership"], os.path.join(temp_save_dir, "membership"))
+
     logger.warning("Starting tip removal")
     membership, res, excluded = remove_tips(
         links=links, excluded=excluded,
