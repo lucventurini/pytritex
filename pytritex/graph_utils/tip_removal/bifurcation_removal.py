@@ -67,6 +67,12 @@ def _remove_bifurcations(links: dd.DataFrame,
     dask_logger.warning("Extracted %s scaffolds to exclude as they cause the bifurcations", add.shape[0])
     if add.shape[0] > 0:
         excluded.update(add.tolist())
+        if "chr" not in info.columns or "cM" not in info.columns:
+            grouped = membership.groupby(info.index.name)
+            extra = grouped.agg({"chr": min, "cM": ["mean", min, max]})
+            extra.columns = ["chr", "cM", "min_cM", "max_cM"]
+            info = dd.merge(info.loc[:, [col for col in info.columns if col not in extra.columns]], extra)
+
         out = make_super_scaffolds(links=links, info=info,
                                    membership=membership,
                                    excluded=excluded, ncores=ncores,

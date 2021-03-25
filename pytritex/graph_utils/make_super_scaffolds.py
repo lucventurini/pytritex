@@ -53,8 +53,7 @@ def prepare_tables(links, info, membership, excluded):
     elif "chr" in info.columns and "cM" in info.columns:
         cluster_info = info.loc[:, ["chr", "cM", "length"]]
     else:
-        grouped = membership.groupby(info.index.name)
-        cluster_info = dd.merge(info.loc[:, "length"], grouped.agg({"chr": min, "cM": ["mean", min, max]}))
+        raise KeyError("I need chr and cM in info, they are absent")
 
     assert "popseq_chr" not in cluster_info.columns and "chr" in cluster_info.columns
     assert "popseq_cM" not in cluster_info.columns and "cM" in cluster_info.columns
