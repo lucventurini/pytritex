@@ -100,16 +100,19 @@ def hic_map(assembly: dict, client: Client,
     #   cat("Scaffold map construction finished.\n")
     hic_map_bin = make_hic_map(hic_info=hic_info, links=hl, client=client, ncores=ncores, known_ends=known_ends,
                                save_dir=save_dir)
+    if save_dir is not None:
+        dd.to_parquet(hic_map_bin, os.path.join(save_dir, "hic_map_bin"), compression="gzip")
+        # return os.path.join(save_dir, "hic_map_oriented")
 
     # Now orient the HiC map
-    hic_map_oriented = orient_hic_map(info=assembly["info"], assembly=assembly, hic_map=hic_map_bin,
-                                      frags=fragment_data["bed"], client=client, min_nfrag_bin=min_nfrag_bin,
-                                      cores=ncores,
-                                      maxiter=maxiter, orient_old=False, min_nbin=min_nbin, min_binsize=min_binsize)
-    if save_dir is not None:
-        dd.to_parquet(hic_map_oriented, os.path.join(save_dir, "hic_map_oriented"), compression="gzip")
-        return os.path.join(save_dir, "hic_map_oriented")
-    return hic_map_oriented
+    # hic_map_oriented = orient_hic_map(info=assembly["info"], assembly=assembly, hic_map=hic_map_bin,
+    #                                   frags=fragment_data["bed"], client=client, min_nfrag_bin=min_nfrag_bin,
+    #                                   cores=ncores,
+    #                                   maxiter=maxiter, orient_old=False, min_nbin=min_nbin, min_binsize=min_binsize)
+    # if save_dir is not None:
+    #     dd.to_parquet(hic_map_oriented, os.path.join(save_dir, "hic_map_oriented"), compression="gzip")
+    #     return os.path.join(save_dir, "hic_map_oriented")
+    # return hic_map_oriented
 
     # make_agp(hic_map_oriented, gap_size=gap_size, species=species)->a
     #
