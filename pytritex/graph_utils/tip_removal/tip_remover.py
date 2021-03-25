@@ -84,7 +84,6 @@ def remove_tips(links: Union[str, pd.DataFrame, dd.DataFrame],
     add = dd.merge(scattered, degree, on="scaffold_index").query("degree == 1")
     add = add.index.compute().values
     membership = out["membership"].copy()
-
     if add.shape[0] > 0:
         excluded.update(set(add.tolist()))
         new_out = make_super_scaffolds(links=links, info=out["info"],
@@ -115,10 +114,6 @@ def remove_tips(links: Union[str, pd.DataFrame, dd.DataFrame],
                                    ncores=ncores,
                                    client=client, save_dir=save_dir,
                                    to_parquet=False)
-        if isinstance(new_out["membership"], str):
-            new_membership = dd.read_parquet(new_out["membership"], infer_divisions=True)
-        else:
-            assert isinstance(membership, dd.DataFrame)
         if isinstance(new_out["membership"], str):
             new_membership = dd.read_parquet(new_out["membership"], infer_divisions=True)
         else:

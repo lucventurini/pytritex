@@ -65,8 +65,9 @@ def prepare_tables(links, info, membership, excluded):
     iindex = cluster_info.index.values.compute()
     assert len(set(iindex)) == iindex.shape[0]
     if not len(set.difference(set(excluded_scaffolds), set(iindex))) == 0:
-        logger.error("Some excluded scaffolds do not have a match! ERROR!")
-        sys.exit(1)
+        excluded = set.intersection(set(excluded), set(iindex))
+        excluded_scaffolds = pd.Series(list(excluded), name="scaffold_index")
+
     excl_column = da.from_array(np.in1d(iindex, excluded_scaffolds, assume_unique=True),
                                 chunks=tuple(cluster_info.map_partitions(len).compute().values.tolist()))
     cluster_info["excluded"] = excl_column
