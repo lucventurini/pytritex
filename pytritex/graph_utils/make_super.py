@@ -205,9 +205,10 @@ def make_super(hl: dd.DataFrame,
             logger.warning("%s Starting to analyse %s rows", time.ctime(), order[~order.super.isin(to_skip)].shape[0])
             for row in order[~order.super.isin(to_skip)].itertuples():
                 index, ssuper, popseq_chr = row
-                my_edges = edges.loc[ssuper].compute()
-                my_membership = cms.loc[ssuper].compute()
-                submitted.append(client.submit(_concatenator, my_edges, my_membership, known_ends, maxiter, verbose))
+                if ssuper in edges.index and ssuper in cms.index:
+                    my_edges = edges.loc[ssuper].compute()
+                    my_membership = cms.loc[ssuper].compute()
+                    submitted.append(client.submit(_concatenator, my_edges, my_membership, known_ends, maxiter, verbose))
             logger.warning("%s Retrieving final results", time.ctime())
             submitted = client.gather(submitted)
             assert isinstance(submitted[0], np.ndarray), (type(submitted[0]), submitted[0])

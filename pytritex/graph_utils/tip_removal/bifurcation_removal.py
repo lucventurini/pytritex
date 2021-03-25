@@ -49,8 +49,7 @@ def _remove_bifurcations(links: dd.DataFrame,
     upper_size = upper.shape[0].compute()
     assert "scaffold_index" in upper.columns
     # m[x[type == F,.(super, bin0, bin=super_nbin)], on = c("super", "bin")]    
-    lower = bifurcated.loc[~bifurcated.type, ["super", "bin0", "super_nbin"]].rename(
-        columns={"super_nbin": "bin"})
+    lower = bifurcated.loc[~bifurcated.type, ["super", "bin0", "super_nbin"]].rename(columns={"super_nbin": "bin"})
     lower = dd.merge(left, lower, on=key)
     lower_size = lower.shape[0].compute()
     dask_logger.warning("Extracted lower and upper part of the bifurcations")    
